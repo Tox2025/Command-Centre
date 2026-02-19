@@ -981,6 +981,36 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // Technical Analysis for each watchlist ticker
+        var hasTechnicals = false;
+        watchTickers.forEach(function (tkr) {
+            var ta = state.technicals[tkr];
+            if (ta) {
+                if (!hasTechnicals) { context += '\n--- TECHNICAL ANALYSIS ---\n'; hasTechnicals = true; }
+                context += tkr + ':';
+                if (ta.rsi) context += ' RSI=' + ta.rsi.toFixed(1);
+                if (ta.ema9) context += ' EMA9=$' + ta.ema9.toFixed(2);
+                if (ta.ema20) context += ' EMA20=$' + ta.ema20.toFixed(2);
+                if (ta.sma50) context += ' SMA50=$' + ta.sma50.toFixed(2);
+                if (ta.sma200) context += ' SMA200=$' + ta.sma200.toFixed(2);
+                if (ta.atr) context += ' ATR=$' + ta.atr.toFixed(2);
+                if (ta.support) context += ' Support=$' + ta.support.toFixed(2);
+                if (ta.resistance) context += ' Resistance=$' + ta.resistance.toFixed(2);
+                if (ta.macd) context += ' MACD=' + (ta.macd > 0 ? '+' : '') + ta.macd.toFixed(2);
+                context += '\n';
+            }
+        });
+
+        // Trade Setups (entry, stop, targets)
+        var setupKeys = Object.keys(state.tradeSetups || {});
+        if (setupKeys.length > 0) {
+            context += '\n--- ACTIVE TRADE SETUPS ---\n';
+            setupKeys.forEach(function (tkr) {
+                var s = state.tradeSetups[tkr];
+                if (s) context += tkr + ': ' + s.direction + ' Entry=$' + s.entry + ' Stop=$' + s.stop + ' T1=$' + s.target1 + ' T2=$' + s.target2 + ' Conf=' + s.confidence + '% ML=' + (s.mlConfidence || '--') + '% ' + (s.horizon || '') + '\n';
+            });
+        }
+
         // Slash command handling
         var slashResult = null;
         if (userMsg.startsWith('/')) {

@@ -86,7 +86,8 @@ class EODReporter {
                 bullAccuracy: signalAccuracy.bullAccuracy,
                 bearAccuracy: signalAccuracy.bearAccuracy,
                 bestSignals: signalAccuracy.bestSignals,
-                worstSignals: signalAccuracy.worstSignals
+                worstSignals: signalAccuracy.worstSignals,
+                techVsMl: signalAccuracy.techVsMl || null
             },
             recommendations: recommendations,
             // Polygon tick data EOD summary

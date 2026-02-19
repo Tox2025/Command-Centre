@@ -193,6 +193,8 @@ app.post('/api/tickers', async (req, res) => {
                     var cumulative = [];
                     try { if (require('fs').existsSync(cumulPath)) cumulative = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8')); } catch (e) { }
                     cumulative = cumulative.concat(result.data);
+                    // Cap at 50K samples to prevent unbounded growth
+                    if (cumulative.length > 50000) cumulative = cumulative.slice(-50000);
                     require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
                     // Retrain both models with cumulative data
                     var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
@@ -2343,6 +2345,7 @@ async function refreshAll() {
                     console.log('🧠 Fetching history for ' + newTickers.length + ' new tickers: ' + newTickers.join(', '));
                     var newData = await polygonHistorical.generateAndConvert(newTickers, 5);
                     if (newData && newData.data) cumulative = cumulative.concat(newData.data);
+                    if (cumulative.length > 50000) cumulative = cumulative.slice(-50000);
                     require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
                 }
 

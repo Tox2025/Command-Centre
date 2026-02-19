@@ -83,8 +83,7 @@ class GapAnalyzer {
                         changePercent: polygonSnap.changePercent || 0
                     };
                 } else {
-                    if (price <= 0) return;
-                    return; // still no prevClose
+                    return; // no prevClose available — can't detect gaps
                 }
             }
 

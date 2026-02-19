@@ -36,7 +36,8 @@ const SIGNAL_WEIGHTS = {
     vol_regime: 3,             // realized vol vs implied vol regime
     insider_conviction: 3,     // insider net buy/sell flow
     spot_gamma_pin: 3,         // gamma pinning detection at spot price
-    flow_horizon: 2            // options flow expiry concentration
+    flow_horizon: 2,           // options flow expiry concentration
+    volume_direction: 3         // buy vs sell volume proxy from flow + dark pool
 };
 
 // Session multipliers: scale signal weights per trading session
@@ -52,7 +53,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.6, strike_flow_levels: 1.4, greek_flow_momentum: 1.5,
         sector_tide_alignment: 0.6, etf_tide_macro: 0.6, squeeze_composite: 1.0,
         seasonality_alignment: 0.3, vol_regime: 0.5, insider_conviction: 0.2,
-        spot_gamma_pin: 1.4, flow_horizon: 0.8
+        spot_gamma_pin: 1.4, flow_horizon: 0.8, volume_direction: 1.5
     },
     POWER_OPEN: {  // 9:21-10:00 AM — momentum + flow
         ema_alignment: 0.8, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.8,
@@ -64,7 +65,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.4, strike_flow_levels: 1.3, greek_flow_momentum: 1.3,
         sector_tide_alignment: 0.8, etf_tide_macro: 0.8, squeeze_composite: 1.0,
         seasonality_alignment: 0.4, vol_regime: 0.6, insider_conviction: 0.3,
-        spot_gamma_pin: 1.3, flow_horizon: 0.9
+        spot_gamma_pin: 1.3, flow_horizon: 0.9, volume_direction: 1.3
     },
     PRE_MARKET: {  // 8:30-9:00 AM — news + gap driven
         ema_alignment: 0.5, rsi_position: 0.6, macd_histogram: 0.5, bollinger_position: 0.4,
@@ -76,7 +77,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.8, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
         sector_tide_alignment: 0.5, etf_tide_macro: 0.5, squeeze_composite: 0.8,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 1.0,
-        spot_gamma_pin: 0.5, flow_horizon: 0.5
+        spot_gamma_pin: 0.5, flow_horizon: 0.5, volume_direction: 0.5
     },
     MIDDAY: {      // 10:01 AM-3:00 PM — balanced day trading
         ema_alignment: 1.0, rsi_position: 1.1, macd_histogram: 0.9, bollinger_position: 1.3,
@@ -88,7 +89,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.2, strike_flow_levels: 1.2, greek_flow_momentum: 1.2,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.2,
         seasonality_alignment: 1.0, vol_regime: 1.0, insider_conviction: 0.8,
-        spot_gamma_pin: 1.0, flow_horizon: 1.0
+        spot_gamma_pin: 1.0, flow_horizon: 1.0, volume_direction: 1.0
     },
     POWER_HOUR: {  // 3:01-4:15 PM — closing momentum
         ema_alignment: 1.0, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.9,
@@ -100,7 +101,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.3, strike_flow_levels: 1.3, greek_flow_momentum: 1.2,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.0,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 0.5,
-        spot_gamma_pin: 1.2, flow_horizon: 1.0
+        spot_gamma_pin: 1.2, flow_horizon: 1.0, volume_direction: 1.2
     },
     AFTER_HOURS: { // 4:16-5:00 PM — reduced signals
         ema_alignment: 1.2, rsi_position: 1.0, macd_histogram: 0.8, bollinger_position: 0.7,
@@ -112,7 +113,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.5, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 0.8,
         seasonality_alignment: 1.2, vol_regime: 1.0, insider_conviction: 1.2,
-        spot_gamma_pin: 0.3, flow_horizon: 0.5
+        spot_gamma_pin: 0.3, flow_horizon: 0.5, volume_direction: 0.4
     },
     OVERNIGHT: {   // 5:01 PM-8:29 AM — swing analysis
         ema_alignment: 1.4, rsi_position: 1.2, macd_histogram: 1.1, bollinger_position: 1.0,
@@ -124,7 +125,7 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.4, strike_flow_levels: 0.4, greek_flow_momentum: 0.4,
         sector_tide_alignment: 1.2, etf_tide_macro: 1.2, squeeze_composite: 1.4,
         seasonality_alignment: 1.4, vol_regime: 1.2, insider_conviction: 1.5,
-        spot_gamma_pin: 0.2, flow_horizon: 0.3
+        spot_gamma_pin: 0.2, flow_horizon: 0.3, volume_direction: 0.3
     }
 };
 
@@ -875,11 +876,56 @@ class SignalEngine {
             }
         }
 
+        // ── 35. Buy/Sell Volume Proxy ──
+        var wVD = this._ew('volume_direction', sess);
+        if (data.netPremium || (dp && dp.length > 0)) {
+            var buyPressure = 0, sellPressure = 0;
+            // Net premium direction
+            var npa = Array.isArray(data.netPremium) ? data.netPremium : [];
+            if (npa.length > 0) {
+                var latestNP = npa[npa.length - 1];
+                var netVal = parseFloat(latestNP.net_premium || latestNP.net_call_premium || latestNP.value || 0);
+                if (netVal > 0) buyPressure += 2;
+                else if (netVal < 0) sellPressure += 2;
+            }
+            // Dark pool block direction
+            if (dp && dp.length > 0) {
+                var dpBuy = 0, dpSell = 0;
+                dp.forEach(function (d) {
+                    var close = parseFloat(d.close || d.price || 0);
+                    var dpPrice = parseFloat(d.average_price || d.avg_price || d.price || 0);
+                    if (dpPrice > close) dpBuy++;
+                    else dpSell++;
+                });
+                if (dpBuy > dpSell) buyPressure += 1;
+                else if (dpSell > dpBuy) sellPressure += 1;
+            }
+            // Flow call/put ratio as volume direction
+            if (flow && flow.length > 0) {
+                var callVol = 0, putVol = 0;
+                flow.forEach(function (f) {
+                    var prem = parseFloat(f.premium || f.total_premium || 0);
+                    var pc = (f.put_call || f.option_type || f.sentiment || '').toUpperCase();
+                    if (pc.includes('CALL') || pc.includes('C') || pc.includes('BULL')) callVol += prem;
+                    else putVol += prem;
+                });
+                if (callVol > putVol * 1.5) buyPressure += 1;
+                else if (putVol > callVol * 1.5) sellPressure += 1;
+            }
+            if (buyPressure > sellPressure + 1) {
+                bull += wVD * buyPressure * 0.5;
+                signals.push({ name: '💰 Buy Pressure', dir: 'BULL', weight: +(wVD * buyPressure * 0.5).toFixed(2), detail: 'Net premium + DP + flow favor buying (' + buyPressure + ' vs ' + sellPressure + ')' });
+            } else if (sellPressure > buyPressure + 1) {
+                bear += wVD * sellPressure * 0.5;
+                signals.push({ name: '💰 Sell Pressure', dir: 'BEAR', weight: +(wVD * sellPressure * 0.5).toFixed(2), detail: 'Net premium + DP + flow favor selling (' + sellPressure + ' vs ' + buyPressure + ')' });
+            }
+        }
+
         // Compute final score — CONVICTION SPREAD (not ratio)
         // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
         const spread = Math.abs(bull - bear);
-        const maxWeight = 35;  // ↑ from 25 — accounts for 11 new API-enhanced signals
+        const maxWeight = 37;  // ↑ from 35 — accounts for volume_direction signal
         const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + 2 ? 'BEARISH' : 'NEUTRAL';
         const confidence = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
         const signalCount = signals.length;

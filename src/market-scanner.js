@@ -2,6 +2,9 @@
 // Uses flow alerts, dark pool, top net impact, insider, and news feeds
 // to find tickers not on your watchlist that show unusual convergence
 
+const yahooFinance = require('yahoo-finance2').default;
+const TechnicalAnalysis = require('./technical');
+
 class MarketScanner {
     constructor(config) {
         config = config || {};
@@ -188,6 +191,43 @@ class MarketScanner {
         // Calculate a lightweight signal score
         var bull = 0, bear = 0;
         var signals = [];
+
+        // ── Technical Analysis via Yahoo daily candles ──
+        try {
+            var period1 = new Date();
+            period1.setDate(period1.getDate() - 60);
+            var chart = await yahooFinance.chart(ticker, { period1: period1, interval: '1d' });
+            if (chart && chart.quotes && chart.quotes.length >= 30) {
+                var candles = chart.quotes
+                    .filter(function (q) { return q.close !== null && q.close !== undefined; })
+                    .map(function (q) { return { date: q.date, open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 }; });
+                var ta = TechnicalAnalysis.analyze(candles);
+                if (ta) {
+                    // RSI scoring
+                    if (ta.rsi !== null && ta.rsi !== undefined) {
+                        if (ta.rsi < 30) { bull += 3; signals.push({ name: 'RSI Oversold', dir: 'BULL', detail: 'RSI ' + ta.rsi.toFixed(1) }); }
+                        else if (ta.rsi < 40) { bull += 1; }
+                        else if (ta.rsi > 70) { bear += 3; signals.push({ name: 'RSI Overbought', dir: 'BEAR', detail: 'RSI ' + ta.rsi.toFixed(1) }); }
+                        else if (ta.rsi > 60) { bear += 1; }
+                    }
+                    // EMA bias
+                    if (ta.emaBias === 'BULLISH') { bull += 2; signals.push({ name: 'EMA Bullish', dir: 'BULL', detail: 'EMA 9/20/50 stacked' }); }
+                    else if (ta.emaBias === 'BEARISH') { bear += 2; signals.push({ name: 'EMA Bearish', dir: 'BEAR', detail: 'EMA 9/20/50 stacked' }); }
+                    // BB position
+                    if (ta.bollingerBands && ta.bollingerBands.position !== null) {
+                        var bbPos = ta.bollingerBands.position;
+                        if (bbPos < 0.1) { bull += 2; signals.push({ name: 'BB Lower', dir: 'BULL', detail: 'Near lower BB' }); }
+                        else if (bbPos > 0.9) { bear += 2; signals.push({ name: 'BB Upper', dir: 'BEAR', detail: 'Near upper BB' }); }
+                    }
+                    // Volume spike
+                    if (ta.volumeSpike) {
+                        var volDir = bull > bear ? 'BULL' : 'BEAR';
+                        if (volDir === 'BULL') bull += 1; else bear += 1;
+                        signals.push({ name: 'Volume Spike', dir: volDir, detail: 'Above avg volume' });
+                    }
+                }
+            }
+        } catch (taErr) { /* Yahoo fetch failed — continue without TA */ }
 
         // Flow analysis
         var flowData = (flow?.data) || [];

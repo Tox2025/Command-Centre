@@ -839,19 +839,21 @@ app.post('/api/chat', async (req, res) => {
                 if (tta.ema) context += ' EMA9=' + (tta.ema.ema9 || 'N/A') + ' EMA20=' + (tta.ema.ema20 || 'N/A') + ' EMA50=' + (tta.ema.ema50 || 'N/A');
                 context += ' Bias=' + (tta.bias || 'N/A') + ' EMAbias=' + (tta.emaBias || 'N/A');
                 if (tta.atr) context += ' ATR=' + tta.atr;
-                if (tta.pivots) context += ' Support=' + (tta.pivots.s1 || 'N/A') + '/' + (tta.pivots.s2 || 'N/A') + ' Resistance=' + (tta.pivots.r1 || 'N/A') + '/' + (tta.pivots.r2 || 'N/A');
+                if (tta.pivots) context += ' Support=$' + (tta.pivots.s1 || 'N/A') + '/$' + (tta.pivots.s2 || 'N/A') + ' Resistance=$' + (tta.pivots.r1 || 'N/A') + '/$' + (tta.pivots.r2 || 'N/A') + ' Pivot=$' + (tta.pivots.pp || 'N/A');
                 if (tta.bollingerBands) context += ' BB={upper:' + (tta.bollingerBands.upper || 'N/A') + ',lower:' + (tta.bollingerBands.lower || 'N/A') + ',pos:' + (tta.bollingerBands.position || 'N/A') + '}';
-                if (tta.adx) context += ' ADX=' + (tta.adx.adx || 'N/A') + '(' + (tta.adx.trendStrength || '') + ')';
+                if (tta.adx) context += ' ADX=' + (tta.adx.adx || 'N/A') + '(' + (tta.adx.trendStrength || '') + ' dir=' + (tta.adx.trendDirection || '') + ')';
                 if (tta.fibonacci && tta.fibonacci.levels) context += ' Fib=' + JSON.stringify(tta.fibonacci.levels);
                 if (tta.rsiDivergence && tta.rsiDivergence.length > 0) context += ' RSI_Div=' + tta.rsiDivergence.map(function (d) { return d.type; }).join(',');
                 if (tta.patterns && tta.patterns.length > 0) context += ' Patterns=' + tta.patterns.map(function (p) { return p.name + '(' + p.direction + ')'; }).join(',');
+                if (tta.macdSlope != null) context += ' MACDslope=' + tta.macdSlope;
+                if (tta.rsiSlope != null) context += ' RSIslope=' + tta.rsiSlope;
+                if (tta.swingPoints) context += ' SwingHigh=$' + (tta.swingPoints.swingHigh || 'N/A') + ' SwingLow=$' + (tta.swingPoints.swingLow || 'N/A');
                 context += '\n';
             }
             var tsig = state.signalScores[ticker];
-            if (tsig) context += 'Signal Score: ' + JSON.stringify({ direction: tsig.direction, confidence: tsig.confidence, signals: (tsig.signals || []).slice(0, 5) }) + '\n';
+            if (tsig) context += 'Signal Score: ' + JSON.stringify({ direction: tsig.direction, confidence: tsig.confidence, signals: (tsig.signals || []).slice(0, 10) }) + '\n';
             var tear = state.earnings[ticker];
             if (tear) context += 'Earnings: ' + JSON.stringify(Array.isArray(tear) ? tear.slice(0, 2) : tear) + '\n';
-            // Fallback: check quote's next_earnings_date
             if (!tear && tq && tq.next_earnings_date) context += 'Next Earnings Date: ' + tq.next_earnings_date + ' (announce: ' + (tq.announce_time || 'unknown') + ')\n';
             var tsi = state.shortInterest[ticker];
             if (tsi) context += 'Short Interest: ' + JSON.stringify(Array.isArray(tsi) ? tsi[tsi.length - 1] : tsi) + '\n';
@@ -863,30 +865,57 @@ app.post('/api/chat', async (req, res) => {
             if (tdp && Array.isArray(tdp)) context += 'Dark Pool (last 3): ' + JSON.stringify(tdp.slice(0, 3)) + '\n';
             var tgex = state.gex[ticker];
             if (tgex) context += 'GEX: ' + JSON.stringify(Array.isArray(tgex) ? tgex.slice(0, 3) : tgex) + '\n';
-
-            // NEW API data for ticker
+            // Options flow data
             var tnp = state.netPremium[ticker];
             if (tnp) context += 'Net Premium: ' + JSON.stringify(Array.isArray(tnp) ? tnp.slice(-3) : tnp) + '\n';
+            var toic = state.oiChange[ticker];
+            if (toic) context += 'OI Change: ' + JSON.stringify(Array.isArray(toic) ? toic.slice(-3) : toic) + '\n';
+            var tfps = state.flowPerStrike[ticker];
+            if (tfps) context += 'Flow Per Strike (top 5): ' + JSON.stringify(Array.isArray(tfps) ? tfps.slice(0, 5) : tfps) + '\n';
+            var tfpe = state.flowPerExpiry[ticker];
+            if (tfpe) context += 'Flow Per Expiry: ' + JSON.stringify(Array.isArray(tfpe) ? tfpe.slice(0, 5) : tfpe) + '\n';
+            var tgkf = state.greekFlow[ticker];
+            if (tgkf) context += 'Greek Flow: ' + JSON.stringify(Array.isArray(tgkf) ? tgkf.slice(-3) : tgkf) + '\n';
+            var tspx = state.spotExposures[ticker];
+            if (tspx) context += 'Spot Exposures: ' + JSON.stringify(Array.isArray(tspx) ? tspx.slice(0, 5) : tspx) + '\n';
+            // Volume & Short data
             var tsv = state.shortVolume[ticker];
             if (tsv) context += 'Short Volume: ' + JSON.stringify(Array.isArray(tsv) ? tsv.slice(-1) : tsv) + '\n';
             var tftd = state.failsToDeliver[ticker];
             if (tftd) context += 'FTDs: ' + JSON.stringify(Array.isArray(tftd) ? tftd.slice(-1) : tftd) + '\n';
+            // Volatility
+            var trv = state.realizedVol[ticker];
+            if (trv) context += 'Realized Vol: ' + JSON.stringify(Array.isArray(trv) ? trv.slice(-1) : trv) + '\n';
+            var tts = state.termStructure[ticker];
+            if (tts) context += 'Vol Term Structure: ' + JSON.stringify(Array.isArray(tts) ? tts.slice(0, 5) : tts) + '\n';
+            // Seasonality & Insider
             var tszn = state.seasonality[ticker];
             if (tszn) context += 'Seasonality: ' + JSON.stringify(Array.isArray(tszn) ? tszn.slice(0, 3) : tszn) + '\n';
             var tifl = state.insiderFlow[ticker];
             if (tifl) context += 'Insider Flow: ' + JSON.stringify(Array.isArray(tifl) ? tifl.slice(0, 3) : tifl) + '\n';
-
-            // Signal breakdown: which signals fired
+            // Risk & Sizing
+            var terisk = state.earningsRisk[ticker];
+            if (terisk) context += 'Earnings Risk: ' + JSON.stringify(terisk) + '\n';
+            var tcorr = state.correlationRisk[ticker];
+            if (tcorr) context += 'Correlation Risk: ' + JSON.stringify(tcorr) + '\n';
+            var tkelly = state.kellySizing[ticker];
+            if (tkelly) context += 'Kelly Sizing: ' + JSON.stringify(tkelly) + '\n';
+            var tsent = state.sentiment[ticker];
+            if (tsent) context += 'Sentiment: ' + JSON.stringify(tsent) + '\n';
+            // Signal breakdown
             if (tsig && tsig.signals && tsig.signals.length > 0) {
                 context += 'Active Signals: ' + tsig.signals.map(function (s) { return s.name + '(' + s.dir + ' w=' + s.weight + ')'; }).join(', ') + '\n';
             }
             // Multi-TF analysis
             var mtf = state.multiTF && state.multiTF[ticker];
             if (mtf) context += 'Multi-TF Analysis: ' + JSON.stringify(mtf) + '\n';
-            // Trade setup if exists
+            // Trade setup
             var tSetup = state.tradeSetups[ticker];
             if (tSetup) context += 'Trade Setup: ' + tSetup.direction + ' Entry=$' + tSetup.entry + ' Stop=$' + tSetup.stop + ' T1=$' + tSetup.target1 + ' T2=$' + tSetup.target2 + ' Conf=' + tSetup.confidence + '% ML=' + (tSetup.mlConfidence || '--') + '% Horizon=' + (tSetup.horizon || '') + '\n';
-            // Polygon TA (RSI, EMA, MACD from Polygon API)
+            // Morning Brief
+            var tbrief = state.morningBrief[ticker];
+            if (tbrief) context += 'Morning Brief: ' + JSON.stringify(tbrief) + '\n';
+            // Polygon TA
             var pTA = state.polygonTA && state.polygonTA[ticker];
             if (pTA) context += 'Polygon TA: ' + JSON.stringify(pTA) + '\n';
         }
@@ -937,17 +966,20 @@ app.post('/api/chat', async (req, res) => {
             }
         });
 
-        // Options flow summary
-        var flowSummary = (state.optionsFlow || []).slice(0, 10).map(function (f) {
-            return (f.ticker || f.symbol || '?') + ' ' + (f.put_call || f.option_type || '') + ' $' + ((parseFloat(f.premium || 0) / 1000).toFixed(0)) + 'K';
+        // Options flow summary (expanded)
+        var flowSummary = (state.optionsFlow || []).slice(0, 20).map(function (f) {
+            return (f.ticker || f.symbol || '?') + ' ' + (f.put_call || f.option_type || '') + ' $' + ((parseFloat(f.premium || 0) / 1000).toFixed(0)) + 'K' + (f.trade_type ? ' ' + f.trade_type : '');
         }).join(', ');
-        if (flowSummary) context += '\n--- RECENT OPTIONS FLOW ---\n' + flowSummary + '\n';
+        if (flowSummary) context += '\n--- RECENT OPTIONS FLOW (' + (state.optionsFlow || []).length + ' alerts) ---\n' + flowSummary + '\n';
 
-        // Congressional trades
-        var congRecent = (state.congressTrades || []).slice(0, 5).map(function (c) {
-            return (c.ticker || '?') + ' ' + (c.name || '') + ' ' + (c.txn_type || '') + ' ' + (c.amounts || '');
+        // Congressional trades (expanded)
+        var congRecent = (state.congressTrades || []).slice(0, 10).map(function (c) {
+            return (c.ticker || '?') + ' ' + (c.name || c.politician || '') + ' ' + (c.txn_type || c.transaction_type || '') + ' ' + (c.amounts || c.amount || '');
         }).join('; ');
         if (congRecent) context += '\n--- CONGRESSIONAL TRADES ---\n' + congRecent + '\n';
+        if (state.congressLateReports && state.congressLateReports.length > 0) {
+            context += 'Late Reports: ' + state.congressLateReports.slice(0, 5).map(function (r) { return (r.ticker || '?') + ' ' + (r.name || ''); }).join(', ') + '\n';
+        }
 
         // Paper trading stats
         var paperTrades = tradeJournal.getPaperTrades();
@@ -1062,6 +1094,108 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // ── MARKET-WIDE INTELLIGENCE (previously missing) ──
+
+        // Market Tide (overall market bullish/bearish flow)
+        if (state.marketTide) {
+            context += '\n--- MARKET TIDE ---\n' + JSON.stringify(state.marketTide) + '\n';
+        }
+
+        // Market Spike (VIX/volatility events)
+        if (state.marketSpike) {
+            context += '\n--- MARKET SPIKE (VIX) ---\n' + JSON.stringify(state.marketSpike) + '\n';
+        }
+
+        // Dark Pool Recent (market-wide large block prints)
+        if (state.darkPoolRecent && state.darkPoolRecent.length > 0) {
+            context += '\n--- DARK POOL RECENT (market-wide) ---\n';
+            state.darkPoolRecent.slice(0, 15).forEach(function (d) {
+                context += (d.ticker || d.symbol || '?') + ': $' + ((parseFloat(d.notional_value || d.premium || 0) / 1000000).toFixed(1)) + 'M vol=' + (d.volume || d.size || 0) + '\n';
+            });
+        }
+
+        // Top Net Premium Impact (biggest options premium movers)
+        if (state.topNetImpact && state.topNetImpact.length > 0) {
+            context += '\n--- TOP NET PREMIUM IMPACT ---\n';
+            state.topNetImpact.slice(0, 10).forEach(function (t) {
+                context += (t.ticker || t.symbol || '?') + ': net_premium=$' + ((parseFloat(t.net_premium || t.net_call_premium || 0) / 1000).toFixed(0)) + 'K\n';
+            });
+        }
+
+        // News Headlines
+        if (state.news && state.news.length > 0) {
+            context += '\n--- NEWS HEADLINES ---\n';
+            state.news.slice(0, 15).forEach(function (n) {
+                context += (n.tickers ? '[' + (Array.isArray(n.tickers) ? n.tickers.join(',') : n.tickers) + '] ' : '') + (n.headline || n.title || '') + '\n';
+            });
+        }
+
+        // Scanner Results
+        if (state.scannerResults && (Array.isArray(state.scannerResults) ? state.scannerResults.length > 0 : Object.keys(state.scannerResults).length > 0)) {
+            context += '\n--- SCANNER RESULTS ---\n' + JSON.stringify(state.scannerResults, null, 1) + '\n';
+        }
+
+        // Hot Opportunities
+        if (state.hotOpportunities && state.hotOpportunities.length > 0) {
+            context += '\n--- HOT OPPORTUNITIES ---\n';
+            state.hotOpportunities.slice(0, 10).forEach(function (h) {
+                context += (h.ticker || '?') + ': ' + (h.reason || h.type || '') + ' conf=' + (h.confidence || 0) + '%\n';
+            });
+        }
+
+        // X/Twitter Alerts
+        if (state.xAlerts && state.xAlerts.length > 0) {
+            context += '\n--- X/TWITTER ALERTS ---\n';
+            state.xAlerts.slice(0, 10).forEach(function (x) {
+                context += (x.ticker || '?') + ': ' + (x.text || x.message || x.content || '').substring(0, 120) + '\n';
+            });
+        }
+
+        // Trading Halts
+        if (state.halts && state.halts.length > 0) {
+            context += '\n--- TRADING HALTS ---\n';
+            state.halts.slice(0, 10).forEach(function (h) {
+                context += (h.ticker || h.symbol || '?') + ': ' + (h.reason || h.type || 'HALTED') + ' ' + (h.halt_date || h.date || '') + '\n';
+            });
+        }
+
+        // Market Insider Buy/Sells
+        if (state.marketInsiderBuySells) {
+            context += '\n--- MARKET INSIDER BUY/SELLS ---\n' + JSON.stringify(state.marketInsiderBuySells).substring(0, 500) + '\n';
+        }
+
+        // Insider Transactions (market-wide)
+        if (state.insiderTransactions && state.insiderTransactions.length > 0) {
+            context += '\n--- INSIDER TRANSACTIONS ---\n';
+            state.insiderTransactions.slice(0, 10).forEach(function (tx) {
+                context += (tx.ticker || tx.symbol || '?') + ' ' + (tx.insider_name || tx.name || '') + ' ' + (tx.transaction_type || tx.acquisition_or_disposition || '') + ' ' + (tx.shares || tx.amount || '') + ' shares\n';
+            });
+        }
+
+        // Total Options Volume
+        if (state.totalOptionsVol) {
+            context += '\n--- TOTAL OPTIONS VOLUME ---\n' + JSON.stringify(state.totalOptionsVol).substring(0, 300) + '\n';
+        }
+
+        // Market OI Change
+        if (state.marketOIChange) {
+            context += '\n--- MARKET OI CHANGE ---\n' + JSON.stringify(state.marketOIChange).substring(0, 300) + '\n';
+        }
+
+        // Morning Brief (market-wide summary)
+        if (state.morningBrief && Object.keys(state.morningBrief).length > 0) {
+            context += '\n--- MORNING BRIEF ---\n';
+            Object.keys(state.morningBrief).slice(0, 10).forEach(function (tkr) {
+                var mb = state.morningBrief[tkr];
+                if (mb) context += tkr + ': ' + (mb.direction || '?') + ' ' + (mb.confidence || 0) + '% bull=' + (mb.bull || 0) + ' bear=' + (mb.bear || 0) + '\n';
+            });
+        }
+
+        // Journal Stats
+        if (state.journalStats && Object.keys(state.journalStats).length > 0) {
+            context += '\n--- JOURNAL STATS ---\n' + JSON.stringify(state.journalStats) + '\n';
+        }
+
         // Slash command handling
         var slashResult = null;
         if (userMsg.startsWith('/')) {
@@ -1111,23 +1245,35 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
-        // Build Gemini request
+        // Build Gemini request — upgraded to Gemini 3 Flash
         var genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        var model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        var model = genAI.getGenerativeModel({ model: 'gemini-3.0-flash-preview' });
 
-        var systemPrompt = 'You are an expert AI trading analyst embedded in a live command centre. '
-            + 'You have access to ALL real-time data: quotes, technical indicators (RSI, EMA9/20, SMA50/200, MACD, ATR, support/resistance), '
-            + 'options flow, dark pool activity, GEX/DIX, short interest, IV rank, max pain, net premium, '
-            + 'congressional trades, earnings, signal scores, paper trading, sector tides, ETF tides, economic calendar, seasonality, '
-            + 'Polygon real-time tick data (buy/sell volume, VWAP, flow imbalance, large blocks), and trade setups.\n'
-            + 'RULES: '
-            + '1. Always reference SPECIFIC numbers from the data (prices, levels, percentages). '
-            + '2. For bounce zone questions: use support levels, EMA9/20, SMA50/200, VWAP, and ATR to define zones. '
-            + '3. For trade ideas: include entry, stop, target with specific prices. '
-            + '4. For dark pool questions: analyze volume significance vs average daily volume. '
-            + '5. For flow analysis: combine options flow direction + dark pool + tick imbalance for conviction. '
-            + '6. Use bullet points. Be direct and actionable like a prop desk analyst. '
-            + '7. If data is missing, say so and explain what would be needed.\n\n'
+        var systemPrompt = 'You are an expert AI trading analyst — the oracle of a live trading command centre. '
+            + 'You have access to ALL real-time intelligence:\n'
+            + '- QUOTES: price, change%, volume, prev close, earnings dates\n'
+            + '- TECHNICALS: RSI, EMA9/20/50, MACD histogram/signal/slope, ATR, Bollinger Bands, ADX trend strength, '
+            + 'Fibonacci levels, RSI divergences, candlestick patterns, swing points, pivot support/resistance (S1/S2/R1/R2/PP)\n'
+            + '- OPTIONS: flow alerts (sweeps, blocks), net premium, flow per strike & expiry, OI change, max pain, IV rank, '
+            + 'GEX, Greek flow, spot exposures, vol term structure, realized vol\n'
+            + '- DARK POOL: per-ticker levels + market-wide recent block prints\n'
+            + '- MARKET WIDE: market tide (bull/bear flow), VIX spike, sector tides, ETF tides, total options volume, market OI change\n'
+            + '- SMART MONEY: congressional trades, insider transactions & flow, short interest, short volume, FTDs\n'
+            + '- NEWS & ALERTS: headlines, scanner results, hot opportunities, X/Twitter alerts, trading halts\n'
+            + '- EARNINGS: today premarket/afterhours calendar + per-ticker upcoming dates\n'
+            + '- PAPER TRADING: open positions, closed P&L, win rate, journal stats\n'
+            + '- ANALYSIS: signal engine scores (direction, confidence, active signals), trade setups (entry/stop/targets), '
+            + 'morning brief, multi-timeframe analysis, seasonality, earnings risk, correlation risk, Kelly sizing, sentiment\n'
+            + '- REAL-TIME: Polygon tick data (buy/sell volume, VWAP, flow imbalance, large blocks)\n\n'
+            + 'RULES:\n'
+            + '1. Always reference SPECIFIC numbers from the data provided. Quote exact prices, levels, percentages.\n'
+            + '2. For support/resistance: use pivot levels S1/S2/R1/R2, EMA9/20/50, Bollinger Bands, Fibonacci, and VWAP.\n'
+            + '3. For trade ideas: include specific entry, stop, and target prices using the trade setup if available.\n'
+            + '4. For dark pool: analyze notional value significance and direction.\n'
+            + '5. For flow analysis: combine options flow + dark pool + tick imbalance + net premium for conviction.\n'
+            + '6. For earnings questions: check EARNINGS TODAY section first for today\'s premarket/afterhours list.\n'
+            + '7. Use bullet points. Be direct and actionable like a prop desk analyst.\n'
+            + '8. If data is not in the context below, say so and explain what would be needed.\n\n'
             + context + historyContext;
 
         var userContent = slashResult ? slashResult + '\nUser question: ' + userMsg : 'User question: ' + userMsg;

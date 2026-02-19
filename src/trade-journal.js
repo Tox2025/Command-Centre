@@ -453,6 +453,32 @@ class TradeJournal {
         if (updated > 0) this._save();
         return updated;
     }
+
+    // Force-close all intraday paper trades at EOD (4:00 PM ET)
+    closeIntradayTrades(quotes) {
+        var closed = 0;
+        var self = this;
+        var intradayHorizons = ['Scalp / Day Trade', 'Day Trade', 'Day Trade (volatile)', 'Intraday', 'Extended Hours'];
+        this.trades.forEach(function (trade) {
+            if (!trade.paper || trade.status !== 'PENDING') return;
+            var horizon = (trade.horizon || '').toLowerCase();
+            var isIntraday = intradayHorizons.some(function (h) { return horizon === h.toLowerCase(); });
+            if (!isIntraday) return;
+
+            var q = quotes[trade.ticker];
+            var current = q ? parseFloat(q.last || q.price || q.close || 0) : 0;
+            if (current === 0) current = trade.currentPrice || trade.paperEntry || trade.entry;
+
+            self._closeTrade(trade, current >= (trade.paperEntry || trade.entry) ? (trade.direction === 'LONG' ? 'WIN_EOD' : 'LOSS_EOD') : (trade.direction === 'LONG' ? 'LOSS_EOD' : 'WIN_EOD'), current);
+            closed++;
+        });
+        if (closed > 0) {
+            this._recalcStats();
+            this._save();
+            console.log('📊 EOD: Force-closed ' + closed + ' intraday paper trades');
+        }
+        return closed;
+    }
 }
 
 module.exports = TradeJournal;

@@ -793,7 +793,7 @@ class SignalEngine {
             var sznData = Array.isArray(data.seasonality) ? data.seasonality : [];
             var curMonth = new Date().getMonth(); // 0-indexed
             var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-            var curMonthData = sznData.find(function (m) { return (m.month || '').toLowerCase() === monthNames[curMonth].toLowerCase(); });
+            var curMonthData = sznData.find(function (m) { return String(m.month || '').toLowerCase() === monthNames[curMonth].toLowerCase(); });
             if (curMonthData) {
                 var avgReturn = parseFloat(curMonthData.avg_return || curMonthData.mean || 0);
                 if (avgReturn > 2) {

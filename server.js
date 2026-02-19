@@ -82,7 +82,7 @@ const marketRegime = new MarketRegime();
 const newsSentiment = new NewsSentiment();
 const correlationGuard = new CorrelationGuard();
 const notifier = new Notifier();
-const scanner = new MarketScanner({ minConfidence: 50, maxCandidates: 10, minPrice: 2 });
+const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPrice: 2 });
 const scheduler = new SessionScheduler({ dailyLimit: 15000, safetyMargin: 0.90 });
 const xAlertMonitor = new XAlertMonitor({ minScore: 50 });
 const gapAnalyzer = new GapAnalyzer();
@@ -1010,7 +1010,7 @@ app.post('/api/chat', async (req, res) => {
                 if (ta.atr) context += ' ATR=$' + ta.atr.toFixed(2);
                 if (ta.support) context += ' Support=$' + ta.support.toFixed(2);
                 if (ta.resistance) context += ' Resistance=$' + ta.resistance.toFixed(2);
-                if (ta.macd) context += ' MACD=' + (ta.macd > 0 ? '+' : '') + ta.macd.toFixed(2);
+                if (ta.macd && ta.macd.histogram !== undefined) context += ' MACD=' + (ta.macd.histogram > 0 ? '+' : '') + ta.macd.histogram.toFixed(2);
                 context += '\n';
             }
         });

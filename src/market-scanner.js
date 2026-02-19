@@ -8,7 +8,7 @@ const TechnicalAnalysis = require('./technical');
 class MarketScanner {
     constructor(config) {
         config = config || {};
-        this.minConfidence = config.minConfidence || 55;
+        this.minConfidence = config.minConfidence || 40;  // Lowered from 55 — was filtering out valid candidates
         this.maxCandidates = config.maxCandidates || 5;
         this.minPrice = config.minPrice || 5;
         this.cooldown = {};
@@ -195,10 +195,11 @@ class MarketScanner {
     async quickScore(candidate, uw, session) {
         var ticker = candidate.ticker;
 
-        // Fetch lightweight data
-        var quote = await uw.getStockQuote(ticker);
-        var flow = await uw.getFlowByTicker(ticker);
-        var gex = await uw.getGEXByStrike(ticker);
+        // Fetch lightweight data — handle failures gracefully so partial data still scores
+        var quote, flow, gex;
+        try { quote = await uw.getStockQuote(ticker); } catch (e) { console.log('Scanner: Quote failed for ' + ticker + ': ' + e.message); }
+        try { flow = await uw.getFlowByTicker(ticker); } catch (e) { console.log('Scanner: Flow failed for ' + ticker + ': ' + e.message); }
+        try { gex = await uw.getGEXByStrike(ticker); } catch (e) { console.log('Scanner: GEX failed for ' + ticker + ': ' + e.message); }
 
         var quoteData = quote?.data || {};
         var price = parseFloat(quoteData.last || quoteData.price || quoteData.close || 0);
@@ -302,10 +303,11 @@ class MarketScanner {
         else if (bear > bull) bear += convergenceBonus;
         signals.push({ name: 'Multi-Source', dir: bull > bear ? 'BULL' : 'BEAR', detail: candidate.sources.join(' + ') });
 
-        // Compute final score
-        var totalScore = bull + bear || 1;
+        // Compute final score — spread-based like main signal engine
+        var spread = Math.abs(bull - bear);
         var direction = bull > bear + 0.5 ? 'BULLISH' : bear > bull + 0.5 ? 'BEARISH' : 'NEUTRAL';
-        var confidence = Math.round(Math.max(bull, bear) / totalScore * 100);
+        var confidence = Math.min(95, Math.round(50 + (spread / 15) * 50));  // 15 = max realistic score
+        console.log('Scanner quickScore: ' + ticker + ' → ' + direction + ' conf=' + confidence + '% bull=' + bull.toFixed(1) + ' bear=' + bear.toFixed(1) + ' signals=' + signals.length + ' sources=' + candidate.sources.join(','));
 
         return {
             ticker: ticker,

@@ -2141,15 +2141,16 @@ async function refreshAll() {
         openTrades.forEach(t => {
             const h = (t.horizon || '').toLowerCase();
             if (h.includes('day') || h.includes('scalp') || h.includes('intraday')) {
-                // Determine exit price (current last)
                 const exitPrice = currentPriceFn(t.ticker);
-                tradeJournal._closeTrade(t, 'WIN_EOD', exitPrice); // Mark as WIN_EOD or TIMEOUT
-                // Recalculate pnl manually since _closeTrade might use entry if exitPrice invalid
                 if (exitPrice > 0) {
-                    // Update P&L logic is inside _closeTrade, so we are good if we pass valid price
-                    t.status = 'CLOSED (EOD)'; // Override status label for clarity
+                    // Determine P&L-based status so _recalcStats can properly track wins/losses
+                    const entryPrice = t.paperEntry || t.entry || 0;
+                    const isLong = t.direction === 'LONG';
+                    const pnl = isLong ? (exitPrice - entryPrice) : (entryPrice - exitPrice);
+                    const status = pnl > 0 ? 'WIN_T1' : 'LOSS_STOP';
+                    tradeJournal._closeTrade(t, status, exitPrice);
+                    closedCount++;
                 }
-                closedCount++;
             }
         });
         if (closedCount > 0) {

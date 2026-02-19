@@ -154,7 +154,6 @@ class TradeJournal {
             trade.pnlPct = +((entryPrice - exitPrice) / entryPrice * 100).toFixed(2);
         }
         trade.pnl = trade.pnlPct; // Stats use pnl field
-        trade.pnl = trade.pnlPct; // Stats use pnl field
         // Dollar P&L per share (points)
         trade.pnlPoints = +(exitPrice - entryPrice).toFixed(2);
         if (trade.direction === 'SHORT') trade.pnlPoints = +(entryPrice - exitPrice).toFixed(2);

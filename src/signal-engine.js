@@ -3,7 +3,7 @@
 
 const SIGNAL_WEIGHTS = {
     ema_alignment: 5,      // ↑ from 3 — strongest trend predictor from trade data
-    rsi_position: 2,
+    rsi_position: 3,       // ↑ from 2 — RSI Bullish had 100% accuracy
     macd_histogram: 2,
     bollinger_position: 1,
     bb_squeeze: 2,
@@ -15,12 +15,12 @@ const SIGNAL_WEIGHTS = {
     gex_positioning: 2,
     iv_rank: 1,
     short_interest: 1,
-    volume_spike: 1,
+    volume_spike: 2,        // ↑ from 1 — Session Bounce had 80% accuracy
     regime_alignment: 3,
     gamma_wall: 2,
     iv_skew: 1,
     candlestick_pattern: 2,
-    news_sentiment: 1,
+    news_sentiment: 2,      // ↑ from 1 — News Bullish had 83% accuracy
     multi_tf_confluence: 5,  // multi-timeframe agreement bonus
     rsi_divergence: 3,       // NEW — high-probability reversal/continuation signal
     adx_filter: 0,           // NEW — not directional; used as gate/multiplier on other signals
@@ -162,12 +162,14 @@ class SignalEngine {
         const sentiment = data.sentiment || null;
         const patterns = (ta.patterns || []);
 
-        // 1. EMA Alignment
+        // 1. EMA Alignment — suppress bearish in RANGING regime (31% accuracy in ranging)
         const w1 = this._ew('ema_alignment', sess);
+        const isRanging = regime && regime.regime === 'RANGING';
         if (ta.emaBias === 'BULLISH') {
             bull += w1; signals.push({ name: 'EMA Alignment', dir: 'BULL', weight: w1, detail: '9>20>50 stacked bullish' });
         } else if (ta.emaBias === 'BEARISH') {
-            bear += w1; signals.push({ name: 'EMA Alignment', dir: 'BEAR', weight: w1, detail: '9<20<50 stacked bearish' });
+            var emaW = isRanging ? w1 * 0.4 : w1;  // Scale down in ranging (no trend to align with)
+            bear += emaW; signals.push({ name: 'EMA Alignment', dir: 'BEAR', weight: +emaW.toFixed(2), detail: '9<20<50 stacked bearish' + (isRanging ? ' (ranging dampened)' : '') });
         }
 
         // 2. RSI Position - Context Aware
@@ -194,7 +196,8 @@ class SignalEngine {
             } else if (ta.rsi > 55) {
                 bull += w2 * 0.5; signals.push({ name: 'RSI Bullish', dir: 'BULL', weight: w2 * 0.5, detail: 'RSI ' + ta.rsi.toFixed(1) });
             } else if (ta.rsi < 45) {
-                bear += w2 * 0.5; signals.push({ name: 'RSI Bearish', dir: 'BEAR', weight: w2 * 0.5, detail: 'RSI ' + ta.rsi.toFixed(1) });
+                var rsiBearW = isRanging ? w2 * 0.2 : w2 * 0.5;  // Heavily dampen in ranging (0% accuracy)
+                bear += rsiBearW; signals.push({ name: 'RSI Bearish', dir: 'BEAR', weight: +rsiBearW.toFixed(2), detail: 'RSI ' + ta.rsi.toFixed(1) + (isRanging ? ' (ranging dampened)' : '') });
             }
         }
 
@@ -208,7 +211,8 @@ class SignalEngine {
                 if (hist > 0) {
                     bull += w3; signals.push({ name: 'MACD Positive', dir: 'BULL', weight: w3, detail: 'Hist ' + hist.toFixed(3) });
                 } else {
-                    bear += w3; signals.push({ name: 'MACD Negative', dir: 'BEAR', weight: w3, detail: 'Hist ' + hist.toFixed(3) });
+                    var macdBearW = isRanging ? w3 * 0.4 : w3;  // Dampen in ranging (0% accuracy)
+                    bear += macdBearW; signals.push({ name: 'MACD Negative', dir: 'BEAR', weight: +macdBearW.toFixed(2), detail: 'Hist ' + hist.toFixed(3) + (isRanging ? ' (ranging dampened)' : '') });
                 }
             }
         }
@@ -343,7 +347,8 @@ class SignalEngine {
             const latest = ivArr[ivArr.length - 1] || {};
             const ivRank = parseFloat(latest.iv_rank_1y || latest.iv_rank || 0);
             if (ivRank < 25) {
-                bull += w9 * 0.5; signals.push({ name: 'Low IV', dir: 'BULL', weight: w9 * 0.5, detail: 'IV Rank ' + ivRank.toFixed(0) });
+                // Low IV = cheap options, but NOT directionally predictive (25% accuracy)
+                signals.push({ name: 'Low IV', dir: 'NEUTRAL', weight: 0, detail: 'IV Rank ' + ivRank.toFixed(0) + ' (cheap options)' });
             } else if (ivRank > 75) {
                 bear += w9; signals.push({ name: 'High IV', dir: 'BEAR', weight: w9, detail: 'IV Rank ' + ivRank.toFixed(0) + ' (fear)' });
             }

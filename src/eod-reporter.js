@@ -146,8 +146,12 @@ class EODReporter {
                 total++;
             }
 
-            // Analyze individual signals
+            // Analyze individual signals (skip NEUTRAL signals — they don't predict direction)
             (score.signals || []).forEach(sig => {
+                // NEUTRAL signals (ADX Choppy, Low IV, Gamma Pin, High Volatility) should not be
+                // counted in accuracy because they have no directional prediction
+                if (sig.dir === 'NEUTRAL') return;
+
                 if (!signalPerf[sig.name]) signalPerf[sig.name] = { fires: 0, correct: 0, totalWeight: 0 };
                 signalPerf[sig.name].fires++;
                 signalPerf[sig.name].totalWeight += Math.abs(sig.weight);
@@ -207,6 +211,20 @@ class EODReporter {
         if (regime.regime === 'VOLATILE' && accuracy.overallAccuracy < 50) {
             recs.push(`🌪️ Volatility is hurting predictive power. Recommend widening stop losses and reducing position sizes.`);
         }
+
+        if (regime.regime === 'RANGING') {
+            recs.push(`📊 RANGING regime detected — trend-following bear signals (MACD Negative, RSI Bearish, EMA Bearish) are auto-dampened to 40% weight. Mean-reversion signals boosted.`);
+            if (accuracy.bearAccuracy < 30) {
+                recs.push(`🔻 Bear accuracy very low (${accuracy.bearAccuracy}%) — regime dampening is correctly reducing false bear signals.`);
+            }
+        }
+
+        // Auto-boost/reduce recommendations with specific values
+        accuracy.bestSignals.forEach(s => {
+            if (s.accuracy >= 80 && s.fires >= 5) {
+                recs.push(`✅ Signal Boost: "${s.name}" has ${s.accuracy}% accuracy over ${s.fires} fires — consider increasing weight.`);
+            }
+        });
 
         return recs;
     }

@@ -234,6 +234,131 @@ class PolygonHistorical {
             return null;
         } catch (e) { return null; }
     }
+
+    // ── Convert Polygon features to ML calibrator's 25-feature format ──
+    // Maps our historical features into the signal engine's feature vector slots
+    // MLCalibrator expects: [RSI, MACD_Hist, EMA_Align, BB_Position, ATR, CP_Ratio,
+    //   DP_Direction, IV_Rank, Short_Interest, Vol_Spike, BB_Bandwidth, VWAP_Dev,
+    //   Regime, Gamma_Prox, IV_Skew, Candle_Score, Sentiment, ADX, RSI_Divergence,
+    //   Fib_Proximity, RSI_Slope, MACD_Accel, ATR_Change, RSI_x_EMA, Vol_x_MACD]
+    convertToMLFormat(rawFeatures) {
+        if (!rawFeatures || rawFeatures.length === 0) return [];
+
+        // Filter out NEUTRAL labels — only train on clear bullish/bearish outcomes
+        var trainingData = [];
+        for (var i = 0; i < rawFeatures.length; i++) {
+            var f = rawFeatures[i];
+            if (f.label === 'NEUTRAL') continue;
+
+            // Map Polygon features into the 25-slot vector
+            var features = new Array(25).fill(0);
+
+            // Slot 0: RSI (0-100)
+            features[0] = f.rsi || 50;
+
+            // Slot 1: MACD_Hist — approximate from momentum (dailyReturn * 1000)
+            features[1] = (f.dailyReturn || 0) * 1000;
+
+            // Slot 2: EMA_Align — use priceVsSma20 as EMA alignment proxy
+            features[2] = (f.priceVsSma20 || 0) * 100;
+
+            // Slot 3: BB_Position — use priceVsSma20 relative to volatility
+            var vol = f.volatility20 || 0.2;
+            features[3] = vol > 0 ? ((f.priceVsSma20 || 0) / (vol / Math.sqrt(252))) * 50 + 50 : 50;
+
+            // Slot 4: ATR — use intradayRange as ATR proxy (already 0-1 range)
+            features[4] = (f.intradayRange || 0) * 100;
+
+            // Slot 5: CP_Ratio — not available from historical, leave 0
+            // Slot 6: DP_Direction — not available, leave 0
+            // Slot 7: IV_Rank — not available, leave 0
+            // Slot 8: Short_Interest — not available, leave 0
+
+            // Slot 9: Vol_Spike — relative volume (1.0 = normal)
+            features[9] = Math.min(5, f.relativeVolume || 1);
+
+            // Slot 10: BB_Bandwidth — use volatility as proxy
+            features[10] = (f.volatility20 || 0.2) * 100;
+
+            // Slot 11: VWAP_Dev
+            features[11] = (f.vwapDev || 0) * 100;
+
+            // Slot 12: Regime — derive from SMA50 trend
+            features[12] = f.priceVsSma50 > 0.02 ? 1 : f.priceVsSma50 < -0.02 ? -1 : 0;
+
+            // Slot 13: Gamma_Prox — not available, leave 0
+            // Slot 14: IV_Skew — not available, leave 0
+
+            // Slot 15: Candle_Score — bodyRatio (-1 to 1)
+            features[15] = (f.bodyRatio || 0) * 100;
+
+            // Slot 16: Sentiment — not available, leave 0
+
+            // Slot 17: ADX — approximate from volatility + trend strength
+            var trendStrength = Math.abs(f.priceVsSma20 || 0) + Math.abs(f.priceVsSma50 || 0);
+            features[17] = Math.min(100, trendStrength * 200);
+
+            // Slot 18: RSI_Divergence — RSI vs price trend divergence
+            var rsiNorm = ((f.rsi || 50) - 50) / 50; // -1 to 1
+            var priceTrend = f.priceVsSma20 || 0;
+            features[18] = (rsiNorm - priceTrend * 10) * 50;
+
+            // Slot 19: Fib_Proximity — not available, leave 0
+
+            // Slot 20: RSI_Slope — would need multiple RSI values, approximate from return
+            features[20] = (f.dailyReturn || 0) * 500;
+
+            // Slot 21: MACD_Accel — use gap as momentum acceleration proxy
+            features[21] = (f.gapPct || 0) * 100;
+
+            // Slot 22: ATR_Change — not available for single point, leave 0
+
+            // Slot 23: RSI_x_EMA — interaction feature
+            features[23] = rsiNorm * (f.priceVsSma20 || 0) * 100;
+
+            // Slot 24: Vol_x_MACD — interaction feature
+            features[24] = (f.relativeVolume || 1) * (f.dailyReturn || 0) * 100;
+
+            trainingData.push({
+                features: features,
+                label: f.label === 'BULLISH' ? 1 : 0,
+                confidence: f.label === 'BULLISH' ? 70 : 30,
+                pnlPct: (f.next5Return || 0) * 100
+            });
+        }
+
+        return trainingData;
+    }
+
+    // ── One-Stop: Generate historical data and convert to ML format ──
+    async generateAndConvert(tickers, years) {
+        years = years || 5;
+        var allRaw = [];
+
+        for (var i = 0; i < tickers.length; i++) {
+            var ticker = tickers[i].toUpperCase();
+            try {
+                var raw = await this.generateTrainingData(ticker, years);
+                if (raw && raw.length > 0) {
+                    allRaw = allRaw.concat(raw);
+                }
+                await this._sleep(this.rateLimitMs * 2);
+            } catch (e) {
+                console.error('Error generating for ' + ticker + ':', e.message);
+            }
+        }
+
+        var mlData = this.convertToMLFormat(allRaw);
+        console.log('📊 ML conversion: ' + allRaw.length + ' raw samples → ' + mlData.length + ' ML training samples (NEUTRAL filtered out)');
+
+        return {
+            rawSamples: allRaw.length,
+            mlSamples: mlData.length,
+            bullish: mlData.filter(function (d) { return d.label === 1; }).length,
+            bearish: mlData.filter(function (d) { return d.label === 0; }).length,
+            data: mlData
+        };
+    }
 }
 
 module.exports = PolygonHistorical;

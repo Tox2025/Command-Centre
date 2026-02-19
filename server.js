@@ -292,6 +292,59 @@ app.get('/api/polygon/ml/availability/:ticker', async (req, res) => {
         res.json(info || { error: 'No data' });
     } catch (e) { res.json({ error: e.message }); }
 });
+// One-click ML retrain: fetch Polygon historical → convert → train both models
+app.post('/api/ml/retrain', async (req, res) => {
+    try {
+        var tickers = req.body.tickers || state.tickers || [];
+        var years = parseInt(req.body.years) || 5;
+        console.log('🧠 ML Retrain started: ' + tickers.length + ' tickers, ' + years + ' years...');
+
+        // Step 1: Generate and convert historical data
+        var result = await polygonHistorical.generateAndConvert(tickers, years);
+        if (!result || result.mlSamples < 30) {
+            return res.json({ error: 'Insufficient training data (' + (result ? result.mlSamples : 0) + ' samples)' });
+        }
+
+        // Step 2: Split into dayTrade (recent 2yr) and swing (all) datasets
+        var allData = result.data;
+        var midpoint = Math.floor(allData.length * 0.6);
+        var recentData = allData.slice(midpoint); // More recent data for dayTrade
+        var fullData = allData; // Full dataset for swing
+
+        // Step 3: Train both models
+        var dayTradeSuccess = mlCalibrator.train(recentData, 'dayTrade');
+        var swingSuccess = mlCalibrator.train(fullData, 'swing');
+
+        var status = mlCalibrator.getStatus();
+        console.log('🧠 ML Retrain complete! DayTrade: ' + (dayTradeSuccess ? status.dayTrade.accuracy + '%' : 'failed') +
+            ' | Swing: ' + (swingSuccess ? status.swing.accuracy + '%' : 'failed'));
+
+        res.json({
+            success: true,
+            tickersUsed: tickers.length,
+            yearsOfData: years,
+            rawSamples: result.rawSamples,
+            mlSamples: result.mlSamples,
+            bullishSamples: result.bullish,
+            bearishSamples: result.bearish,
+            dayTrade: {
+                trained: dayTradeSuccess,
+                samples: recentData.length,
+                accuracy: status.dayTrade.accuracy,
+                topFeatures: (status.dayTrade.featureImportance || []).slice(0, 5)
+            },
+            swing: {
+                trained: swingSuccess,
+                samples: fullData.length,
+                accuracy: status.swing.accuracy,
+                topFeatures: (status.swing.featureImportance || []).slice(0, 5)
+            }
+        });
+    } catch (e) {
+        console.error('ML retrain error:', e.message);
+        res.json({ error: e.message });
+    }
+});
 app.get('/api/scanner/clear-cooldown', (req, res) => { scanner.clearCooldown(); res.json({ cleared: true }); });
 app.get('/api/budget', (req, res) => res.json(scheduler.getBudget()));
 app.get('/api/kelly/:ticker', (req, res) => {

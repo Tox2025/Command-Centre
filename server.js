@@ -1640,7 +1640,11 @@ async function scoreTickerSignals(ticker) {
 
         // Apply ML ensemble with appropriate timeframe model
         const ensemble = mlCalibrator.ensemble(signalResult.confidence, signalResult.features, mlTimeframe);
-        signalResult.confidence = ensemble.confidence;
+        // Keep technical confidence as primary (user trades on technicals)
+        signalResult.technicalConfidence = signalResult.confidence; // Pure technical score
+        signalResult.mlConfidence = ensemble.mlConfidence || null;  // Pure ML score
+        signalResult.blendedConfidence = ensemble.confidence;       // Blended score
+        // confidence stays as technical — user's primary decision score
         signalResult.ensemble = ensemble;
 
         state.signalScores[ticker] = signalResult;

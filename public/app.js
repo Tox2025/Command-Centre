@@ -322,11 +322,15 @@ function renderSetups() {
         // Kelly sizing badge
         var kelly = (state.kellySizing || {})[t];
         var kellyBadge = kelly ? ' <span class="badge" style="background:#7c3aed;font-size:0.6rem">' + kelly.pct + '%</span>' : '';
-        h += '<td>' + s.confidence + '% <small>(' + sigCount + ' sig)</small>' + mlBadge + kellyBadge + '</td>';
+        h += '<td>' + s.confidence + '% <small>(' + sigCount + ' sig)</small>' + kellyBadge + '</td>';
+        // ML confidence column
+        var mlConf = s.mlConfidence;
+        var mlCell = mlConf !== null && mlConf !== undefined ? '<span style="color:' + (mlConf >= 60 ? '#4ade80' : mlConf >= 45 ? '#fbbf24' : '#f87171') + '">' + mlConf + '%</span>' + mlBadge : '<span style="color:#64748b">--</span>';
+        h += '<td>' + mlCell + '</td>';
         h += '<td><span class="badge" style="background:' + hColor + '">' + s._horizon + '</span>' + earningsHtml + '</td>';
         h += '</tr>';
     });
-    tb.innerHTML = h || '<tr><td colspan="9" class="empty">No ' + (activeSetupTab === 'all' ? '' : activeSetupTab + ' trade ') + 'setups</td></tr>';
+    tb.innerHTML = h || '<tr><td colspan="10" class="empty">No ' + (activeSetupTab === 'all' ? '' : activeSetupTab + ' trade ') + 'setups</td></tr>';
     // Render journal stats if available
     renderJournalStats();
 }
@@ -1272,8 +1276,14 @@ function openTickerView(ticker) {
             'Day / Swing (1-2d)': '#f59e0b', 'Swing (1-3d)': '#f59e0b',
             'Swing (2-5d)': '#10b981', 'Swing (3-5d)': '#10b981', 'Swing': '#10b981'
         };
+        var mlConfDisp = s.mlConfidence !== null && s.mlConfidence !== undefined ? s.mlConfidence + '%' : '--';
+        var mlConfColor = s.mlConfidence >= 60 ? '#4ade80' : s.mlConfidence >= 45 ? '#fbbf24' : '#f87171';
         setupEl.innerHTML = '<div class="modal-setup-card">' +
-            '<div class="' + dc + '" style="font-size:16px;font-weight:700">' + s.direction + ' - ' + s.confidence + '% conf</div>' +
+            '<div class="' + dc + '" style="font-size:16px;font-weight:700">' + s.direction + '</div>' +
+            '<div style="display:flex;gap:16px;margin:6px 0">' +
+            '<div style="text-align:center"><div style="color:#94a3b8;font-size:9px">TECH</div><div style="font-size:18px;font-weight:700">' + s.confidence + '%</div></div>' +
+            '<div style="text-align:center"><div style="color:#94a3b8;font-size:9px">ML</div><div style="font-size:18px;font-weight:700;color:' + mlConfColor + '">' + mlConfDisp + '</div></div>' +
+            '</div>' +
             '<div style="font-size:11px;color:#94a3b8;margin:2px 0">Horizon: <span class="badge" style="background:' + (horizonColors[horizonS] || '#64748b') + '">' + horizonS + '</span></div>' +
             '<div>Entry: <strong>$' + fmt(s.entry) + '</strong></div>' +
             '<div class="text-bull">T1: $' + fmt(s.target1) + ' | T2: $' + fmt(s.target2) + '</div>' +

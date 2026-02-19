@@ -202,12 +202,67 @@ class EODReporter {
         const bestSignals = signalsList.filter(s => s.fires >= 3).sort((a, b) => b.accuracy - a.accuracy).slice(0, 5);
         const worstSignals = signalsList.filter(s => s.fires >= 3).sort((a, b) => a.accuracy - b.accuracy).slice(0, 5);
 
+        // ── Tech vs ML Accuracy Comparison ──
+        let techCorrect = 0, techTotal = 0;
+        let mlCorrect = 0, mlTotal = 0;
+        let bothAgree = 0, techOnlyRight = 0, mlOnlyRight = 0, bothWrong = 0;
+
+        for (const ticker in scores) {
+            const score = scores[ticker];
+            const q = quotes[ticker];
+            if (!q || !score) continue;
+
+            const price = parseFloat(q.last || q.price || 0);
+            const open2 = parseFloat(q.open || 0);
+            if (open2 === 0) continue;
+
+            const dayChangePct2 = (price - open2) / open2 * 100;
+            const dayDir2 = dayChangePct2 > 0.5 ? 'BULLISH' : dayChangePct2 < -0.5 ? 'BEARISH' : 'NEUTRAL';
+            if (dayDir2 === 'NEUTRAL') continue;
+
+            // Tech prediction (based on technicalConfidence / confidence)
+            var techConf = score.technicalConfidence || score.confidence || 50;
+            var techDir = score.direction; // direction is based on technical
+            var techRight = techDir === dayDir2;
+
+            // ML prediction (based on mlConfidence)
+            var mlConf = score.mlConfidence;
+            if (mlConf !== null && mlConf !== undefined) {
+                var mlDir = mlConf > 55 ? 'BULLISH' : mlConf < 45 ? 'BEARISH' : 'NEUTRAL';
+                if (mlDir !== 'NEUTRAL') {
+                    mlTotal++;
+                    if (mlDir === dayDir2) mlCorrect++;
+
+                    techTotal++;
+                    if (techRight) techCorrect++;
+
+                    // Agreement tracking
+                    if (techRight && mlDir === dayDir2) bothAgree++;
+                    else if (techRight && mlDir !== dayDir2) techOnlyRight++;
+                    else if (!techRight && mlDir === dayDir2) mlOnlyRight++;
+                    else bothWrong++;
+                }
+            }
+        }
+
         return {
             overallAccuracy,
             bullAccuracy: bullAcc,
             bearAccuracy: bearAcc,
             bestSignals,
-            worstSignals
+            worstSignals,
+            // Tech vs ML comparison
+            techVsMl: {
+                techAccuracy: techTotal > 0 ? Math.round(techCorrect / techTotal * 100) : null,
+                mlAccuracy: mlTotal > 0 ? Math.round(mlCorrect / mlTotal * 100) : null,
+                techTotal,
+                mlTotal,
+                bothAgree,
+                techOnlyRight,
+                mlOnlyRight,
+                bothWrong,
+                winner: techTotal > 0 ? (techCorrect > mlCorrect ? 'TECH' : mlCorrect > techCorrect ? 'ML' : 'TIE') : null
+            }
         };
     }
 

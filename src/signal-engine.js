@@ -24,7 +24,19 @@ const SIGNAL_WEIGHTS = {
     multi_tf_confluence: 5,  // multi-timeframe agreement bonus
     rsi_divergence: 3,       // NEW — high-probability reversal/continuation signal
     adx_filter: 0,           // NEW — not directional; used as gate/multiplier on other signals
-    volatility_runner: 5     // NEW — gap-up micro-cap runner (MLEC-style halt setups)
+    volatility_runner: 5,     // NEW — gap-up micro-cap runner (MLEC-style halt setups)
+    // Phase 1 API Enhancement signals
+    net_premium_momentum: 5,   // smart money net call/put premium flow
+    strike_flow_levels: 4,     // options flow concentration at price levels
+    greek_flow_momentum: 4,    // delta/gamma exposure shifts
+    sector_tide_alignment: 3,  // sector-level call/put flow direction
+    etf_tide_macro: 3,         // SPY/QQQ flow for macro direction
+    squeeze_composite: 5,      // short volume + FTD squeeze score
+    seasonality_alignment: 2,  // historical monthly return patterns
+    vol_regime: 3,             // realized vol vs implied vol regime
+    insider_conviction: 3,     // insider net buy/sell flow
+    spot_gamma_pin: 3,         // gamma pinning detection at spot price
+    flow_horizon: 2            // options flow expiry concentration
 };
 
 // Session multipliers: scale signal weights per trading session
@@ -36,7 +48,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 0.8, insider_congress: 0.2, gex_positioning: 1.6,
         iv_rank: 0.3, short_interest: 0.3, volume_spike: 1.5,
         regime_alignment: 0.8, gamma_wall: 1.4, iv_skew: 0.6, candlestick_pattern: 1.3, news_sentiment: 0.5,
-        rsi_divergence: 0.7, adx_filter: 1.0, volatility_runner: 1.8
+        rsi_divergence: 0.7, adx_filter: 1.0, volatility_runner: 1.8,
+        net_premium_momentum: 1.6, strike_flow_levels: 1.4, greek_flow_momentum: 1.5,
+        sector_tide_alignment: 0.6, etf_tide_macro: 0.6, squeeze_composite: 1.0,
+        seasonality_alignment: 0.3, vol_regime: 0.5, insider_conviction: 0.2,
+        spot_gamma_pin: 1.4, flow_horizon: 0.8
     },
     POWER_OPEN: {  // 9:21-10:00 AM — momentum + flow
         ema_alignment: 0.8, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.8,
@@ -44,7 +60,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 1.0, insider_congress: 0.3, gex_positioning: 1.5,
         iv_rank: 0.5, short_interest: 0.3, volume_spike: 1.4,
         regime_alignment: 1.0, gamma_wall: 1.3, iv_skew: 0.8, candlestick_pattern: 1.2, news_sentiment: 0.6,
-        rsi_divergence: 0.9, adx_filter: 1.0, volatility_runner: 1.6
+        rsi_divergence: 0.9, adx_filter: 1.0, volatility_runner: 1.6,
+        net_premium_momentum: 1.4, strike_flow_levels: 1.3, greek_flow_momentum: 1.3,
+        sector_tide_alignment: 0.8, etf_tide_macro: 0.8, squeeze_composite: 1.0,
+        seasonality_alignment: 0.4, vol_regime: 0.6, insider_conviction: 0.3,
+        spot_gamma_pin: 1.3, flow_horizon: 0.9
     },
     PRE_MARKET: {  // 8:30-9:00 AM — news + gap driven
         ema_alignment: 0.5, rsi_position: 0.6, macd_histogram: 0.5, bollinger_position: 0.4,
@@ -52,7 +72,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 0.8, insider_congress: 0.8, gex_positioning: 1.0,
         iv_rank: 0.8, short_interest: 0.5, volume_spike: 0.5,
         regime_alignment: 1.0, gamma_wall: 0.8, iv_skew: 1.0, candlestick_pattern: 0.5, news_sentiment: 1.5,
-        rsi_divergence: 0.5, adx_filter: 0.8, volatility_runner: 1.2
+        rsi_divergence: 0.5, adx_filter: 0.8, volatility_runner: 1.2,
+        net_premium_momentum: 0.8, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
+        sector_tide_alignment: 0.5, etf_tide_macro: 0.5, squeeze_composite: 0.8,
+        seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 1.0,
+        spot_gamma_pin: 0.5, flow_horizon: 0.5
     },
     MIDDAY: {      // 10:01 AM-3:00 PM — balanced day trading
         ema_alignment: 1.0, rsi_position: 1.1, macd_histogram: 0.9, bollinger_position: 1.3,
@@ -60,7 +84,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 1.2, insider_congress: 0.5, gex_positioning: 0.8,
         iv_rank: 0.8, short_interest: 0.5, volume_spike: 1.2,
         regime_alignment: 1.2, gamma_wall: 1.0, iv_skew: 1.0, candlestick_pattern: 1.0, news_sentiment: 0.8,
-        rsi_divergence: 1.3, adx_filter: 1.2, volatility_runner: 1.0
+        rsi_divergence: 1.3, adx_filter: 1.2, volatility_runner: 1.0,
+        net_premium_momentum: 1.2, strike_flow_levels: 1.2, greek_flow_momentum: 1.2,
+        sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.2,
+        seasonality_alignment: 1.0, vol_regime: 1.0, insider_conviction: 0.8,
+        spot_gamma_pin: 1.0, flow_horizon: 1.0
     },
     POWER_HOUR: {  // 3:01-4:15 PM — closing momentum
         ema_alignment: 1.0, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.9,
@@ -68,7 +96,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 1.2, insider_congress: 0.5, gex_positioning: 0.7,
         iv_rank: 0.8, short_interest: 0.5, volume_spike: 1.3,
         regime_alignment: 1.1, gamma_wall: 1.2, iv_skew: 1.0, candlestick_pattern: 1.1, news_sentiment: 0.7,
-        rsi_divergence: 1.2, adx_filter: 1.0, volatility_runner: 0.8
+        rsi_divergence: 1.2, adx_filter: 1.0, volatility_runner: 0.8,
+        net_premium_momentum: 1.3, strike_flow_levels: 1.3, greek_flow_momentum: 1.2,
+        sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.0,
+        seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 0.5,
+        spot_gamma_pin: 1.2, flow_horizon: 1.0
     },
     AFTER_HOURS: { // 4:16-5:00 PM — reduced signals
         ema_alignment: 1.2, rsi_position: 1.0, macd_histogram: 0.8, bollinger_position: 0.7,
@@ -76,7 +108,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 1.0, insider_congress: 1.0, gex_positioning: 0.3,
         iv_rank: 1.0, short_interest: 1.0, volume_spike: 0.5,
         regime_alignment: 1.2, gamma_wall: 0.5, iv_skew: 1.0, candlestick_pattern: 0.8, news_sentiment: 1.2,
-        rsi_divergence: 1.0, adx_filter: 1.0, volatility_runner: 0.3
+        rsi_divergence: 1.0, adx_filter: 1.0, volatility_runner: 0.3,
+        net_premium_momentum: 0.5, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
+        sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 0.8,
+        seasonality_alignment: 1.2, vol_regime: 1.0, insider_conviction: 1.2,
+        spot_gamma_pin: 0.3, flow_horizon: 0.5
     },
     OVERNIGHT: {   // 5:01 PM-8:29 AM — swing analysis
         ema_alignment: 1.4, rsi_position: 1.2, macd_histogram: 1.1, bollinger_position: 1.0,
@@ -84,7 +120,11 @@ const SESSION_MULTIPLIERS = {
         dark_pool_direction: 1.3, insider_congress: 1.5, gex_positioning: 0.3,
         iv_rank: 1.3, short_interest: 1.4, volume_spike: 0.8,
         regime_alignment: 1.5, gamma_wall: 0.5, iv_skew: 1.3, candlestick_pattern: 1.0, news_sentiment: 1.4,
-        rsi_divergence: 1.4, adx_filter: 1.3, volatility_runner: 0.2
+        rsi_divergence: 1.4, adx_filter: 1.3, volatility_runner: 0.2,
+        net_premium_momentum: 0.4, strike_flow_levels: 0.4, greek_flow_momentum: 0.4,
+        sector_tide_alignment: 1.2, etf_tide_macro: 1.2, squeeze_composite: 1.4,
+        seasonality_alignment: 1.4, vol_regime: 1.2, insider_conviction: 1.5,
+        spot_gamma_pin: 0.2, flow_horizon: 0.3
     }
 };
 
@@ -626,11 +666,215 @@ class SignalEngine {
             }
         }
 
+        // ── 24. Net Premium Momentum (smart money flow direction) ──
+        var wNPM = this._ew('net_premium_momentum', sess);
+        if (data.netPremium) {
+            var np = Array.isArray(data.netPremium) ? data.netPremium : [];
+            if (np.length >= 3) {
+                var recent = np.slice(-3);
+                var avgPrem = recent.reduce(function (s, t) { return s + parseFloat(t.net_premium || t.net_call_premium || 0); }, 0) / 3;
+                if (avgPrem > 500000) {
+                    bull += wNPM; signals.push({ name: '💰 Net Premium Bull', dir: 'BULL', weight: wNPM, detail: 'Avg net premium $' + (avgPrem / 1000).toFixed(0) + 'K (3-tick)' });
+                } else if (avgPrem < -500000) {
+                    bear += wNPM; signals.push({ name: '💰 Net Premium Bear', dir: 'BEAR', weight: wNPM, detail: 'Avg net premium -$' + (Math.abs(avgPrem) / 1000).toFixed(0) + 'K (3-tick)' });
+                }
+            }
+        }
+
+        // ── 25. Strike Flow Levels (magnetic price levels for S/R) ──
+        var wSFL = this._ew('strike_flow_levels', sess);
+        if (data.flowPerStrike && quote.price) {
+            var fps = Array.isArray(data.flowPerStrike) ? data.flowPerStrike : [];
+            var curPrice = parseFloat(quote.price || quote.last || 0);
+            if (fps.length > 0 && curPrice > 0) {
+                var sorted = fps.filter(function (s) { return s.strike && s.total_premium; }).sort(function (a, b) { return parseFloat(b.total_premium) - parseFloat(a.total_premium); });
+                var top = sorted[0];
+                if (top) {
+                    var topStrike = parseFloat(top.strike);
+                    var dist = (topStrike - curPrice) / curPrice;
+                    if (dist > 0.005 && dist < 0.05) {
+                        bull += wSFL * 0.7; signals.push({ name: '📍 Strike Magnet Above', dir: 'BULL', weight: +(wSFL * 0.7).toFixed(2), detail: 'Heavy flow at $' + topStrike + ' (' + (dist * 100).toFixed(1) + '% above)' });
+                    } else if (dist < -0.005 && dist > -0.05) {
+                        bear += wSFL * 0.7; signals.push({ name: '📍 Strike Magnet Below', dir: 'BEAR', weight: +(wSFL * 0.7).toFixed(2), detail: 'Heavy flow at $' + topStrike + ' (' + (Math.abs(dist) * 100).toFixed(1) + '% below)' });
+                    }
+                }
+            }
+        }
+
+        // ── 26. Greek Flow Momentum (delta/gamma shift detection) ──
+        var wGFM = this._ew('greek_flow_momentum', sess);
+        if (data.greekFlow) {
+            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : [];
+            if (gfl.length >= 2) {
+                var lastGF = gfl[gfl.length - 1];
+                var prevGF = gfl[gfl.length - 2];
+                var deltaShift = parseFloat(lastGF.net_delta || lastGF.delta || 0) - parseFloat(prevGF.net_delta || prevGF.delta || 0);
+                if (deltaShift > 0) {
+                    bull += wGFM * 0.6; signals.push({ name: '📈 Delta Rising', dir: 'BULL', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift +' + deltaShift.toFixed(0) });
+                } else if (deltaShift < 0) {
+                    bear += wGFM * 0.6; signals.push({ name: '📉 Delta Falling', dir: 'BEAR', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift ' + deltaShift.toFixed(0) });
+                }
+            }
+        }
+
+        // ── 27. Sector Tide Alignment ──
+        var wSTA = this._ew('sector_tide_alignment', sess);
+        if (data.sectorTide && quote.sector) {
+            var secTide = data.sectorTide[quote.sector];
+            if (secTide) {
+                var callVol = parseFloat(secTide.call_volume || secTide.calls || 0);
+                var putVol = parseFloat(secTide.put_volume || secTide.puts || 0);
+                var ratio = putVol > 0 ? callVol / putVol : 1;
+                if (ratio > 1.3) {
+                    bull += wSTA; signals.push({ name: '🌊 Sector Bullish', dir: 'BULL', weight: wSTA, detail: quote.sector + ' C/P ratio ' + ratio.toFixed(2) });
+                } else if (ratio < 0.7) {
+                    bear += wSTA; signals.push({ name: '🌊 Sector Bearish', dir: 'BEAR', weight: wSTA, detail: quote.sector + ' C/P ratio ' + ratio.toFixed(2) });
+                }
+            }
+        }
+
+        // ── 28. ETF Tide Macro Direction ──
+        var wETM = this._ew('etf_tide_macro', sess);
+        if (data.etfTide) {
+            var spyTide = data.etfTide['SPY'];
+            var qqqTide = data.etfTide['QQQ'];
+            var macroBull = 0, macroBear = 0;
+            [spyTide, qqqTide].forEach(function (t) {
+                if (t) {
+                    var cv = parseFloat(t.call_volume || t.calls || 0);
+                    var pv = parseFloat(t.put_volume || t.puts || 0);
+                    if (cv > pv * 1.2) macroBull++;
+                    else if (pv > cv * 1.2) macroBear++;
+                }
+            });
+            if (macroBull >= 2) {
+                bull += wETM; signals.push({ name: '🏛️ Macro Bullish', dir: 'BULL', weight: wETM, detail: 'SPY+QQQ flow bullish' });
+            } else if (macroBear >= 2) {
+                bear += wETM; signals.push({ name: '🏛️ Macro Bearish', dir: 'BEAR', weight: wETM, detail: 'SPY+QQQ flow bearish' });
+            }
+        }
+
+        // ── 29. Squeeze Composite (short volume + FTDs) ──
+        var wSQ = this._ew('squeeze_composite', sess);
+        if (data.shortVolume || data.failsToDeliver) {
+            var sqScore = 0;
+            if (data.shortVolume) {
+                var svArr = Array.isArray(data.shortVolume) ? data.shortVolume : [];
+                var lastSV = svArr[svArr.length - 1];
+                if (lastSV) {
+                    var svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0);
+                    if (svRatio > 0.5) sqScore += 2;
+                    else if (svRatio > 0.4) sqScore += 1;
+                }
+            }
+            if (data.failsToDeliver) {
+                var ftdArr = Array.isArray(data.failsToDeliver) ? data.failsToDeliver : [];
+                var lastFTD = ftdArr[ftdArr.length - 1];
+                if (lastFTD) {
+                    var ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0);
+                    if (ftdQty > 1000000) sqScore += 2;
+                    else if (ftdQty > 500000) sqScore += 1;
+                }
+            }
+            if (sqScore >= 2) {
+                bull += wSQ * (sqScore / 4); signals.push({ name: '🔥 Squeeze Watch', dir: 'BULL', weight: +(wSQ * sqScore / 4).toFixed(2), detail: 'Squeeze score ' + sqScore + '/4' });
+            }
+        }
+
+        // ── 30. Seasonality Alignment ──
+        var wSZN = this._ew('seasonality_alignment', sess);
+        if (data.seasonality) {
+            var sznData = Array.isArray(data.seasonality) ? data.seasonality : [];
+            var curMonth = new Date().getMonth(); // 0-indexed
+            var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            var curMonthData = sznData.find(function (m) { return (m.month || '').toLowerCase() === monthNames[curMonth].toLowerCase(); });
+            if (curMonthData) {
+                var avgReturn = parseFloat(curMonthData.avg_return || curMonthData.mean || 0);
+                if (avgReturn > 2) {
+                    bull += wSZN; signals.push({ name: '📅 Seasonal Bull', dir: 'BULL', weight: wSZN, detail: monthNames[curMonth] + ' avg +' + avgReturn.toFixed(1) + '%' });
+                } else if (avgReturn < -2) {
+                    bear += wSZN; signals.push({ name: '📅 Seasonal Bear', dir: 'BEAR', weight: wSZN, detail: monthNames[curMonth] + ' avg ' + avgReturn.toFixed(1) + '%' });
+                }
+            }
+        }
+
+        // ── 31. Vol Regime (IV vs Realized Vol) ──
+        var wVOL = this._ew('vol_regime', sess);
+        if (data.realizedVol && data.ivRank) {
+            var rvData = Array.isArray(data.realizedVol) ? data.realizedVol : [];
+            var lastRV = rvData[rvData.length - 1];
+            if (lastRV) {
+                var rv = parseFloat(lastRV.realized_vol || lastRV.rv || 0);
+                var iv = parseFloat((Array.isArray(data.ivRank) ? data.ivRank[data.ivRank.length - 1] : data.ivRank)?.iv || 0);
+                if (iv > 0 && rv > 0) {
+                    var ivrvRatio = iv / rv;
+                    if (ivrvRatio > 1.3) {
+                        signals.push({ name: '📊 IV Premium', dir: 'NEUTRAL', weight: 0, detail: 'IV/RV=' + ivrvRatio.toFixed(2) + ' — options expensive' });
+                    } else if (ivrvRatio < 0.8) {
+                        signals.push({ name: '📊 IV Discount', dir: 'NEUTRAL', weight: 0, detail: 'IV/RV=' + ivrvRatio.toFixed(2) + ' — options cheap' });
+                    }
+                }
+            }
+        }
+
+        // ── 32. Insider Conviction ──
+        var wIC = this._ew('insider_conviction', sess);
+        if (data.insiderFlow) {
+            var ifl = Array.isArray(data.insiderFlow) ? data.insiderFlow : [];
+            if (ifl.length > 0) {
+                var netBuy = ifl.reduce(function (s, t) {
+                    var type = (t.transaction_type || t.txn_type || '').toLowerCase();
+                    var val = parseFloat(t.value || t.amount || 0);
+                    return s + (type.includes('buy') || type.includes('purchase') ? val : type.includes('sell') || type.includes('sale') ? -val : 0);
+                }, 0);
+                if (netBuy > 100000) {
+                    bull += wIC; signals.push({ name: '🏢 Insider Buying', dir: 'BULL', weight: wIC, detail: 'Net insider buy $' + (netBuy / 1000).toFixed(0) + 'K' });
+                } else if (netBuy < -500000) {
+                    bear += wIC * 0.5; signals.push({ name: '🏢 Insider Selling', dir: 'BEAR', weight: +(wIC * 0.5).toFixed(2), detail: 'Net insider sell $' + (Math.abs(netBuy) / 1000).toFixed(0) + 'K' });
+                }
+            }
+        }
+
+        // ── 33. Spot Gamma Pin Detection ──
+        var wSGP = this._ew('spot_gamma_pin', sess);
+        if (data.spotExposures) {
+            var spotData = Array.isArray(data.spotExposures) ? data.spotExposures : (data.spotExposures.data ? [data.spotExposures] : []);
+            if (spotData.length > 0) {
+                var spot = spotData[0];
+                var gammaVal = parseFloat(spot.net_gamma || spot.gamma || 0);
+                if (Math.abs(gammaVal) > 1000000) {
+                    signals.push({ name: '📌 Gamma Pin', dir: 'NEUTRAL', weight: 0, detail: 'High gamma at spot — expect chop' });
+                }
+            }
+        }
+
+        // ── 34. Flow Horizon Classification ──
+        var wFH = this._ew('flow_horizon', sess);
+        if (data.flowPerExpiry) {
+            var fpe = Array.isArray(data.flowPerExpiry) ? data.flowPerExpiry : [];
+            if (fpe.length > 0) {
+                var nearTerm = 0, farTerm = 0;
+                var now = new Date();
+                fpe.forEach(function (e) {
+                    var expDate = new Date(e.expiry || e.expiration || '');
+                    var daysOut = (expDate - now) / (1000 * 60 * 60 * 24);
+                    var vol = parseFloat(e.total_volume || e.volume || 0);
+                    if (daysOut <= 7) nearTerm += vol;
+                    else farTerm += vol;
+                });
+                if (nearTerm > farTerm * 2) {
+                    signals.push({ name: '⏱️ Near-Term Flow', dir: 'NEUTRAL', weight: 0, detail: 'Flow concentrated < 7 DTE — day trade bias' });
+                } else if (farTerm > nearTerm * 2) {
+                    signals.push({ name: '⏱️ Far-Term Flow', dir: 'NEUTRAL', weight: 0, detail: 'Flow concentrated > 7 DTE — swing bias' });
+                }
+            }
+        }
+
         // Compute final score — CONVICTION SPREAD (not ratio)
         // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
         const spread = Math.abs(bull - bear);
-        const maxWeight = 25;  // ↓ from 40 — makes confidence track the bar better
+        const maxWeight = 35;  // ↑ from 25 — accounts for 11 new API-enhanced signals
         const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + 2 ? 'BEARISH' : 'NEUTRAL';
         const confidence = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
         const signalCount = signals.length;

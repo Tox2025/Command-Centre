@@ -100,7 +100,24 @@ const state = {
     gapAnalysis: [],
     halts: [],
     multiTF: {},
-    hotOpportunities: []
+    hotOpportunities: [],
+    // Phase 1 API Enhancement data
+    netPremium: {},
+    flowPerStrike: {},
+    flowPerExpiry: {},
+    greekFlow: {},
+    spotExposures: {},
+    shortVolume: {},
+    failsToDeliver: {},
+    seasonality: {},
+    realizedVol: {},
+    termStructure: {},
+    insiderFlow: {},
+    sectorTide: {},
+    etfTide: {},
+    economicCalendar: [],
+    etfFlows: {},
+    chatHistory: new Map()
 };
 
 // ── Express Setup ─────────────────────────────────────────
@@ -672,6 +689,18 @@ app.post('/api/chat', async (req, res) => {
             if (tdp && Array.isArray(tdp)) context += 'Dark Pool (last 3): ' + JSON.stringify(tdp.slice(0, 3)) + '\n';
             var tgex = state.gex[ticker];
             if (tgex) context += 'GEX: ' + JSON.stringify(Array.isArray(tgex) ? tgex.slice(0, 3) : tgex) + '\n';
+
+            // NEW API data for ticker
+            var tnp = state.netPremium[ticker];
+            if (tnp) context += 'Net Premium: ' + JSON.stringify(Array.isArray(tnp) ? tnp.slice(-3) : tnp) + '\n';
+            var tsv = state.shortVolume[ticker];
+            if (tsv) context += 'Short Volume: ' + JSON.stringify(Array.isArray(tsv) ? tsv.slice(-1) : tsv) + '\n';
+            var tftd = state.failsToDeliver[ticker];
+            if (tftd) context += 'FTDs: ' + JSON.stringify(Array.isArray(tftd) ? tftd.slice(-1) : tftd) + '\n';
+            var tszn = state.seasonality[ticker];
+            if (tszn) context += 'Seasonality: ' + JSON.stringify(Array.isArray(tszn) ? tszn.slice(0, 3) : tszn) + '\n';
+            var tifl = state.insiderFlow[ticker];
+            if (tifl) context += 'Insider Flow: ' + JSON.stringify(Array.isArray(tifl) ? tifl.slice(0, 3) : tifl) + '\n';
         }
 
         // Earnings calendar
@@ -740,25 +769,103 @@ app.post('/api/chat', async (req, res) => {
             context += '\n--- GAP ANALYSIS ---\n' + gaps.slice(0, 5).map(function (g) { return g.ticker + ' gap ' + (g.gapPercent || 0).toFixed(1) + '%'; }).join(', ') + '\n';
         }
 
+        // Sector Tides
+        if (Object.keys(state.sectorTide).length > 0) {
+            context += '\n--- SECTOR TIDES ---\n';
+            Object.keys(state.sectorTide).forEach(function (sec) {
+                var st = state.sectorTide[sec];
+                if (st) context += sec + ': calls=' + (st.call_volume || st.calls || 0) + ' puts=' + (st.put_volume || st.puts || 0) + '\n';
+            });
+        }
+
+        // ETF Tides
+        if (Object.keys(state.etfTide).length > 0) {
+            context += '\n--- ETF FLOW TIDES ---\n';
+            Object.keys(state.etfTide).forEach(function (etf) {
+                var et = state.etfTide[etf];
+                if (et) context += etf + ': calls=' + (et.call_volume || et.calls || 0) + ' puts=' + (et.put_volume || et.puts || 0) + '\n';
+            });
+        }
+
+        // Economic Calendar
+        if (state.economicCalendar && state.economicCalendar.length > 0) {
+            context += '\n--- ECONOMIC CALENDAR ---\n';
+            state.economicCalendar.slice(0, 8).forEach(function (ev) {
+                context += (ev.date || '') + ' ' + (ev.event || ev.name || '') + ' | Expected: ' + (ev.expected || ev.forecast || 'N/A') + '\n';
+            });
+        }
+
+        // Slash command handling
+        var slashResult = null;
+        if (userMsg.startsWith('/')) {
+            var cmd = userMsg.split(' ')[0].toLowerCase();
+            var cmdArg = userMsg.split(' ').slice(1).join(' ').toUpperCase().trim();
+            if (cmd === '/scan') {
+                slashResult = 'SCANNER RESULTS:\n' + JSON.stringify(state.scannerResults || {}, null, 1);
+            } else if (cmd === '/earnings') {
+                slashResult = 'UPCOMING EARNINGS:\n';
+                Object.keys(state.earnings).forEach(function (t) {
+                    var e = state.earnings[t];
+                    var items = Array.isArray(e) ? e : [e];
+                    items.slice(0, 2).forEach(function (item) { slashResult += t + ': ' + (item.report_date || item.date || 'N/A') + '\n'; });
+                });
+            } else if (cmd === '/positions') {
+                var pp = tradeJournal.getPaperTrades().filter(function (t) { return t.status === 'OPEN'; });
+                slashResult = 'OPEN POSITIONS (' + pp.length + '):\n';
+                pp.forEach(function (t) { slashResult += t.ticker + ' ' + t.direction + ' @ $' + (t.paperEntry || 0).toFixed(2) + ' P&L: $' + (t.pnl || 0).toFixed(2) + '\n'; });
+            } else if (cmd === '/brief') {
+                slashResult = 'Generating morning brief...\n' + JSON.stringify(state.morningBrief || {}, null, 1);
+            } else if (cmd === '/compare' && cmdArg) {
+                var tickers = cmdArg.split(/[,\s]+/);
+                slashResult = 'COMPARISON:\n';
+                tickers.forEach(function (t) {
+                    var q = state.quotes[t] || {};
+                    var sig = state.signalScores[t] || {};
+                    slashResult += t + ': $' + (q.price || q.last || '?') + ' ' + (sig.direction || '?') + ' ' + (sig.confidence || 0) + '% conf\n';
+                });
+            }
+        }
+
+        // Conversation memory: store and retrieve last 10 messages per session
+        var sessionId = req.body.sessionId || 'default';
+        if (!state.chatHistory.has(sessionId)) state.chatHistory.set(sessionId, []);
+        var history = state.chatHistory.get(sessionId);
+        history.push({ role: 'user', text: userMsg });
+        if (history.length > 20) history.splice(0, history.length - 20);
+
+        // Build conversation history context
+        var historyContext = '';
+        if (history.length > 1) {
+            historyContext = '\n--- CONVERSATION HISTORY ---\n';
+            history.slice(-10, -1).forEach(function (msg) {
+                historyContext += (msg.role === 'user' ? 'User: ' : 'Assistant: ') + msg.text.substring(0, 200) + '\n';
+            });
+        }
+
         // Build Gemini request
         var genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         var model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
         var systemPrompt = 'You are an expert AI trading assistant embedded in a live trading dashboard. '
             + 'You have access to real-time market data, technical analysis, options flow, dark pool activity, '
-            + 'congressional trades, earnings calendars, signal scores, and paper trading history. '
+            + 'congressional trades, earnings calendars, signal scores, paper trading history, '
+            + 'net premium flow, sector tides, ETF tides, economic calendar, short squeeze data, and seasonality. '
             + 'Answer questions using the live data provided below. Be specific with numbers. '
             + 'If asked about earnings, give the exact date. If asked about a ticker, reference the actual price and signals. '
             + 'Keep responses concise but detailed. Use bullet points for clarity. '
             + 'If data is not available for a specific query, say so clearly.\n\n'
-            + context;
+            + context + historyContext;
 
+        var userContent = slashResult ? slashResult + '\nUser question: ' + userMsg : 'User question: ' + userMsg;
         var result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\nUser question: ' + userMsg }] }],
-            generationConfig: { maxOutputTokens: 600, temperature: 0.3 }
+            contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }],
+            generationConfig: { maxOutputTokens: 1500, temperature: 0.3 }
         });
 
         var reply = result.response.text();
+        // Store assistant reply in history
+        history.push({ role: 'assistant', text: reply });
+        if (history.length > 20) history.splice(0, history.length - 20);
         res.json({ reply: reply });
     } catch (e) {
         console.error('Chat error:', e.message);
@@ -1329,7 +1436,22 @@ async function scoreTickerSignals(ticker) {
             regime: state.marketRegime,
             sentiment: state.sentiment[ticker] || null,
             multiTF: multiTFData,
-            volatilityRunner: state.volatilityRunners[ticker] || null
+            volatilityRunner: state.volatilityRunners[ticker] || null,
+            // Phase 1 API enhancements
+            netPremium: state.netPremium[ticker] || null,
+            flowPerStrike: state.flowPerStrike[ticker] || null,
+            flowPerExpiry: state.flowPerExpiry[ticker] || null,
+            greekFlow: state.greekFlow[ticker] || null,
+            spotExposures: state.spotExposures[ticker] || null,
+            shortVolume: state.shortVolume[ticker] || null,
+            failsToDeliver: state.failsToDeliver[ticker] || null,
+            seasonality: state.seasonality[ticker] || null,
+            realizedVol: state.realizedVol[ticker] || null,
+            termStructure: state.termStructure[ticker] || null,
+            insiderFlow: state.insiderFlow[ticker] || null,
+            sectorTide: state.sectorTide || {},
+            etfTide: state.etfTide || {},
+            economicCalendar: state.economicCalendar || []
         };
         const signalResult = signalEngine.score(ticker, data, state.session);
 
@@ -1544,6 +1666,20 @@ async function fetchTickerData(ticker, tier) {
         }
         callCount++;
 
+        // Net Premium Ticks (smart money direction) — HOT
+        try {
+            const netPrem = await uw.getNetPremium(ticker);
+            if (netPrem?.data) state.netPremium[ticker] = netPrem.data;
+            callCount++;
+        } catch (e) { /* optional */ }
+
+        // Flow Per Strike (magnetic price levels) — HOT
+        try {
+            const fps = await uw.getFlowPerStrike(ticker);
+            if (fps?.data) state.flowPerStrike[ticker] = fps.data;
+            callCount++;
+        } catch (e) { /* optional */ }
+
         // Dark pool alerts (no API call, uses cached data)
         if (state.darkPool[ticker]) {
             const dpAlerts = alertEngine.evaluateDarkPool(ticker, { data: state.darkPool[ticker] });
@@ -1567,6 +1703,27 @@ async function fetchTickerData(ticker, tier) {
             const gr = await uw.getGreeks(ticker);
             if (gr?.data) state.greeks[ticker] = gr.data;
             callCount++;
+
+            // Greek Flow (delta/gamma shifts) — WARM
+            try {
+                const gf = await uw.getGreekFlow(ticker);
+                if (gf?.data) state.greekFlow[ticker] = gf.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Spot Exposures (pinning detection) — WARM
+            try {
+                const spot = await uw.getSpotExposures(ticker);
+                if (spot?.data) state.spotExposures[ticker] = spot.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Flow Per Expiry (trade horizon) — WARM
+            try {
+                const fpe = await uw.getFlowPerExpiry(ticker);
+                if (fpe?.data) state.flowPerExpiry[ticker] = fpe.data;
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
         // ── COLD tier (every 15th cycle) ──
@@ -1586,6 +1743,48 @@ async function fetchTickerData(ticker, tier) {
             const earn = await uw.getEarnings(ticker);
             if (earn?.data) state.earnings[ticker] = earn.data;
             callCount++;
+
+            // Short Volume & Ratio (squeeze detection) — COLD
+            try {
+                const sv = await uw.getShortVolume(ticker);
+                if (sv?.data) state.shortVolume[ticker] = sv.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Fails to Deliver (forced buying pressure) — COLD
+            try {
+                const ftd = await uw.getFailsToDeliver(ticker);
+                if (ftd?.data) state.failsToDeliver[ticker] = ftd.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Seasonality (monthly bias) — COLD
+            try {
+                const szn = await uw.getTickerSeasonality(ticker);
+                if (szn?.data) state.seasonality[ticker] = szn.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Realized Volatility (IV vs RV) — COLD
+            try {
+                const rv = await uw.getRealizedVol(ticker);
+                if (rv?.data) state.realizedVol[ticker] = rv.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Term Structure (contango/backwardation) — COLD
+            try {
+                const ts = await uw.getTermStructure(ticker);
+                if (ts?.data) state.termStructure[ticker] = ts.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Insider Ticker Flow (net buying/selling) — COLD
+            try {
+                const itf = await uw.getInsiderTickerFlow(ticker);
+                if (itf?.data) state.insiderFlow[ticker] = itf.data;
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
     } catch (err) {
@@ -1635,6 +1834,26 @@ async function fetchMarketData(tier) {
             const mIns = await uw.getInsiderBuySells();
             if (mIns?.data) state.marketInsiderBuySells = mIns.data;
             callCount++;
+
+            // Sector Tides (sector rotation) — WARM
+            try {
+                var sectors = ['Technology', 'Healthcare', 'Financial', 'Energy', 'Consumer Cyclical', 'Industrials', 'Communication Services'];
+                for (var si = 0; si < sectors.length; si++) {
+                    var sectTide = await uw.getSectorTide(sectors[si]);
+                    if (sectTide?.data) state.sectorTide[sectors[si]] = sectTide.data;
+                    callCount++;
+                }
+            } catch (e) { /* optional */ }
+
+            // ETF Tides (macro direction) — WARM
+            try {
+                var etfs = ['SPY', 'QQQ', 'IWM'];
+                for (var ei = 0; ei < etfs.length; ei++) {
+                    var eTide = await uw.getETFTide(etfs[ei]);
+                    if (eTide?.data) state.etfTide[etfs[ei]] = eTide.data;
+                    callCount++;
+                }
+            } catch (e) { /* optional */ }
         }
 
         // ── COLD tier (every 15th cycle) ──
@@ -1665,6 +1884,23 @@ async function fetchMarketData(tier) {
             const earnAH = await uw.getEarningsAfterhours();
             if (earnAH?.data) state.earningsToday.afterhours = Array.isArray(earnAH.data) ? earnAH.data : [];
             callCount++;
+
+            // Economic Calendar (macro events) — COLD
+            try {
+                const econ = await uw.getEconomicCalendar();
+                if (econ?.data) state.economicCalendar = Array.isArray(econ.data) ? econ.data.slice(0, 30) : [];
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // ETF Flows (institutional positioning) — COLD
+            try {
+                var etfList = ['SPY', 'QQQ', 'IWM', 'XLK', 'XLF', 'XLE', 'XLV'];
+                for (var efi = 0; efi < etfList.length; efi++) {
+                    var ef = await uw.getETFFlow(etfList[efi]);
+                    if (ef?.data) state.etfFlows[etfList[efi]] = ef.data;
+                    callCount++;
+                }
+            } catch (e) { /* optional */ }
         }
 
     } catch (err) {

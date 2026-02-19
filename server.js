@@ -30,7 +30,27 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TICKERS = (process.env.TICKERS || 'AAPL,MSFT,TSLA').split(',').map(t => t.trim());
+// Load watchlist: file > env > default
+var TICKERS;
+try {
+    var watchlistPath = path.join(__dirname, 'data', 'watchlist.json');
+    if (require('fs').existsSync(watchlistPath)) {
+        TICKERS = JSON.parse(require('fs').readFileSync(watchlistPath, 'utf8'));
+        console.log('📋 Loaded watchlist from file: ' + TICKERS.join(', '));
+    } else {
+        TICKERS = (process.env.TICKERS || 'AAPL,MSFT,TSLA').split(',').map(t => t.trim());
+    }
+} catch (e) {
+    TICKERS = (process.env.TICKERS || 'AAPL,MSFT,TSLA').split(',').map(t => t.trim());
+}
+
+function saveWatchlist() {
+    try {
+        var dir = path.join(__dirname, 'data');
+        if (!require('fs').existsSync(dir)) require('fs').mkdirSync(dir, { recursive: true });
+        require('fs').writeFileSync(path.join(dir, 'watchlist.json'), JSON.stringify(state.tickers, null, 2));
+    } catch (e) { console.error('Failed to save watchlist:', e.message); }
+}
 
 // ── State ─────────────────────────────────────────────────
 const uw = new UWClient(process.env.UW_API_KEY);
@@ -154,8 +174,8 @@ app.post('/api/tickers', async (req, res) => {
         } catch (e) {
             console.log('⚠️ Error fetching data for ' + sym + ':', e.message);
         }
-        // Broadcast updated state to all connected clients
         broadcast({ type: 'full_state', data: state });
+        saveWatchlist();
         console.log('➕ Added ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
     } else if (action === 'remove') {
         state.tickers = state.tickers.filter(t => t !== sym);
@@ -165,6 +185,7 @@ app.post('/api/tickers', async (req, res) => {
         delete state.kellySizing[sym];
         state.morningBrief = generateMorningBrief();
         broadcast({ type: 'full_state', data: state });
+        saveWatchlist();
         console.log('➖ Removed ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
     }
     res.json({ tickers: state.tickers });

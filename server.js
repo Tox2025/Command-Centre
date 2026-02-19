@@ -832,7 +832,21 @@ app.post('/api/chat', async (req, res) => {
             var tq = state.quotes[ticker];
             if (tq) context += 'Quote: ' + JSON.stringify(tq) + '\n';
             var tta = state.technicals[ticker];
-            if (tta) context += 'Technicals: RSI=' + (tta.rsi || 'N/A') + ' MACD=' + JSON.stringify(tta.macd || {}) + ' EMA=' + JSON.stringify(tta.ema || {}) + ' Bias=' + (tta.bias || 'N/A') + '\n';
+            if (tta) {
+                var ttaMacd = tta.macd || {};
+                context += 'Technicals: RSI=' + (tta.rsi || 'N/A');
+                context += ' MACD={hist:' + (ttaMacd.histogram || 'N/A') + ',signal:' + (ttaMacd.signal || 'N/A') + '}';
+                if (tta.ema) context += ' EMA9=' + (tta.ema.ema9 || 'N/A') + ' EMA20=' + (tta.ema.ema20 || 'N/A') + ' EMA50=' + (tta.ema.ema50 || 'N/A');
+                context += ' Bias=' + (tta.bias || 'N/A') + ' EMAbias=' + (tta.emaBias || 'N/A');
+                if (tta.atr) context += ' ATR=' + tta.atr;
+                if (tta.pivots) context += ' Support=' + (tta.pivots.s1 || 'N/A') + '/' + (tta.pivots.s2 || 'N/A') + ' Resistance=' + (tta.pivots.r1 || 'N/A') + '/' + (tta.pivots.r2 || 'N/A');
+                if (tta.bollingerBands) context += ' BB={upper:' + (tta.bollingerBands.upper || 'N/A') + ',lower:' + (tta.bollingerBands.lower || 'N/A') + ',pos:' + (tta.bollingerBands.position || 'N/A') + '}';
+                if (tta.adx) context += ' ADX=' + (tta.adx.adx || 'N/A') + '(' + (tta.adx.trendStrength || '') + ')';
+                if (tta.fibonacci && tta.fibonacci.levels) context += ' Fib=' + JSON.stringify(tta.fibonacci.levels);
+                if (tta.rsiDivergence && tta.rsiDivergence.length > 0) context += ' RSI_Div=' + tta.rsiDivergence.map(function (d) { return d.type; }).join(',');
+                if (tta.patterns && tta.patterns.length > 0) context += ' Patterns=' + tta.patterns.map(function (p) { return p.name + '(' + p.direction + ')'; }).join(',');
+                context += '\n';
+            }
             var tsig = state.signalScores[ticker];
             if (tsig) context += 'Signal Score: ' + JSON.stringify({ direction: tsig.direction, confidence: tsig.confidence, signals: (tsig.signals || []).slice(0, 5) }) + '\n';
             var tear = state.earnings[ticker];
@@ -995,22 +1009,30 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
-        // Technical Analysis for each watchlist ticker
+        // Technical Analysis for each watchlist ticker (use correct nested paths)
         var hasTechnicals = false;
         watchTickers.forEach(function (tkr) {
             var ta = state.technicals[tkr];
             if (ta) {
                 if (!hasTechnicals) { context += '\n--- TECHNICAL ANALYSIS ---\n'; hasTechnicals = true; }
                 context += tkr + ':';
-                if (ta.rsi) context += ' RSI=' + ta.rsi.toFixed(1);
-                if (ta.ema9) context += ' EMA9=$' + ta.ema9.toFixed(2);
-                if (ta.ema20) context += ' EMA20=$' + ta.ema20.toFixed(2);
-                if (ta.sma50) context += ' SMA50=$' + ta.sma50.toFixed(2);
-                if (ta.sma200) context += ' SMA200=$' + ta.sma200.toFixed(2);
-                if (ta.atr) context += ' ATR=$' + ta.atr.toFixed(2);
-                if (ta.support) context += ' Support=$' + ta.support.toFixed(2);
-                if (ta.resistance) context += ' Resistance=$' + ta.resistance.toFixed(2);
-                if (ta.macd && ta.macd.histogram !== undefined) context += ' MACD=' + (ta.macd.histogram > 0 ? '+' : '') + ta.macd.histogram.toFixed(2);
+                if (ta.rsi != null) context += ' RSI=' + (typeof ta.rsi === 'number' ? ta.rsi.toFixed(1) : ta.rsi);
+                if (ta.ema && ta.ema.ema9) context += ' EMA9=$' + ta.ema.ema9;
+                if (ta.ema && ta.ema.ema20) context += ' EMA20=$' + ta.ema.ema20;
+                if (ta.ema && ta.ema.ema50) context += ' EMA50=$' + ta.ema.ema50;
+                if (ta.emaBias) context += ' EMAbias=' + ta.emaBias;
+                if (ta.atr != null) context += ' ATR=$' + (typeof ta.atr === 'number' ? ta.atr.toFixed(2) : ta.atr);
+                if (ta.pivots) {
+                    context += ' Support=$' + (ta.pivots.s1 || 'N/A') + '/$' + (ta.pivots.s2 || 'N/A');
+                    context += ' Resistance=$' + (ta.pivots.r1 || 'N/A') + '/$' + (ta.pivots.r2 || 'N/A');
+                    context += ' Pivot=$' + (ta.pivots.pp || 'N/A');
+                }
+                if (ta.macd && ta.macd.histogram != null) context += ' MACD_Hist=' + (ta.macd.histogram > 0 ? '+' : '') + ta.macd.histogram;
+                if (ta.bollingerBands) context += ' BB=' + (ta.bollingerBands.lower || '') + '-' + (ta.bollingerBands.upper || '') + '(pos:' + (ta.bollingerBands.position || '') + ')';
+                if (ta.adx && ta.adx.adx != null) context += ' ADX=' + ta.adx.adx + '(' + (ta.adx.trendStrength || '') + ')';
+                if (ta.fibonacci && ta.fibonacci.levels) context += ' Fib=' + JSON.stringify(ta.fibonacci.levels);
+                if (ta.rsiDivergence && ta.rsiDivergence.length > 0) context += ' RSI_Div=' + ta.rsiDivergence.map(function (d) { return d.type + '(' + d.direction + ')'; }).join(',');
+                if (ta.patterns && ta.patterns.length > 0) context += ' Patterns=' + ta.patterns.map(function (p) { return p.name + '(' + p.direction + ')'; }).join(',');
                 context += '\n';
             }
         });
@@ -1454,89 +1476,7 @@ app.get('/api/options-recommend/:ticker', async (req, res) => {
 });
 
 // ── AI Chatbot Endpoint ──────────────────────────────────
-app.post('/api/chat', async (req, res) => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-        return res.json({ reply: '⚠️ Chatbot not configured yet. Add GEMINI_API_KEY to your .env file.\n\nGet a free key at: https://aistudio.google.com/apikey' });
-    }
-
-    const { message, ticker } = req.body;
-    if (!message) return res.status(400).json({ error: 'No message' });
-
-    // Build context from dashboard state
-    let context = 'You are an expert trading analyst assistant for a live trading dashboard. ';
-    context += 'Answer concisely and actionably. Use numbers and data when available. ';
-    context += 'Current session: ' + (state.session || 'UNKNOWN') + '. ';
-
-    // Market regime
-    if (state.marketRegime) {
-        context += 'Market regime: ' + (state.marketRegime.label || state.marketRegime.regime) + '. ';
-    }
-
-    // Tide
-    if (state.marketTide) {
-        context += 'Market tide score: ' + JSON.stringify(state.marketTide).substring(0, 200) + '. ';
-    }
-
-    // Ticker-specific context
-    if (ticker) {
-        const q = state.quotes[ticker];
-        if (q) context += ticker + ' quote: $' + q.price + ' (' + (q.changePercent > 0 ? '+' : '') + q.changePercent + '%), vol=' + q.volume + '. ';
-
-        const brief = (state.morningBrief || {})[ticker];
-        if (brief) context += ticker + ' morning brief: ' + brief.direction + ' (' + brief.confidence + '% conf), bull=' + brief.bull + ', bear=' + brief.bear + '. Signals: ' + (brief.signals || []).join(', ') + '. ';
-
-        const setup = state.tradeSetups[ticker];
-        if (setup) context += ticker + ' trade setup: ' + setup.direction + ', entry=$' + setup.entry + ', T1=$' + setup.target1 + ', T2=$' + setup.target2 + ', stop=$' + setup.stop + ', R:R=' + setup.riskReward + ', conf=' + setup.confidence + '%. ';
-
-        const ta = state.technicals[ticker];
-        if (ta) context += ticker + ' technicals: RSI=' + (ta.rsi || '--') + ', bias=' + (ta.bias || '--') + '. ';
-
-        const dp = state.darkPool[ticker];
-        if (dp) context += ticker + ' dark pool: ' + JSON.stringify(dp).substring(0, 200) + '. ';
-
-        const gex = state.gex[ticker];
-        if (gex) context += ticker + ' GEX: ' + JSON.stringify(gex).substring(0, 200) + '. ';
-
-        const si = state.shortInterest[ticker];
-        if (si) context += ticker + ' short interest: ' + JSON.stringify(si).substring(0, 150) + '. ';
-
-        const sent = (state.sentiment || {})[ticker];
-        if (sent) context += ticker + ' sentiment: ' + sent.label + ' (score=' + sent.score + '). ';
-
-        const kelly = (state.kellySizing || {})[ticker];
-        if (kelly) context += ticker + ' kelly sizing: ' + kelly.pct + '% of portfolio. ';
-    }
-
-    // Recent alerts for context
-    const recentAlerts = state.alerts.slice(-5).map(a => a.ticker + ': ' + a.msg).join('; ');
-    if (recentAlerts) context += 'Recent alerts: ' + recentAlerts + '. ';
-
-    try {
-        const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: context + '\n\nUser question: ' + message }] }],
-                    generationConfig: {
-                        temperature: 0.7,
-                        maxOutputTokens: 800,
-                        topP: 0.9
-                    }
-                })
-            }
-        );
-
-        const data = await geminiRes.json();
-        const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from AI. Check your API key.';
-        res.json({ reply });
-    } catch (e) {
-        console.error('Chat API error:', e.message);
-        res.json({ reply: '❌ Error connecting to Gemini API: ' + e.message });
-    }
-});
+// (Dead /api/chat duplicate removed — first handler at line 789 is active)
 
 const server = app.listen(PORT, () => {
     console.log(`\n🚀 Trading Dashboard running at http://localhost:${PORT}`);

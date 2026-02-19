@@ -26,6 +26,7 @@ const MultiTFAnalyzer = require('./src/multi-tf-analyzer');
 const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
 const EODReporter = require('./src/eod-reporter');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -604,6 +605,141 @@ app.post('/api/scan-low-float', async (req, res) => {
     } catch (e) {
         console.error('Low-float scan error:', e.message);
         res.status(500).json({ error: e.message });
+    }
+});
+
+// ── AI Chatbot with Full Market Data Context ──────────────
+app.post('/api/chat', async (req, res) => {
+    try {
+        var userMsg = (req.body.message || '').trim();
+        var ticker = req.body.ticker || null;
+        if (!userMsg) return res.status(400).json({ error: 'Message required' });
+        if (!process.env.GEMINI_API_KEY) return res.json({ reply: 'GEMINI_API_KEY not configured in .env' });
+
+        // Build rich market context
+        var context = '=== LIVE TRADING DASHBOARD DATA ===\n';
+        context += 'Time: ' + new Date().toISOString() + '\n';
+        context += 'Session: ' + (state.session || 'UNKNOWN') + '\n';
+        context += 'Market Regime: ' + JSON.stringify(state.marketRegime || 'N/A') + '\n\n';
+
+        // Watchlist quotes
+        context += '--- WATCHLIST QUOTES ---\n';
+        state.tickers.forEach(function (t) {
+            var q = state.quotes[t];
+            if (q) {
+                context += t + ': $' + (q.price || q.last || 'N/A') + ' | Change: ' + (q.change_percent || q.changePercent || 'N/A') + '%';
+                var ta = state.technicals[t];
+                if (ta) context += ' | RSI: ' + (ta.rsi ? ta.rsi.toFixed(1) : 'N/A') + ' | Bias: ' + (ta.bias || 'N/A');
+                var sig = state.signalScores[t];
+                if (sig) context += ' | Signal: ' + (sig.direction || 'N/A') + ' ' + (sig.confidence || 0) + '% conf';
+                context += '\n';
+            }
+        });
+
+        // Specific ticker deep dive
+        if (ticker) {
+            context += '\n--- DETAILED DATA FOR ' + ticker + ' ---\n';
+            var tq = state.quotes[ticker];
+            if (tq) context += 'Quote: ' + JSON.stringify(tq) + '\n';
+            var tta = state.technicals[ticker];
+            if (tta) context += 'Technicals: RSI=' + (tta.rsi || 'N/A') + ' MACD=' + JSON.stringify(tta.macd || {}) + ' EMA=' + JSON.stringify(tta.ema || {}) + ' Bias=' + (tta.bias || 'N/A') + '\n';
+            var tsig = state.signalScores[ticker];
+            if (tsig) context += 'Signal Score: ' + JSON.stringify({ direction: tsig.direction, confidence: tsig.confidence, signals: (tsig.signals || []).slice(0, 5) }) + '\n';
+            var tear = state.earnings[ticker];
+            if (tear) context += 'Earnings: ' + JSON.stringify(Array.isArray(tear) ? tear.slice(0, 2) : tear) + '\n';
+            var tsi = state.shortInterest[ticker];
+            if (tsi) context += 'Short Interest: ' + JSON.stringify(Array.isArray(tsi) ? tsi[tsi.length - 1] : tsi) + '\n';
+            var tiv = state.ivRank[ticker];
+            if (tiv) context += 'IV Rank: ' + JSON.stringify(Array.isArray(tiv) ? tiv[tiv.length - 1] : tiv) + '\n';
+            var tmp = state.maxPain[ticker];
+            if (tmp) context += 'Max Pain: ' + JSON.stringify(Array.isArray(tmp) ? tmp.slice(0, 3) : tmp) + '\n';
+            var tdp = state.darkPool[ticker];
+            if (tdp && Array.isArray(tdp)) context += 'Dark Pool (last 3): ' + JSON.stringify(tdp.slice(0, 3)) + '\n';
+            var tgex = state.gex[ticker];
+            if (tgex) context += 'GEX: ' + JSON.stringify(Array.isArray(tgex) ? tgex.slice(0, 3) : tgex) + '\n';
+        }
+
+        // Earnings calendar
+        if (state.earningsToday) {
+            var preEarn = (state.earningsToday.premarket || []).slice(0, 5).map(function (e) { return e.ticker + ' (' + (e.report_time || '') + ')' }).join(', ');
+            var postEarn = (state.earningsToday.afterhours || []).slice(0, 5).map(function (e) { return e.ticker + ' (' + (e.report_time || '') + ')' }).join(', ');
+            if (preEarn || postEarn) {
+                context += '\n--- EARNINGS TODAY ---\n';
+                if (preEarn) context += 'Pre-market: ' + preEarn + '\n';
+                if (postEarn) context += 'After-hours: ' + postEarn + '\n';
+            }
+        }
+
+        // Upcoming earnings from state.earnings
+        context += '\n--- UPCOMING EARNINGS (from watchlist) ---\n';
+        state.tickers.forEach(function (t) {
+            var e = state.earnings[t];
+            if (e) {
+                var items = Array.isArray(e) ? e : [e];
+                items.slice(0, 2).forEach(function (item) {
+                    context += t + ': ' + (item.report_date || item.date || 'N/A') + ' ' + (item.report_time || '') + '\n';
+                });
+            }
+        });
+
+        // Options flow summary
+        var flowSummary = (state.optionsFlow || []).slice(0, 10).map(function (f) {
+            return (f.ticker || f.symbol || '?') + ' ' + (f.put_call || f.option_type || '') + ' $' + ((parseFloat(f.premium || 0) / 1000).toFixed(0)) + 'K';
+        }).join(', ');
+        if (flowSummary) context += '\n--- RECENT OPTIONS FLOW ---\n' + flowSummary + '\n';
+
+        // Congressional trades
+        var congRecent = (state.congressTrades || []).slice(0, 5).map(function (c) {
+            return (c.ticker || '?') + ' ' + (c.name || '') + ' ' + (c.txn_type || '') + ' ' + (c.amounts || '');
+        }).join('; ');
+        if (congRecent) context += '\n--- CONGRESSIONAL TRADES ---\n' + congRecent + '\n';
+
+        // Paper trading stats
+        var paperTrades = tradeJournal.getPaperTrades();
+        var openPaper = paperTrades.filter(function (t) { return t.status === 'OPEN'; });
+        var closedPaper = paperTrades.filter(function (t) { return t.status !== 'OPEN' && t.status !== 'PENDING'; });
+        var paperWins = closedPaper.filter(function (t) { return t.pnl > 0; }).length;
+        context += '\n--- PAPER TRADING ---\n';
+        context += 'Open: ' + openPaper.length + ' | Closed: ' + closedPaper.length + ' | Win Rate: ' + (closedPaper.length > 0 ? Math.round(paperWins / closedPaper.length * 100) + '%' : 'N/A') + '\n';
+        if (openPaper.length > 0) {
+            context += 'Open positions: ' + openPaper.map(function (t) { return t.ticker + ' ' + t.direction + ' @ $' + (t.paperEntry || t.entry || 0).toFixed(2); }).join(', ') + '\n';
+        }
+
+        // Alerts
+        var recentAlerts = (state.alerts || []).slice(0, 5).map(function (a) {
+            return (a.ticker || '') + ': ' + (a.message || '').substring(0, 80);
+        }).join('; ');
+        if (recentAlerts) context += '\n--- RECENT ALERTS ---\n' + recentAlerts + '\n';
+
+        // Gap analysis
+        var gaps = gapAnalyzer.getGaps();
+        if (gaps && gaps.length > 0) {
+            context += '\n--- GAP ANALYSIS ---\n' + gaps.slice(0, 5).map(function (g) { return g.ticker + ' gap ' + (g.gapPercent || 0).toFixed(1) + '%'; }).join(', ') + '\n';
+        }
+
+        // Build Gemini request
+        var genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        var model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+        var systemPrompt = 'You are an expert AI trading assistant embedded in a live trading dashboard. '
+            + 'You have access to real-time market data, technical analysis, options flow, dark pool activity, '
+            + 'congressional trades, earnings calendars, signal scores, and paper trading history. '
+            + 'Answer questions using the live data provided below. Be specific with numbers. '
+            + 'If asked about earnings, give the exact date. If asked about a ticker, reference the actual price and signals. '
+            + 'Keep responses concise but detailed. Use bullet points for clarity. '
+            + 'If data is not available for a specific query, say so clearly.\n\n'
+            + context;
+
+        var result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\nUser question: ' + userMsg }] }],
+            generationConfig: { maxOutputTokens: 600, temperature: 0.3 }
+        });
+
+        var reply = result.response.text();
+        res.json({ reply: reply });
+    } catch (e) {
+        console.error('Chat error:', e.message);
+        res.json({ reply: 'Error: ' + e.message });
     }
 });
 

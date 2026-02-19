@@ -1,0 +1,727 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Command Center</title>
+  <meta name="description"
+    content="Real-time trading dashboard with options flow, GEX, dark pool data, and AI-powered trade setups">
+  <link rel="stylesheet" href="styles.css?v=13">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+</head>
+
+<body>
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="logo">
+        <span class="logo-icon">&#9670;</span>
+        <span class="logo-text">COMMAND CENTER</span>
+      </div>
+      <div class="session-badge" id="sessionBadge">LOADING</div>
+    </div>
+    <div class="topbar-center">
+      <div class="ticker-input-group">
+        <input type="text" id="tickerInput" placeholder="Add ticker..." maxlength="6">
+        <button id="addTickerBtn" class="btn-add">+</button>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="budget-badge" id="budgetBadge" title="API calls used today">âš¡ --</span>
+      <span class="session-interval" id="sessionInterval" title="Current refresh interval">â± --</span>
+      <div class="status-dot" id="statusDot"></div>
+      <span class="last-update" id="lastUpdate">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Navigation Menu Bar -->
+  <nav class="nav-bar">
+    <a href="/" class="nav-link active" id="navDashboard">
+      <span class="nav-icon">&#9632;</span> Dashboard
+    </a>
+    <a href="/paper-trading.html" class="nav-link" id="navPaperTrading">
+      <span class="nav-icon">&#9881;</span> Paper Trading
+    </a>
+    <a href="/options-paper-trading.html" class="nav-link" id="navOptionsPaper">
+      <span class="nav-icon">&#128203;</span> Options Paper
+    </a>
+    <a href="#" class="nav-link nav-disabled" title="Coming soon">
+      <span class="nav-icon">&#128218;</span> Trade Journal
+    </a>
+    <a href="/reports.html" class="nav-link" id="navReports">
+      <span class="nav-icon">&#128202;</span> Reports
+    </a>
+    <a href="#" class="nav-link nav-disabled" title="Coming soon">
+      <span class="nav-icon">&#9881;</span> Settings
+    </a>
+  </nav>
+
+  <!-- Main Grid -->
+  <main class="dashboard">
+
+    <!-- 1. Morning Brief (full width) -->
+    <section class="panel panel-brief" id="panelBrief">
+      <div class="panel-header">
+        <h2>&#9728; Morning Brief <span class="info-tip"
+            data-tip="AI directional bias per ticker. Green = bullish, red = bearish. Confidence % = signal strength. Bull/Bear bar = scoring weight. Badges show ML model, market regime, and position sizing.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="briefSession">--</span>
+      </div>
+      <div class="panel-body" id="briefContent"></div>
+    </section>
+
+    <!-- 2. Watchlist -->
+    <section class="panel panel-watchlist" id="panelWatchlist">
+      <div class="panel-header">
+        <h2>&#128202; Watchlist <span class="info-tip"
+            data-tip="Live quotes for tracked tickers. Click any ticker to drill down. RSI > 70 = overbought, < 30 = oversold. Bias column = combined technical + flow direction.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="watchlistTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Price</th>
+              <th>Change</th>
+              <th>Volume</th>
+              <th>RSI</th>
+              <th>Bias</th>
+              <th>Setup</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="watchlistBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3. Market Scanner -->
+    <section class="panel panel-scanner" id="panelScanner">
+      <div class="panel-header">
+        <h2>&#128269; Market Scanner <span class="info-tip"
+            data-tip="Scans all UW feeds for high-confidence multi-signal setups on tickers NOT in your watchlist. Higher confidence = more data sources agree on direction.">&#9432;</span>
+        </h2>
+        <span class="panel-badge scanner-pulse" id="scannerCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div id="scannerStatus" class="scanner-status">Scanning market-wide feeds...</div>
+        <table class="data-table" id="scannerTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Direction</th>
+              <th>Confidence</th>
+              <th>Price</th>
+              <th>Sources</th>
+              <th>Signals</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="scannerBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. Trade Setups -->
+    <section class="panel panel-setups" id="panelSetups">
+      <div class="panel-header">
+        <h2>&#127919; Trade Setups <span class="info-tip"
+            data-tip="AI-generated entry/stop/target levels based on technicals + flow. Horizon = expected hold time. R:R = reward-to-risk ratio. Higher confidence + wider R:R = better setup.">&#9432;</span>
+        </h2>
+        <div style="display:flex;gap:6px">
+          <button class="setup-tab active" data-tab="all" onclick="switchSetupTab('all')">All <span id="setupCountAll"
+              class="panel-badge">0</span></button>
+          <button class="setup-tab" data-tab="day" onclick="switchSetupTab('day')">⚡ Day Trade <span id="setupCountDay"
+              class="panel-badge" style="background:#3b82f6">0</span></button>
+          <button class="setup-tab" data-tab="swing" onclick="switchSetupTab('swing')">📊 Swing <span
+              id="setupCountSwing" class="panel-badge" style="background:#f59e0b">0</span></button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="setupsTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Direction</th>
+              <th>Entry</th>
+              <th>Target 1</th>
+              <th>Target 2</th>
+              <th>Stop</th>
+              <th>R:R</th>
+              <th>Confidence</th>
+              <th>Horizon</th>
+            </tr>
+          </thead>
+          <tbody id="setupsBody"></tbody>
+        </table>
+        <div id="journalStats" class="journal-stats-container"></div>
+      </div>
+    </section>
+
+    <!-- 5. Low Float X Alert Validator -->
+    <section class="panel panel-xalerts" id="panelXAlerts">
+      <div class="panel-header">
+        <h2>&#127919; Low Float X Alert Validator <span class="info-tip"
+            data-tip="Validates X/Twitter stock alerts for low-float pump potential. Score > 60 = validated. Uses UW + Yahoo data for float, SI%, volume, momentum. Scan Market discovers candidates from live flow.">&#9432;</span>
+        </h2>
+        <span class="panel-badge xalert-badge" id="xAlertCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div class="xalert-input-group">
+          <input type="text" id="xAlertTicker" placeholder="Ticker (e.g. FGL)" maxlength="6" class="xalert-input">
+          <input type="text" id="xAlertSource" placeholder="Source (optional)" maxlength="30"
+            class="xalert-input xalert-source">
+          <button id="validateBtn" class="btn-validate">Validate</button>
+          <button id="scanMarketBtn" class="btn-validate"
+            style="background:linear-gradient(135deg,#6366f1,#8b5cf6);margin-left:4px"
+            title="Auto-scan flow + dark pool for low-float movers">🔎 Scan Market</button>
+        </div>
+        <div id="xAlertStatus" class="xalert-status"></div>
+        <table class="data-table" id="xAlertTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Score</th>
+              <th>Price</th>
+              <th>Shares O/S</th>
+              <th>Float</th>
+              <th>SI%</th>
+              <th>RelVol</th>
+              <th>Range</th>
+              <th>Targets</th>
+              <th>Source</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="xAlertBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 6. Market Tide -->
+    <section class="panel panel-tide" id="panelTide">
+      <div class="panel-header">
+        <h2>&#127754; Market Tide <span class="info-tip"
+            data-tip="Overall market sentiment gauge from options flow + dark pool + price action. Above 60% = bullish momentum. Below 40% = bearish. Use to confirm or fade individual ticker bias.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <div class="tide-gauge" id="tideGauge">
+          <div class="tide-bar">
+            <div class="tide-fill" id="tideFill"></div>
+          </div>
+          <div class="tide-labels">
+            <span class="bear-label">BEARISH</span>
+            <span class="bull-label">BULLISH</span>
+          </div>
+        </div>
+        <div id="tideDetails" class="tide-details"></div>
+        <div id="sectorTide" style="margin-top:10px"></div>
+      </div>
+    </section>
+
+    <!-- 7. Gap Scanner -->
+    <section class="panel panel-gaps" id="panelGaps">
+      <div class="panel-header">
+        <h2>&#128200; Gap Scanner <span class="info-tip"
+            data-tip="Stocks gapping > 1.5% from prior close. Gap Type classifies the pattern (earnings, FDA, momentum). Personality = historical fill tendency. Strategy suggests fade vs. continuation trades.">&#9432;</span>
+        </h2>
+        <span class="panel-badge gap-badge" id="gapCount">0</span>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="gapTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Gap</th>
+              <th>Type</th>
+              <th>Causation</th>
+              <th>Personality</th>
+              <th>Bias</th>
+              <th>Strategy</th>
+              <th>Targets</th>
+            </tr>
+          </thead>
+          <tbody id="gapBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 7b. Halt/Unhalt Alerts -->
+    <section class="panel panel-halts" id="panelHalts">
+      <div class="panel-header">
+        <h2>🛑 Halt / Unhalt Alerts <span class="info-tip"
+            data-tip="Trading halts triggered by LULD (Limit Up/Limit Down) circuits, volatility pauses, or regulatory actions. A halt often signals extreme momentum — the unhalt direction can be a powerful day trade entry.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="haltCount">0</span>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="haltTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Status</th>
+              <th>Time</th>
+              <th>Price</th>
+              <th>Change %</th>
+              <th>Reason</th>
+              <th>Session</th>
+            </tr>
+          </thead>
+          <tbody id="haltBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 8. News Headlines -->
+    <section class="panel panel-news" id="panelNews">
+      <div class="panel-header">
+        <h2>&#128240; News Headlines <span class="info-tip"
+            data-tip="Latest headlines affecting your tickers and market-wide news. Colored tickers highlight sentiment. Click to read full articles.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="newsCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div id="newsContent"></div>
+      </div>
+    </section>
+
+    <!-- 9. Congressional Trades -->
+    <section class="panel panel-congress" id="panelCongress">
+      <div class="panel-header">
+        <h2>&#127963; Congressional Trades <span class="info-tip"
+            data-tip="Recent Congressional stock trades from STOCK Act filings. Large purchases from key committee members may indicate informed trading. Filter by politician to track patterns.">&#9432;</span>
+        </h2>
+        <select id="congressFilter" class="ticker-select" style="font-size:11px;max-width:160px">
+          <option value="all">All Politicians</option>
+        </select>
+      </div>
+      <div class="panel-body">
+        <div id="congressProfile" style="display:none"></div>
+        <div id="congressContent" class="congress-feed"></div>
+      </div>
+    </section>
+
+    <!-- 10. Insider Transactions -->
+    <section class="panel panel-insider" id="panelInsider">
+      <div class="panel-header">
+        <h2>&#128269; Insider Transactions <span class="info-tip"
+            data-tip="SEC Form 4 filings filtered for significance. C-SUITE = CEO/CFO/COO trades. CLUSTER = multiple insiders buying same stock. EARN = trade near earnings. Large insider buys are historically bullish.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <div id="insiderContent"></div>
+      </div>
+    </section>
+
+    <!-- Alerts (history/log) -->
+    <section class="panel panel-alerts" id="panelAlerts">
+      <div class="panel-header">
+        <h2>&#128276; Alerts <span class="info-tip"
+            data-tip="Real-time trade alerts from the signal engine. Filter by direction or type. Green border = bullish, red = bearish. Alerts combine flow, dark pool, and technical signals.">&#9432;</span>
+        </h2>
+        <div class="alert-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="BULLISH">Bull</button>
+          <button class="filter-btn" data-filter="BEARISH">Bear</button>
+          <button class="filter-btn" data-filter="HIGH">HIGH</button>
+          <button class="filter-btn" data-filter="GAP">Gap</button>
+          <button class="filter-btn" data-filter="DARK_POOL">DP</button>
+          <button class="filter-btn" data-filter="FLOW">Flow</button>
+        </div>
+      </div>
+      <div class="panel-body alert-feed" id="alertFeed"></div>
+    </section>
+
+    <!-- 12. Options Profit Calculator -->
+    <section class="panel panel-calc" id="panelCalc">
+      <div class="panel-header">
+        <h2>&#128176; Options Calculator <span class="info-tip"
+            data-tip="Calculate profit/loss scenarios for options strategies. Select a strategy, enter strike/premium/contracts, and see max profit, max loss, break-even, and a visual P/L chart. Auto-fills current price from watchlist.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <div class="calc-layout">
+          <div class="calc-inputs">
+            <div class="calc-field">
+              <label>Strategy</label>
+              <select id="calcStrategy">
+                <option value="long_call">Long Call</option>
+                <option value="long_put">Long Put</option>
+                <option value="bull_call_spread">Bull Call Spread</option>
+                <option value="bear_put_spread">Bear Put Spread</option>
+                <option value="iron_condor">Iron Condor</option>
+                <option value="straddle">Straddle (Long)</option>
+                <option value="strangle">Strangle (Long)</option>
+              </select>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <label>Ticker</label>
+                <input type="text" id="calcTicker" placeholder="TSLA" maxlength="6">
+              </div>
+              <div class="calc-field">
+                <label>Current Price</label>
+                <input type="number" id="calcPrice" step="0.01" placeholder="0.00">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <label>Strike 1</label>
+                <input type="number" id="calcStrike1" step="0.50" placeholder="Strike">
+              </div>
+              <div class="calc-field" id="calcStrike2Wrap">
+                <label>Strike 2</label>
+                <input type="number" id="calcStrike2" step="0.50" placeholder="Strike 2">
+              </div>
+            </div>
+            <div class="calc-row" id="calcStrike34Wrap" style="display:none">
+              <div class="calc-field">
+                <label>Strike 3</label>
+                <input type="number" id="calcStrike3" step="0.50" placeholder="Strike 3">
+              </div>
+              <div class="calc-field">
+                <label>Strike 4</label>
+                <input type="number" id="calcStrike4" step="0.50" placeholder="Strike 4">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <label>Premium ($)</label>
+                <input type="number" id="calcPremium" step="0.01" placeholder="Premium">
+              </div>
+              <div class="calc-field" id="calcPremium2Wrap">
+                <label>Premium 2 ($)</label>
+                <input type="number" id="calcPremium2" step="0.01" placeholder="Premium 2">
+              </div>
+            </div>
+            <div class="calc-row">
+              <div class="calc-field">
+                <label>Contracts</label>
+                <input type="number" id="calcContracts" value="1" min="1" step="1">
+              </div>
+              <div class="calc-field">
+                <label>Days to Expiry</label>
+                <input type="number" id="calcDTE" value="30" min="1" step="1">
+              </div>
+            </div>
+            <button class="btn-calc" id="calcBtn" onclick="calculateOptions()">Calculate P/L</button>
+            <button class="btn-calc" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);margin-left:8px"
+              onclick="getAIRecommendation()">🤖 AI Recommend</button>
+            <div id="aiRecommendation"
+              style="display:none;margin-top:12px;padding:12px;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);font-size:12px">
+            </div>
+          </div>
+          <div class="calc-results">
+            <div class="calc-metrics" id="calcMetrics">
+              <div class="calc-metric">
+                <div class="metric-label">Max Profit</div>
+                <div class="metric-value text-bull" id="calcMaxProfit">--</div>
+              </div>
+              <div class="calc-metric">
+                <div class="metric-label">Max Loss</div>
+                <div class="metric-value text-bear" id="calcMaxLoss">--</div>
+              </div>
+              <div class="calc-metric">
+                <div class="metric-label">Break-Even</div>
+                <div class="metric-value" id="calcBreakEven">--</div>
+              </div>
+              <div class="calc-metric">
+                <div class="metric-label">Req. Move</div>
+                <div class="metric-value" id="calcReqMove">--</div>
+              </div>
+            </div>
+            <div class="calc-chart-wrap">
+              <canvas id="calcChart" width="700" height="280"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- AI Chatbot -->
+  <button class="chat-fab" id="chatFab" onclick="toggleChat()" title="AI Trading Assistant"><svg width="26" height="26"
+      viewBox="0 0 24 24" fill="none">
+      <defs>
+        <linearGradient id="aiFabGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#a78bfa" />
+          <stop offset="50%" stop-color="#38bdf8" />
+          <stop offset="100%" stop-color="#10b981" />
+        </linearGradient>
+      </defs>
+      <path d="M12 2L13.5 8.5 20 7l-5 5 5 5-6.5-1.5L12 22l-1.5-6.5L4 17l5-5-5-5 6.5 1.5z" fill="url(#aiFabGrad)"
+        stroke="url(#aiFabGrad)" stroke-width="0.5" />
+      <circle cx="12" cy="12" r="2.5" fill="#0f172a" />
+    </svg></button>
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="vertical-align:middle;margin-right:6px">
+          <defs>
+            <linearGradient id="aiHeaderGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#a78bfa" />
+              <stop offset="100%" stop-color="#38bdf8" />
+            </linearGradient>
+          </defs>
+          <path d="M12 2L13.5 8.5 20 7l-5 5 5 5-6.5-1.5L12 22l-1.5-6.5L4 17l5-5-5-5 6.5 1.5z"
+            fill="url(#aiHeaderGrad)" />
+        </svg>Trading Assistant</h3>
+      <button style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px"
+        onclick="toggleChat()">&#10005;</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-msg bot">Hi! I'm your AI trading assistant. Ask me about any ticker, strategy, or dashboard data.
+        Try:<br><br>â€¢ "What's the setup for TSLA?"<br>â€¢ "Explain the GEX data"<br>â€¢ "Should I go long or short
+        AAPL?"
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" id="chatInput" placeholder="Ask about a ticker or strategy..."
+        onkeydown="if(event.key==='Enter')sendChat()">
+      <button onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+  <!-- Ticker Deep-Dive Modal -->
+  <div class="modal-overlay" id="tickerModal" style="display:none">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTicker">TSLA</h2>
+        <div class="modal-controls">
+          <select id="modalTimeframe" class="ticker-select">
+            <option value="1d">Daily</option>
+            <option value="4h">4H</option>
+            <option value="1h">1H</option>
+            <option value="15m">15m</option>
+            <option value="5m">5m</option>
+          </select>
+          <button class="btn-close" id="modalClose">&#10005;</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="modal-chart">
+          <div id="tvChartContainer" style="width:100%;height:400px"></div>
+        </div>
+        <!-- Top row: Setup / Brief / Price Ladder / Technicals -->
+        <div class="modal-panels">
+          <div class="modal-panel">
+            <h3>Trade Setup <span class="info-tip"
+                data-tip="Actionable trade levels built from ATR (Average True Range) scaled by the current market session. Entry = last close price. Targets = price + ATR multiplied by session factor (tighter at open, wider overnight). Stop = price - ATR scaled. Horizon changes automatically: Scalp at open (9:30), Day Trade mid-day, Swing after hours. Click 'Paper Trade This' to simulate the trade.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Entry, Target 1, Target 2, and Stop Loss are calculated using ATR (Average True Range)
+              scaled by the current market session — tighter targets during open/power hour for day trades, wider
+              targets overnight/midday for swings. The bot automatically paper trades every setup with ≥55% confidence
+              to track its own performance. Confidence is derived from the weighted signal engine (RSI, MACD, Flow, Dark
+              Pool, GEX all voting). Risk/Reward ratio = distance to target ÷ distance to stop. A R:R above 1.5 is
+              favorable. Horizon adapts: Scalp at open (9:21-10:00), Day Trade midday, Swing after hours. Kelly
+              Criterion determines position sizing — higher confidence = larger allocation.</p>
+            <div id="modalSetup"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>&#9728; Morning Brief <span class="info-tip"
+                data-tip="Session-aware trading thesis synthesized from all data sources. Direction (BULLISH/BEARISH/NEUTRAL) is determined by weighted signal voting. Confidence % reflects signal alignment strength. Bull/Bear bar shows scoring weight distribution. Badges: ML model type, market regime (trending, volatile, range), position sizing from Kelly Criterion.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">The morning brief synthesizes ALL data sources into a single trading thesis. Direction
+              (BULLISH/BEARISH/NEUTRAL) is determined by weighted voting — each signal (RSI, MACD, Flow, Dark Pool, GEX,
+              Insider, News) casts a vote with a weight proportional to its reliability. Confidence reflects how well
+              signals align — 80%+ means strong consensus, 50-60% means mixed signals. The Bull/Bear progress bar
+              visualizes the raw score distribution. Badges show: ML model type (dayTrade for scalps, swing for holds),
+              market regime (TRENDING = follow momentum, VOLATILE = expect reversals, RANGE = fade extremes), and Kelly
+              position sizing (what % of account to risk).</p>
+            <div id="modalBrief"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Price Ladder <span class="info-tip"
+                data-tip="Visual price level map showing Entry, Target 1, Target 2, and Stop Loss in order from highest to lowest. Green levels = profit targets. Blue = entry zone. Red = stop loss. R:R shows the risk-to-reward ratio. Use these as bracket levels for your trade.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Visual price level map ordered from highest to lowest. Green levels = profit targets
+              (T1 and T2), calculated as price + ATR × session multiplier. Blue = entry zone (current price level). Red
+              = stop loss, where you exit if the trade goes against you. The R:R ratio shows risk-to-reward — use this
+              to decide if the trade is worth taking. Set bracket orders at these exact levels: buy/sell at Entry, take
+              profit at T1 (partial) and T2 (full), stop loss at Stop. For SHORT trades, the layout inverts — stop is
+              above entry, targets below.</p>
+            <div id="setupOverlay"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Technicals <span class="info-tip"
+                data-tip="Core technical indicators: RSI (14-period, 30=oversold, 70=overbought), MACD (momentum crossover signal), EMA 9/20 (trend direction — price above EMA = bullish). Bias is computed from all indicators combined. Pivots show support/resistance from previous session.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">RSI (Relative Strength Index, 14-period): below 30 = oversold (potential bounce),
+              above 70 = overbought (potential pullback). Between 40-60 is neutral. MACD (Moving Average Convergence
+              Divergence): when the signal line crosses above the MACD line = bullish momentum shift; crossing below =
+              bearish. EMA 9/20 (Exponential Moving Averages): price above both EMAs = uptrend, below both = downtrend,
+              between them = consolidation. The overall Bias is computed by averaging all indicators. Pivots
+              (support/resistance from previous session) show where price is likely to stall or reverse — watch for
+              bounces at support, rejections at resistance.</p>
+            <div id="modalTech"></div>
+          </div>
+        </div>
+        <!-- Signal Summary -->
+        <div class="modal-panels">
+          <div class="modal-panel modal-panel-wide">
+            <h3>&#128202; Signal Summary <span class="info-tip"
+                data-tip="Pie chart and breakdown of all signals contributing to the trade thesis. Each signal (RSI, MACD, Flow, Dark Pool, GEX, etc.) casts a weighted vote for bull or bear. The pie shows the proportion. Higher total signal weight = stronger conviction. Individual signals listed with their directional contribution.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">The pie chart visualizes how each signal source contributes to the overall trade
+              thesis. Each signal (RSI, MACD, Flow, Dark Pool, GEX, Short Interest, News Sentiment, Insider Activity)
+              casts a weighted vote — BULLISH or BEARISH. The pie shows the proportion of bull vs bear votes. A dominant
+              color means strong directional consensus. The signal list shows individual contributions with their
+              directional bias and weight. Higher total signal weight = more data points agreeing = higher conviction.
+              When signals conflict (mixed pie), the confidence drops and the trade is riskier. Look for 4+ signals
+              agreeing for high-probability setups.</p>
+            <div style="display:flex;gap:16px;align-items:flex-start">
+              <canvas id="signalPieChart" width="180" height="180" style="flex-shrink:0"></canvas>
+              <div id="signalDetails" style="flex:1;font-size:11px"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Data panels -->
+        <div class="modal-panels">
+          <div class="modal-panel">
+            <h3>&#128276; Alerts <span class="info-tip"
+                data-tip="Technical and flow-based alerts filtered for this ticker. Includes RSI extremes, MACD crossovers, unusual volume, large block trades, and dark pool activity. Alerts are generated in real-time during each data refresh cycle. Color coding: green = bullish signal, red = bearish signal.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Real-time alerts filtered for this ticker, generated every refresh cycle. Types
+              include: RSI extremes (oversold/overbought), MACD crossovers (momentum shift), unusual volume spikes (>2×
+              average = institutional interest), large block trades (>$500K = smart money), dark pool prints
+              (off-exchange institutional activity), and options flow sweeps (aggressive directional bets). Green alerts
+              = bullish signals, red alerts = bearish. Alert clustering (multiple alerts in short time) indicates
+              significant activity. Pay special attention to volume alerts at key technical levels — they confirm
+              breakouts or breakdowns.</p>
+            <div id="modalAlerts" style="max-height:200px;overflow-y:auto"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Options Flow <span class="info-tip"
+                data-tip="Unusual options activity from the UnusualWhales API. Shows call/put ratio, total premium by direction, and individual large transactions. Sentiment: >60% calls = BULLISH, <40% = BEARISH. Large premium flow (sweeps, blocks) from smart money is more significant than small retail trades. If no ticker-specific flow exists, top market-wide activity is shown.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Unusual options activity from UnusualWhales showing smart money positioning. Call/Put
+              ratio >60% calls = BULLISH sentiment, <40%=BEARISH. Focus on sweeps (aggressive orders hitting the ask)
+                and blocks (large single prints) — these are institutional-size bets, not retail noise. Premium size
+                matters: $1M+ premium trades are high-conviction. Near-expiry options (0-2 DTE) indicate day trade
+                expectations; far-dated options (30+ DTE) signal swing/investment thesis. When multiple sweep alerts
+                cluster on the same strike/expiry, it suggests coordinated institutional buying. If no ticker-specific
+                flow exists, top market-wide flow is shown for context.</p>
+                <div id="modalFlow"></div>
+          </div>
+          <div class="modal-panel modal-panel-wide">
+            <h3>GEX Exposure <span class="info-tip"
+                data-tip="Gamma Exposure by strike price from dealer hedging activity. Green bars = positive gamma (price magnet — dealers hedge by selling highs, buying lows = mean reversion). Red bars = negative gamma (volatility accelerator — dealers amplify moves). Max Gamma strike = strongest price magnet. Call/Put walls = major support/resistance levels where dealers have large positions.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Gamma Exposure (GEX) reveals how market makers must hedge their options positions.
+              Green bars = positive gamma — dealers sell as price rises, buy as price falls — creating a "price magnet"
+              effect that suppresses volatility and pulls price toward that strike (mean reversion). Red bars = negative
+              gamma — dealers amplify moves in both directions, creating explosive breakouts/breakdowns. The Max Gamma
+              strike is the strongest magnet — price gravitates here on expiration days. Call Wall = level where massive
+              call open interest creates resistance (dealers sell stock to hedge). Put Wall = level where put open
+              interest creates support (dealers buy stock). Use: trade toward the Max Gamma strike, respect the walls as
+              support/resistance.</p>
+            <div id="modalGexSummary" style="font-size:11px;margin-bottom:6px"></div>
+            <canvas id="modalGexChart" width="700" height="250"></canvas>
+          </div>
+          <div class="modal-panel">
+            <h3>Short Interest <span class="info-tip"
+                data-tip="Current short interest data: shares sold short as a percentage of float. High short interest (>15%) indicates bearish sentiment but also potential for short squeeze if price rises. Days to cover = how many days of average volume needed to close all shorts. Rising SI is bearish; declining SI can be bullish as shorts cover.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Short interest shows the percentage of a company's tradeable float currently sold
+              short. SI >10% is elevated; >20% is extreme and creates short squeeze potential — when price rises, shorts
+              must buy to cover, accelerating the move higher. Days to Cover = shares short ÷ average daily volume —
+              higher DTC (>5 days) means more squeeze pressure since shorts take longer to exit. Rising SI trend = bears
+              are increasing bets against the stock (bearish). Falling SI = shorts are covering (bullish as selling
+              pressure decreases). Combine with options flow: if SI is high AND calls are sweeping, a squeeze setup may
+              be forming. Cost to Borrow rate >50% means shorts are paying heavily to hold the position.</p>
+            <div id="modalShorts"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>IV Rank + Max Pain <span class="info-tip"
+                data-tip="IV Rank: percentile of current implied volatility vs the past year (0-100). High IV Rank (>50) means options are expensive — good for selling. Low IV Rank (<30) means cheap options — good for buying. Max Pain: the strike price where the most options expire worthless, where market makers lose the least. Price tends to gravitate toward max pain near expiration.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">IV Rank (Implied Volatility Rank) measures where current IV sits vs. the past year on
+              a 0-100 scale. IV Rank >50 = options are expensive relative to history — favorable for selling strategies
+              (credit spreads, iron condors, covered calls). IV Rank <30=options are cheap — favorable for buying
+                strategies (long calls/puts, debit spreads, straddles). IV typically spikes before earnings, FOMC, and
+                catalysts, then crushes afterward ("IV Crush"). Max Pain is the strike where most options expire
+                worthless — market makers benefit when price pins here. Price tends to gravitate toward Max Pain in the
+                final 2-3 days before expiration (OpEx pinning). Use Max Pain as a target for short-term trades near
+                expiration Friday.</p>
+                <div id="modalIVMaxPain"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Dark Pool <span class="info-tip"
+                data-tip="Block trades executed in dark pools (off-exchange). These are large institutional orders that can signal smart money direction. Trades filled ABOVE the midpoint = bullish pressure (buyer aggressive). BELOW midpoint = bearish (seller aggressive). Volume and size of prints matter — larger blocks are more significant. Red/green color coding shows directional bias.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Dark pool prints are large block trades executed off-exchange by institutions (hedge
+              funds, pension funds, banks). Because these trades bypass the public order book, they reveal where smart
+              money is actually positioning. Key signals: trades filled ABOVE the midpoint = buyer was aggressive
+              (bullish — willing to pay more). BELOW midpoint = seller was aggressive (bearish). Size matters: $1M+
+              prints are institutional conviction trades. Time clustering: multiple dark pool prints in the same stock
+              within minutes signals coordinated accumulation or distribution. Compare dark pool direction with options
+              flow — when both agree (e.g., dark pool buying + call sweeps), the signal is much stronger.</p>
+            <div id="modalDarkPool"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>News &amp; Insider <span class="info-tip"
+                data-tip="Recent news headlines and insider transactions (SEC filings). Insider buys from executives/directors are generally bullish — they have the best information about company health. Insider sells may be routine (diversification) or signal concern. News sentiment affects short-term price action. Filter for high-impact catalysts like earnings, FDA, M&A.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">News headlines show catalysts that drive short-term price action — earnings
+              beats/misses, FDA approvals, M&A rumors, analyst upgrades/downgrades, and macro events. Insider
+              transactions (SEC Form 4 filings) reveal when executives, directors, and 10% owners buy or sell their own
+              stock. Insider BUYS are the strongest signal — executives risking their own money signals confidence in
+              the company's future. Insider sells may be routine (tax planning, diversification) but clustered selling
+              from multiple insiders is a red flag. Look for: insider buys during price dips (accumulation), large
+              purchases relative to salary, and first-time buyers. News sentiment is scored automatically and feeds into
+              the signal engine's directional voting.</p>
+            <div id="modalNewsInsider" style="max-height:200px;overflow-y:auto"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Congressional Trades <span class="info-tip"
+                data-tip="Recent stock transactions by U.S. Congress members (STOCK Act filings). Congress members often have access to non-public policy information. Track purchases by key committee members for alpha signals. Large buys from multiple members in the same stock can be particularly significant. Shows transaction type, amount, and filing date.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">STOCK Act filings require Congress members to disclose stock trades within 45 days.
+              Members often sit on committees with oversight of specific industries, giving them access to non-public
+              policy information (upcoming regulations, government contracts, defense spending). Track purchases by key
+              committee chairs/members — their buying activity in sectors they oversee has historically outperformed the
+              market. Multiple members buying the same stock is an even stronger signal. Look for: Armed Services
+              Committee members buying defense stocks, Finance Committee members buying financial stocks, Energy
+              Committee members buying energy stocks. Transaction types include Purchase, Sale, and Exchange. Large
+              purchases (>$100K) from key members are the highest-signal trades.</p>
+            <div id="modalCongress"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>Earnings <span class="info-tip"
+                data-tip="Upcoming earnings report date and historical beat/miss record. Earnings events create significant volatility. 'Days until earnings' helps determine position sizing — the closer to earnings, the higher the risk. Beat rate shows how often the company exceeds analyst estimates. IV typically spikes before earnings and crushes after (IV crush). Use for timing entries and position sizing.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Upcoming earnings report date, historical beat/miss rate, and estimated EPS. Earnings
+              are the highest-volatility catalyst — stocks move 5-15% on average on earnings day. "Days until earnings"
+              determines position sizing: <5 days=reduce size or avoid (IV crush risk wipes out directional gains). Beat
+                Rate shows historical reliability — companies that beat 80%+ are likely to beat again. IV spikes 1-2
+                weeks before earnings (anticipation premium) then collapses the morning after the report regardless of
+                direction ("IV Crush"). Strategy: buy options 2-3 weeks before earnings to ride IV expansion, or sell
+                options 1-2 days before to profit from IV crush. Never hold naked long options through earnings unless
+                you have strong conviction AND the move exceeds the expected move (straddle price).</p>
+                <div id="modalEarnings"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TradingView Widget Script -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+
+  <!-- Audio for alerts -->
+  <audio id="alertSound" preload="auto">
+    <source
+      src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgobW0jV0xLFqJpKGJYTY1YKG1tI1dMSxaiaShiWE2NWChtbSNXTEsWomkoYlhNjVgobW0jV0xLFqJpKGJYTY1YA=="
+      type="audio/wav">
+  </audio>
+
+  <script src="app.js?v=13"></script>
+</body>
+
+</html>

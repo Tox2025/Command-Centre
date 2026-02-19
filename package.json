@@ -1,0 +1,16 @@
+{
+  "name": "trading-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time day trading dashboard with Unusual Whales integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0",
+    "yahoo-finance2": "^3.13.0"
+  }
+}

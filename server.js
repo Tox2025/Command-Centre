@@ -861,6 +861,20 @@ app.post('/api/chat', async (req, res) => {
             if (tszn) context += 'Seasonality: ' + JSON.stringify(Array.isArray(tszn) ? tszn.slice(0, 3) : tszn) + '\n';
             var tifl = state.insiderFlow[ticker];
             if (tifl) context += 'Insider Flow: ' + JSON.stringify(Array.isArray(tifl) ? tifl.slice(0, 3) : tifl) + '\n';
+
+            // Signal breakdown: which signals fired
+            if (tsig && tsig.signals && tsig.signals.length > 0) {
+                context += 'Active Signals: ' + tsig.signals.map(function (s) { return s.name + '(' + s.dir + ' w=' + s.weight + ')'; }).join(', ') + '\n';
+            }
+            // Multi-TF analysis
+            var mtf = state.multiTF && state.multiTF[ticker];
+            if (mtf) context += 'Multi-TF Analysis: ' + JSON.stringify(mtf) + '\n';
+            // Trade setup if exists
+            var tSetup = state.tradeSetups[ticker];
+            if (tSetup) context += 'Trade Setup: ' + tSetup.direction + ' Entry=$' + tSetup.entry + ' Stop=$' + tSetup.stop + ' T1=$' + tSetup.target1 + ' T2=$' + tSetup.target2 + ' Conf=' + tSetup.confidence + '% ML=' + (tSetup.mlConfidence || '--') + '% Horizon=' + (tSetup.horizon || '') + '\n';
+            // Polygon TA (RSI, EMA, MACD from Polygon API)
+            var pTA = state.polygonTA && state.polygonTA[ticker];
+            if (pTA) context += 'Polygon TA: ' + JSON.stringify(pTA) + '\n';
         }
 
         // Earnings calendar
@@ -1064,20 +1078,25 @@ app.post('/api/chat', async (req, res) => {
         var genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         var model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-        var systemPrompt = 'You are an expert AI trading assistant embedded in a live trading dashboard. '
-            + 'You have access to real-time market data, technical analysis, options flow, dark pool activity, '
-            + 'congressional trades, earnings calendars, signal scores, paper trading history, '
-            + 'net premium flow, sector tides, ETF tides, economic calendar, short squeeze data, and seasonality. '
-            + 'Answer questions using the live data provided below. Be specific with numbers. '
-            + 'If asked about earnings, give the exact date. If asked about a ticker, reference the actual price and signals. '
-            + 'Keep responses concise but detailed. Use bullet points for clarity. '
-            + 'If data is not available for a specific query, say so clearly.\n\n'
+        var systemPrompt = 'You are an expert AI trading analyst embedded in a live command centre. '
+            + 'You have access to ALL real-time data: quotes, technical indicators (RSI, EMA9/20, SMA50/200, MACD, ATR, support/resistance), '
+            + 'options flow, dark pool activity, GEX/DIX, short interest, IV rank, max pain, net premium, '
+            + 'congressional trades, earnings, signal scores, paper trading, sector tides, ETF tides, economic calendar, seasonality, '
+            + 'Polygon real-time tick data (buy/sell volume, VWAP, flow imbalance, large blocks), and trade setups.\n'
+            + 'RULES: '
+            + '1. Always reference SPECIFIC numbers from the data (prices, levels, percentages). '
+            + '2. For bounce zone questions: use support levels, EMA9/20, SMA50/200, VWAP, and ATR to define zones. '
+            + '3. For trade ideas: include entry, stop, target with specific prices. '
+            + '4. For dark pool questions: analyze volume significance vs average daily volume. '
+            + '5. For flow analysis: combine options flow direction + dark pool + tick imbalance for conviction. '
+            + '6. Use bullet points. Be direct and actionable like a prop desk analyst. '
+            + '7. If data is missing, say so and explain what would be needed.\n\n'
             + context + historyContext;
 
         var userContent = slashResult ? slashResult + '\nUser question: ' + userMsg : 'User question: ' + userMsg;
         var result = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }],
-            generationConfig: { maxOutputTokens: 1500, temperature: 0.3 }
+            generationConfig: { maxOutputTokens: 2500, temperature: 0.3 }
         });
 
         var reply = result.response.text();

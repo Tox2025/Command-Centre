@@ -1014,6 +1014,8 @@ app.post('/api/chat', async (req, res) => {
 
         // Conversation memory: store and retrieve last 10 messages per session
         var sessionId = req.body.sessionId || 'default';
+        // Ensure chatHistory is a Map (can get corrupted if state was serialized)
+        if (!(state.chatHistory instanceof Map)) state.chatHistory = new Map();
         if (!state.chatHistory.has(sessionId)) state.chatHistory.set(sessionId, []);
         var history = state.chatHistory.get(sessionId);
         history.push({ role: 'user', text: userMsg });

@@ -182,6 +182,27 @@ app.post('/api/tickers', async (req, res) => {
         saveWatchlist();
         polygonClient.updateSubscriptions(state.tickers);
         console.log('➕ Added ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
+
+        // Background ML: fetch 5yr history for new ticker and retrain
+        (async function () {
+            try {
+                var result = await polygonHistorical.generateAndConvert([sym], 5);
+                if (result && result.mlSamples > 30) {
+                    // Load cumulative dataset, append, save
+                    var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+                    var cumulative = [];
+                    try { if (require('fs').existsSync(cumulPath)) cumulative = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8')); } catch (e) { }
+                    cumulative = cumulative.concat(result.data);
+                    require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
+                    // Retrain both models with cumulative data
+                    var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
+                    mlCalibrator.train(recent, 'dayTrade');
+                    mlCalibrator.train(cumulative, 'swing');
+                    var st = mlCalibrator.getStatus();
+                    console.log('🧠 ML auto-trained on ' + sym + ': dayTrade=' + st.dayTrade.accuracy + '% swing=' + st.swing.accuracy + '% (' + cumulative.length + ' cumulative samples)');
+                }
+            } catch (e) { console.error('ML auto-train error for ' + sym + ':', e.message); }
+        })();
     } else if (action === 'remove') {
         state.tickers = state.tickers.filter(t => t !== sym);
         // Clean up removed ticker data
@@ -2297,6 +2318,41 @@ async function refreshAll() {
     // Reset flag next day
     if (hour === 9 && min === 0) {
         state.eodReportGenerated = false;
+        state.mlNightlyRetrained = false;
+    }
+
+    // 2b. Nightly ML retrain (5:00 PM EST — after EOD report settles)
+    if (hour === 17 && min >= 0 && min < 10 && !state.mlNightlyRetrained) {
+        state.mlNightlyRetrained = true;
+        (async function () {
+            try {
+                console.log('🧠 Nightly ML retrain starting...');
+                var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+                var cumulative = [];
+                try { if (require('fs').existsSync(cumulPath)) cumulative = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8')); } catch (e) { }
+
+                // Add any watchlist tickers not yet in cumulative
+                var trainedTickers = {};
+                cumulative.forEach(function (d) { if (d._ticker) trainedTickers[d._ticker] = true; });
+                var newTickers = (state.tickers || []).filter(function (t) { return !trainedTickers[t]; });
+                if (newTickers.length > 0) {
+                    console.log('🧠 Fetching history for ' + newTickers.length + ' new tickers: ' + newTickers.join(', '));
+                    var newData = await polygonHistorical.generateAndConvert(newTickers, 5);
+                    if (newData && newData.data) cumulative = cumulative.concat(newData.data);
+                    require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
+                }
+
+                if (cumulative.length >= 30) {
+                    var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
+                    mlCalibrator.train(recent, 'dayTrade');
+                    mlCalibrator.train(cumulative, 'swing');
+                    var st = mlCalibrator.getStatus();
+                    console.log('🧠 Nightly retrain complete: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
+                } else {
+                    console.log('🧠 Nightly retrain skipped: only ' + cumulative.length + ' samples (need 30+)');
+                }
+            } catch (e) { console.error('Nightly ML retrain error:', e.message); }
+        })();
     }
 
     // 3. Auto-close Day Trades (3:55 PM ET or later if missed)

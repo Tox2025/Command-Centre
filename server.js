@@ -26,6 +26,7 @@ const MultiTFAnalyzer = require('./src/multi-tf-analyzer');
 const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
 const EODReporter = require('./src/eod-reporter');
+const PolygonTickClient = require('./src/polygon-client');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
@@ -72,6 +73,7 @@ const multiTFAnalyzer = new MultiTFAnalyzer();
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
 const eodReporter = new EODReporter();
+const polygonClient = new PolygonTickClient(process.env.POLYGON_API_KEY);
 
 const state = {
     tickers: TICKERS,
@@ -137,7 +139,8 @@ const state = {
     etfTide: {},
     economicCalendar: [],
     etfFlows: {},
-    chatHistory: new Map()
+    chatHistory: new Map(),
+    tickData: {}  // Polygon real-time tick summaries
 };
 
 // ── Express Setup ─────────────────────────────────────────
@@ -176,6 +179,7 @@ app.post('/api/tickers', async (req, res) => {
         }
         broadcast({ type: 'full_state', data: state });
         saveWatchlist();
+        polygonClient.updateSubscriptions(state.tickers);
         console.log('➕ Added ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
     } else if (action === 'remove') {
         state.tickers = state.tickers.filter(t => t !== sym);
@@ -186,6 +190,7 @@ app.post('/api/tickers', async (req, res) => {
         state.morningBrief = generateMorningBrief();
         broadcast({ type: 'full_state', data: state });
         saveWatchlist();
+        polygonClient.updateSubscriptions(state.tickers);
         console.log('➖ Removed ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
     }
     res.json({ tickers: state.tickers });
@@ -254,6 +259,8 @@ app.get('/api/signals/:ticker', (req, res) => {
 app.get('/api/regime', (req, res) => res.json(state.marketRegime));
 app.get('/api/correlation', (req, res) => res.json(state.correlationRisk));
 app.get('/api/scanner', (req, res) => res.json(scanner.getResults()));
+app.get('/api/tick-data', (req, res) => res.json({ connected: polygonClient.isConnected(), tickers: polygonClient.getSubscribedCount(), data: polygonClient.getAllSummaries() }));
+app.get('/api/tick-data/:ticker', (req, res) => { var t = req.params.ticker.toUpperCase(); var s = polygonClient.getTickSummary(t); res.json(s || { error: 'No tick data for ' + t }); });
 app.get('/api/scanner/clear-cooldown', (req, res) => { scanner.clearCooldown(); res.json({ cleared: true }); });
 app.get('/api/budget', (req, res) => res.json(scheduler.getBudget()));
 app.get('/api/kelly/:ticker', (req, res) => {
@@ -1328,6 +1335,14 @@ const server = app.listen(PORT, () => {
     console.log(`🕐 Session: ${AlertEngine.sessionLabel(AlertEngine.getCurrentSession())}`);
     console.log(`\n💡 TradingView Webhook URL: http://localhost:${PORT}/webhook/tradingview`);
     console.log('');
+
+    // Connect Polygon.io real-time tick data
+    if (process.env.POLYGON_API_KEY) {
+        polygonClient.connect(TICKERS);
+        console.log('📊 Polygon tick data: connecting for ' + TICKERS.length + ' tickers');
+    } else {
+        console.log('⚠️ POLYGON_API_KEY not set — tick data disabled');
+    }
 });
 
 const wss = new WebSocketServer({ server });
@@ -1472,7 +1487,8 @@ async function scoreTickerSignals(ticker) {
             insiderFlow: state.insiderFlow[ticker] || null,
             sectorTide: state.sectorTide || {},
             etfTide: state.etfTide || {},
-            economicCalendar: state.economicCalendar || []
+            economicCalendar: state.economicCalendar || [],
+            tickData: polygonClient.getTickSummary(ticker) || null
         };
         const signalResult = signalEngine.score(ticker, data, state.session);
 

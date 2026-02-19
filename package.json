@@ -11,7 +11,7 @@
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "ws": "^8.18.0",
+    "ws": "^8.19.0",
     "yahoo-finance2": "^3.13.0"
   }
 }

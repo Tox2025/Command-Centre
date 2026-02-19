@@ -921,6 +921,50 @@ class SignalEngine {
             }
         }
 
+        // ── 36. Real Tick Data (Polygon.io) — overrides proxy when available ──
+        if (data.tickData) {
+            var tick = data.tickData;
+            var wTick = this._ew('volume_direction', sess) * 1.5; // boost for real data
+
+            // Flow imbalance from actual aggressor classification
+            if (tick.flowImbalance !== undefined && tick.totalVolume > 1000) {
+                // Remove proxy signal if we have real data (it was less accurate)
+                signals = signals.filter(function (s) { return s.name !== '💰 Buy Pressure' && s.name !== '💰 Sell Pressure'; });
+
+                if (tick.flowImbalance > 0.15) {
+                    var tickBullW = +(wTick * Math.min(tick.flowImbalance * 3, 2)).toFixed(2);
+                    bull += tickBullW;
+                    signals.push({ name: '📊 Tick Buy Flow', dir: 'BULL', weight: tickBullW, detail: 'Real aggressor: ' + tick.buyPct + '% buy, imbalance ' + tick.flowImbalance.toFixed(3) });
+                } else if (tick.flowImbalance < -0.15) {
+                    var tickBearW = +(wTick * Math.min(Math.abs(tick.flowImbalance) * 3, 2)).toFixed(2);
+                    bear += tickBearW;
+                    signals.push({ name: '📊 Tick Sell Flow', dir: 'BEAR', weight: tickBearW, detail: 'Real aggressor: ' + tick.sellPct + '% sell, imbalance ' + tick.flowImbalance.toFixed(3) });
+                }
+            }
+
+            // Price vs VWAP — bullish above, bearish below
+            if (tick.priceVsVwap !== undefined && tick.vwap > 0) {
+                if (tick.priceVsVwap > 0.3) {
+                    bull += 1;
+                    signals.push({ name: '📊 Above VWAP', dir: 'BULL', weight: 1, detail: 'Price ' + tick.priceVsVwap.toFixed(2) + '% above VWAP' });
+                } else if (tick.priceVsVwap < -0.3) {
+                    bear += 1;
+                    signals.push({ name: '📊 Below VWAP', dir: 'BEAR', weight: 1, detail: 'Price ' + tick.priceVsVwap.toFixed(2) + '% below VWAP' });
+                }
+            }
+
+            // Large blocks — institutional activity
+            if (tick.largeBlockBuys > 0 || tick.largeBlockSells > 0) {
+                if (tick.largeBlockBuys > tick.largeBlockSells) {
+                    bull += 1.5;
+                    signals.push({ name: '📊 Large Blocks', dir: 'BULL', weight: 1.5, detail: tick.largeBlockBuys + ' large buys vs ' + tick.largeBlockSells + ' sells' });
+                } else if (tick.largeBlockSells > tick.largeBlockBuys) {
+                    bear += 1.5;
+                    signals.push({ name: '📊 Large Blocks', dir: 'BEAR', weight: 1.5, detail: tick.largeBlockSells + ' large sells vs ' + tick.largeBlockBuys + ' buys' });
+                }
+            }
+        }
+
         // Compute final score — CONVICTION SPREAD (not ratio)
         // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT

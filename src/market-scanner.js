@@ -160,6 +160,24 @@ class MarketScanner {
             });
         });
 
+        // 6. Polygon Gainers — top % movers up
+        var gainers = marketData.polygonGainers || [];
+        gainers.forEach(function (g) {
+            if (g.ticker && Math.abs(g.changePercent || 0) > 2) {
+                var w = Math.abs(g.changePercent) > 5 ? 2 : 1;
+                addTicker(g.ticker, 'POLYGON_GAINER', '+' + (g.changePercent || 0).toFixed(1) + '% vol:' + (g.volume || 0), w);
+            }
+        });
+
+        // 7. Polygon Losers — top % movers down
+        var losers = marketData.polygonLosers || [];
+        losers.forEach(function (g) {
+            if (g.ticker && Math.abs(g.changePercent || 0) > 2) {
+                var w = Math.abs(g.changePercent) > 5 ? 2 : 1;
+                addTicker(g.ticker, 'POLYGON_LOSER', (g.changePercent || 0).toFixed(1) + '% vol:' + (g.volume || 0), w);
+            }
+        });
+
         // Convert to array and sort by convergence score (weight × source count)
         var candidates = Object.values(tally);
         candidates.forEach(function (c) {

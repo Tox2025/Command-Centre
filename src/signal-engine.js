@@ -965,11 +965,55 @@ class SignalEngine {
             }
         }
 
+        // ── 37. Polygon Server-Computed TA Validation ──
+        // Uses Polygon API's pre-calculated RSI, MACD, EMA to validate our local TA
+        if (data.polygonTA) {
+            var pTA = data.polygonTA;
+
+            // Polygon RSI validation
+            if (pTA.rsi !== null && pTA.rsi !== undefined) {
+                if (pTA.rsi < 30) {
+                    bull += 1.5;
+                    signals.push({ name: '🔷 Polygon RSI', dir: 'BULL', weight: 1.5, detail: 'Server RSI ' + pTA.rsi.toFixed(1) + ' (oversold)' });
+                } else if (pTA.rsi > 70) {
+                    bear += 1.5;
+                    signals.push({ name: '🔷 Polygon RSI', dir: 'BEAR', weight: 1.5, detail: 'Server RSI ' + pTA.rsi.toFixed(1) + ' (overbought)' });
+                }
+            }
+
+            // Polygon EMA alignment
+            if (pTA.emaBias === 'BULLISH') {
+                bull += 1;
+                signals.push({ name: '🔷 Polygon EMA', dir: 'BULL', weight: 1, detail: 'EMA 9>20>50 stacked bullish' });
+            } else if (pTA.emaBias === 'BEARISH') {
+                bear += 1;
+                signals.push({ name: '🔷 Polygon EMA', dir: 'BEAR', weight: 1, detail: 'EMA 9<20<50 stacked bearish' });
+            }
+
+            // Polygon MACD signal
+            if (pTA.macdSignal === 'BULL_CROSS') {
+                bull += 2;
+                signals.push({ name: '🔷 MACD Cross', dir: 'BULL', weight: 2, detail: 'MACD bullish crossover (Polygon)' });
+            } else if (pTA.macdSignal === 'BEAR_CROSS') {
+                bear += 2;
+                signals.push({ name: '🔷 MACD Cross', dir: 'BEAR', weight: 2, detail: 'MACD bearish crossover (Polygon)' });
+            }
+
+            // Price vs SMA200 — long-term trend
+            if (pTA.trend200 === 'ABOVE') {
+                bull += 0.5;
+                signals.push({ name: '🔷 Above 200 SMA', dir: 'BULL', weight: 0.5, detail: 'Price above 200-day SMA (uptrend)' });
+            } else if (pTA.trend200 === 'BELOW') {
+                bear += 0.5;
+                signals.push({ name: '🔷 Below 200 SMA', dir: 'BEAR', weight: 0.5, detail: 'Price below 200-day SMA (downtrend)' });
+            }
+        }
+
         // Compute final score — CONVICTION SPREAD (not ratio)
         // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
         const spread = Math.abs(bull - bear);
-        const maxWeight = 37;  // ↑ from 35 — accounts for volume_direction signal
+        const maxWeight = 40;  // ↑ from 37 — accounts for Polygon TA + tick data signals
         const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + 2 ? 'BEARISH' : 'NEUTRAL';
         const confidence = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
         const signalCount = signals.length;

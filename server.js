@@ -261,6 +261,13 @@ app.get('/api/correlation', (req, res) => res.json(state.correlationRisk));
 app.get('/api/scanner', (req, res) => res.json(scanner.getResults()));
 app.get('/api/tick-data', (req, res) => res.json({ connected: polygonClient.isConnected(), tickers: polygonClient.getSubscribedCount(), data: polygonClient.getAllSummaries() }));
 app.get('/api/tick-data/:ticker', (req, res) => { var t = req.params.ticker.toUpperCase(); var s = polygonClient.getTickSummary(t); res.json(s || { error: 'No tick data for ' + t }); });
+app.get('/api/polygon/snapshot', async (req, res) => { try { var count = await polygonClient.getSnapshot(); res.json({ updated: count, cached: Object.keys(polygonClient.snapshotCache).length }); } catch (e) { res.json({ error: e.message }); } });
+app.get('/api/polygon/snapshot/:ticker', async (req, res) => { try { var d = await polygonClient.getTickerSnapshot(req.params.ticker); res.json(d || { error: 'No data' }); } catch (e) { res.json({ error: e.message }); } });
+app.get('/api/polygon/gainers', async (req, res) => { try { res.json(await polygonClient.getGainers()); } catch (e) { res.json([]); } });
+app.get('/api/polygon/losers', async (req, res) => { try { res.json(await polygonClient.getLosers()); } catch (e) { res.json([]); } });
+app.get('/api/polygon/indicators/:ticker', async (req, res) => { try { res.json(await polygonClient.getAllIndicators(req.params.ticker)); } catch (e) { res.json({ error: e.message }); } });
+app.get('/api/polygon/bars/:ticker', (req, res) => { var t = req.params.ticker.toUpperCase(); res.json({ minute: polygonClient.getMinuteBars(t), second: polygonClient.getSecondBars(t) }); });
+app.get('/api/polygon/details/:ticker', async (req, res) => { try { res.json(await polygonClient.getTickerDetails(req.params.ticker)); } catch (e) { res.json({ error: e.message }); } });
 app.get('/api/scanner/clear-cooldown', (req, res) => { scanner.clearCooldown(); res.json({ cleared: true }); });
 app.get('/api/budget', (req, res) => res.json(scheduler.getBudget()));
 app.get('/api/kelly/:ticker', (req, res) => {
@@ -1488,7 +1495,9 @@ async function scoreTickerSignals(ticker) {
             sectorTide: state.sectorTide || {},
             etfTide: state.etfTide || {},
             economicCalendar: state.economicCalendar || [],
-            tickData: polygonClient.getTickSummary(ticker) || null
+            tickData: polygonClient.getTickSummary(ticker) || null,
+            polygonTA: null,  // fetched async below
+            polygonSnapshot: polygonClient.getSnapshotData(ticker) || null
         };
         const signalResult = signalEngine.score(ticker, data, state.session);
 
@@ -2043,13 +2052,27 @@ async function refreshAll() {
     } catch (e) { console.error('Volatility scanner pipeline error:', e.message); }
 
     // ── Market Scanner (deferred 60s to avoid rate limit overlap) ──
+    // Fetch Polygon snapshot for bid/ask updates + scanner candidates
+    try {
+        await polygonClient.getSnapshot();
+    } catch (pe) { /* optional */ }
+
+    var polygonGainers = [];
+    var polygonLosers = [];
+    try {
+        polygonGainers = await polygonClient.getGainers();
+        polygonLosers = await polygonClient.getLosers();
+    } catch (pe) { /* optional */ }
+
     var scannerMarketData = {
         optionsFlow: state.optionsFlow,
         darkPoolRecent: state.darkPoolRecent,
         topNetImpact: state.topNetImpact,
         marketInsiderBuySells: state.marketInsiderBuySells,
         insiderTransactions: state.insiderTransactions,
-        news: state.news
+        news: state.news,
+        polygonGainers: polygonGainers,
+        polygonLosers: polygonLosers
     };
     // Defer scanner scoring to 60s from now so UW rate limit window resets
     setTimeout(async function () {

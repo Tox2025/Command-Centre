@@ -212,7 +212,7 @@ class SignalEngine {
                 if (hist > 0) {
                     bull += w3; signals.push({ name: 'MACD Positive', dir: 'BULL', weight: w3, detail: 'Hist ' + hist.toFixed(3) });
                 } else {
-                    var macdBearW = isRanging ? w3 * 0.4 : w3;  // Dampen in ranging (0% accuracy)
+                    var macdBearW = isRanging ? w3 * 0.25 : w3;  // Heavily dampen in ranging (0% accuracy on 2/19)
                     bear += macdBearW; signals.push({ name: 'MACD Negative', dir: 'BEAR', weight: +macdBearW.toFixed(2), detail: 'Hist ' + hist.toFixed(3) + (isRanging ? ' (ranging dampened)' : '') });
                 }
             }
@@ -525,14 +525,16 @@ class SignalEngine {
             }
         }
 
-        // 18. Candlestick Pattern Confirmation
+        // 18. Candlestick Pattern Confirmation — bullish patterns 1.5x boost (75% accuracy on 2/19)
         const w18 = this._ew('candlestick_pattern', sess);
         if (patterns.length > 0) {
             patterns.forEach(function (p) {
                 if (p.direction === 'BULL') {
-                    bull += w18 * (p.strength || 0.5); signals.push({ name: p.name, dir: 'BULL', weight: +(w18 * (p.strength || 0.5)).toFixed(2), detail: 'Candle pattern' });
+                    var bullCandleW = w18 * (p.strength || 0.5) * 1.5;  // Boost: Bullish Engulfing had 75% accuracy
+                    bull += bullCandleW; signals.push({ name: p.name, dir: 'BULL', weight: +bullCandleW.toFixed(2), detail: 'Candle pattern (boosted)' });
                 } else if (p.direction === 'BEAR') {
-                    bear += w18 * (p.strength || 0.5); signals.push({ name: p.name, dir: 'BEAR', weight: +(w18 * (p.strength || 0.5)).toFixed(2), detail: 'Candle pattern' });
+                    var bearCandleW = w18 * (p.strength || 0.5) * (isRanging ? 0.5 : 1.0);  // Dampen bear candles in ranging
+                    bear += bearCandleW; signals.push({ name: p.name, dir: 'BEAR', weight: +bearCandleW.toFixed(2), detail: 'Candle pattern' + (isRanging ? ' (ranging dampened)' : '') });
                 }
             });
         }
@@ -620,8 +622,8 @@ class SignalEngine {
                 });
                 signals.push({ name: 'ADX Strong Trend', dir: 'NEUTRAL', weight: 0, detail: 'ADX ' + adxVal.toFixed(0) + ' — trend signals boosted 20%' });
             } else if (adxVal < 18) {
-                // No trend (choppy): light penalty on trend signals (15%), boost mean-reversion by 30%
-                // Data shows "choppy" stocks (MU, NBIS, APP) had best intraday moves — old 40% penalty was too harsh
+                // No trend (choppy): penalty on trend signals, boost mean-reversion, dampen ALL bear signals
+                // ADX Choppy had 0% accuracy on 2/19 — choppy conditions produce false bear signals
                 signals.forEach(function (s) {
                     if (s.name.includes('EMA') || s.name.includes('MACD')) {
                         var penalty = s.weight * 0.15;
@@ -633,8 +635,13 @@ class SignalEngine {
                         if (s.dir === 'BULL') bull += boost;
                         else if (s.dir === 'BEAR') bear += boost;
                     }
+                    // Additional bear dampening in choppy conditions (0% accuracy on 2/19)
+                    if (s.dir === 'BEAR' && !s.name.includes('BB') && !s.name.includes('Reversion')) {
+                        var choppyPenalty = s.weight * 0.25;
+                        bear -= choppyPenalty;
+                    }
                 });
-                signals.push({ name: 'ADX Choppy', dir: 'NEUTRAL', weight: 0, detail: 'ADX ' + adxVal.toFixed(0) + ' — trend -15%, mean-reversion +30%' });
+                signals.push({ name: 'ADX Choppy', dir: 'NEUTRAL', weight: 0, detail: 'ADX ' + adxVal.toFixed(0) + ' — trend -15%, mean-reversion +30%, bear -25%' });
             }
         }
 
@@ -1014,7 +1021,11 @@ class SignalEngine {
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
         const spread = Math.abs(bull - bear);
         const maxWeight = 40;  // ↑ from 37 — accounts for Polygon TA + tick data signals
-        const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + 2 ? 'BEARISH' : 'NEUTRAL';
+
+        // Regime-aware bear gating: in RANGING, require stronger bear spread to declare BEARISH
+        // Bear signals had 29% accuracy in ranging on 2/19 — too many false bearish calls
+        var bearThreshold = isRanging ? 5 : 2;  // Need 5pt bear lead in ranging vs 2pt normally
+        const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
         const confidence = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
         const signalCount = signals.length;
 

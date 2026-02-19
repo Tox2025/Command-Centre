@@ -614,6 +614,18 @@ app.post('/api/chat', async (req, res) => {
         var userMsg = (req.body.message || '').trim();
         var ticker = req.body.ticker || null;
         if (!userMsg) return res.status(400).json({ error: 'Message required' });
+
+        // Backend ticker detection fallback (handles lowercase, e.g. "when are nvda earnings")
+        if (!ticker) {
+            var upperMsg = userMsg.toUpperCase();
+            var allKnownTickers = Object.keys(state.quotes);
+            for (var i = 0; i < allKnownTickers.length; i++) {
+                if (upperMsg.indexOf(allKnownTickers[i]) !== -1 && allKnownTickers[i].length >= 2) {
+                    ticker = allKnownTickers[i];
+                    break;
+                }
+            }
+        }
         if (!process.env.GEMINI_API_KEY) return res.json({ reply: 'GEMINI_API_KEY not configured in .env' });
 
         // Build rich market context
@@ -628,6 +640,7 @@ app.post('/api/chat', async (req, res) => {
             var q = state.quotes[t];
             if (q) {
                 context += t + ': $' + (q.price || q.last || 'N/A') + ' | Change: ' + (q.change_percent || q.changePercent || 'N/A') + '%';
+                if (q.next_earnings_date) context += ' | Next Earnings: ' + q.next_earnings_date;
                 var ta = state.technicals[t];
                 if (ta) context += ' | RSI: ' + (ta.rsi ? ta.rsi.toFixed(1) : 'N/A') + ' | Bias: ' + (ta.bias || 'N/A');
                 var sig = state.signalScores[t];
@@ -647,6 +660,8 @@ app.post('/api/chat', async (req, res) => {
             if (tsig) context += 'Signal Score: ' + JSON.stringify({ direction: tsig.direction, confidence: tsig.confidence, signals: (tsig.signals || []).slice(0, 5) }) + '\n';
             var tear = state.earnings[ticker];
             if (tear) context += 'Earnings: ' + JSON.stringify(Array.isArray(tear) ? tear.slice(0, 2) : tear) + '\n';
+            // Fallback: check quote's next_earnings_date
+            if (!tear && tq && tq.next_earnings_date) context += 'Next Earnings Date: ' + tq.next_earnings_date + ' (announce: ' + (tq.announce_time || 'unknown') + ')\n';
             var tsi = state.shortInterest[ticker];
             if (tsi) context += 'Short Interest: ' + JSON.stringify(Array.isArray(tsi) ? tsi[tsi.length - 1] : tsi) + '\n';
             var tiv = state.ivRank[ticker];
@@ -670,8 +685,9 @@ app.post('/api/chat', async (req, res) => {
             }
         }
 
-        // Upcoming earnings from state.earnings
-        context += '\n--- UPCOMING EARNINGS (from watchlist) ---\n';
+        // Upcoming earnings from state.earnings AND quote data
+        context += '\n--- UPCOMING EARNINGS ---\n';
+        var earningsReported = {};
         state.tickers.forEach(function (t) {
             var e = state.earnings[t];
             if (e) {
@@ -679,6 +695,13 @@ app.post('/api/chat', async (req, res) => {
                 items.slice(0, 2).forEach(function (item) {
                     context += t + ': ' + (item.report_date || item.date || 'N/A') + ' ' + (item.report_time || '') + '\n';
                 });
+                earningsReported[t] = true;
+            }
+        });
+        // Also check next_earnings_date from ALL quotes (covers non-watchlist tickers)
+        Object.keys(state.quotes).forEach(function (t) {
+            if (!earningsReported[t] && state.quotes[t].next_earnings_date) {
+                context += t + ': ' + state.quotes[t].next_earnings_date + ' (' + (state.quotes[t].announce_time || 'unknown') + ')\n';
             }
         });
 

@@ -88,7 +88,29 @@ class EODReporter {
                 bestSignals: signalAccuracy.bestSignals,
                 worstSignals: signalAccuracy.worstSignals
             },
-            recommendations: recommendations
+            recommendations: recommendations,
+            // Polygon tick data EOD summary
+            polygonTickData: (function () {
+                try {
+                    var tickSummaries = {};
+                    var tickers = Object.keys(state.signalScores || {});
+                    tickers.forEach(function (t) {
+                        var td = (state.polygonTickSummaries || {})[t];
+                        if (td) {
+                            tickSummaries[t] = {
+                                totalVolume: td.totalVolume || 0,
+                                buyPct: td.buyPct || 50,
+                                sellPct: td.sellPct || 50,
+                                flowImbalance: td.flowImbalance || 0,
+                                vwap: td.vwap || 0,
+                                largeBlockBuys: td.largeBlockBuys || 0,
+                                largeBlockSells: td.largeBlockSells || 0
+                            };
+                        }
+                    });
+                    return Object.keys(tickSummaries).length > 0 ? tickSummaries : null;
+                } catch (e) { return null; }
+            })()
         };
 
         // Save report

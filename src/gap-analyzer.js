@@ -70,9 +70,22 @@ class GapAnalyzer {
                     price = price || parseFloat(dpItem.price || dpItem.avg_price || 0);
                 }
                 // Without prev_close, we can't detect gaps for non-watchlist tickers
-                if (price <= 0) return;
-                // Skip — we need prev_close to detect a gap
-                return;
+                // Try Polygon snapshot for prevClose
+                var polygonSnap = (state.polygonSnapshots || {})[ticker];
+                if (polygonSnap && polygonSnap.prevClose > 0) {
+                    price = price || polygonSnap.price || polygonSnap.close || 0;
+                    quote = {
+                        price: price,
+                        last: price,
+                        open: polygonSnap.open || price,
+                        prev_close: polygonSnap.prevClose,
+                        volume: polygonSnap.volume || 0,
+                        changePercent: polygonSnap.changePercent || 0
+                    };
+                } else {
+                    if (price <= 0) return;
+                    return; // still no prevClose
+                }
             }
 
             var price = parseFloat(quote.last || quote.price || quote.close || 0);

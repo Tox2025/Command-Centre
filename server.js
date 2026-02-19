@@ -27,6 +27,7 @@ const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
 const EODReporter = require('./src/eod-reporter');
 const PolygonTickClient = require('./src/polygon-client');
+const PolygonHistorical = require('./src/polygon-historical');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
@@ -268,6 +269,29 @@ app.get('/api/polygon/losers', async (req, res) => { try { res.json(await polygo
 app.get('/api/polygon/indicators/:ticker', async (req, res) => { try { res.json(await polygonClient.getAllIndicators(req.params.ticker)); } catch (e) { res.json({ error: e.message }); } });
 app.get('/api/polygon/bars/:ticker', (req, res) => { var t = req.params.ticker.toUpperCase(); res.json({ minute: polygonClient.getMinuteBars(t), second: polygonClient.getSecondBars(t) }); });
 app.get('/api/polygon/details/:ticker', async (req, res) => { try { res.json(await polygonClient.getTickerDetails(req.params.ticker)); } catch (e) { res.json({ error: e.message }); } });
+// ML historical data pipeline endpoints
+const polygonHistorical = new PolygonHistorical(process.env.POLYGON_API_KEY || '');
+app.get('/api/polygon/ml/generate/:ticker', async (req, res) => {
+    try {
+        var years = parseInt(req.query.years) || 5;
+        var data = await polygonHistorical.generateTrainingData(req.params.ticker.toUpperCase(), years);
+        res.json({ success: true, samples: data ? data.length : 0, data: data });
+    } catch (e) { res.json({ error: e.message }); }
+});
+app.post('/api/polygon/ml/batch', async (req, res) => {
+    try {
+        var tickers = req.body.tickers || state.tickers || [];
+        var years = parseInt(req.body.years) || 5;
+        var result = await polygonHistorical.generateBatchTrainingData(tickers, years);
+        res.json({ success: true, ...result });
+    } catch (e) { res.json({ error: e.message }); }
+});
+app.get('/api/polygon/ml/availability/:ticker', async (req, res) => {
+    try {
+        var info = await polygonHistorical.checkDataAvailability(req.params.ticker.toUpperCase());
+        res.json(info || { error: 'No data' });
+    } catch (e) { res.json({ error: e.message }); }
+});
 app.get('/api/scanner/clear-cooldown', (req, res) => { scanner.clearCooldown(); res.json({ cleared: true }); });
 app.get('/api/budget', (req, res) => res.json(scheduler.getBudget()));
 app.get('/api/kelly/:ticker', (req, res) => {
@@ -827,6 +851,32 @@ app.post('/api/chat', async (req, res) => {
             context += '\n--- ECONOMIC CALENDAR ---\n';
             state.economicCalendar.slice(0, 8).forEach(function (ev) {
                 context += (ev.date || '') + ' ' + (ev.event || ev.name || '') + ' | Expected: ' + (ev.expected || ev.forecast || 'N/A') + '\n';
+            });
+        }
+
+        // Polygon Real-Time Tick Data
+        var tickSummaries = polygonClient.getAllSummaries();
+        if (Object.keys(tickSummaries).length > 0) {
+            context += '\n--- REAL-TIME TICK DATA (Polygon) ---\n';
+            Object.keys(tickSummaries).forEach(function (tkr) {
+                var td = tickSummaries[tkr];
+                context += tkr + ': Buy=' + td.buyPct + '% Sell=' + td.sellPct + '% Imbalance=' + (td.flowImbalance || 0) + ' VWAP=$' + (td.vwap || 0) + ' Vol=' + (td.totalVolume || 0);
+                if (td.largeBlockBuys > 0 || td.largeBlockSells > 0) {
+                    context += ' LargeBlocks(buy=' + td.largeBlockBuys + ' sell=' + td.largeBlockSells + ')';
+                }
+                context += '\n';
+            });
+        }
+
+        // Polygon Snapshot Data (gainers context)
+        var snapshots = polygonClient.snapshotCache || {};
+        var watchTickers = state.tickers || [];
+        var snapKeys = Object.keys(snapshots).filter(function (k) { return watchTickers.indexOf(k) >= 0; });
+        if (snapKeys.length > 0) {
+            context += '\n--- POLYGON SNAPSHOT ---\n';
+            snapKeys.forEach(function (tkr) {
+                var s = snapshots[tkr];
+                if (s) context += tkr + ': $' + (s.price || 0) + ' chg=' + (s.changePercent || 0).toFixed(2) + '% vol=' + (s.volume || 0) + ' prevClose=$' + (s.prevClose || 0) + '\n';
             });
         }
 
@@ -1496,9 +1546,18 @@ async function scoreTickerSignals(ticker) {
             etfTide: state.etfTide || {},
             economicCalendar: state.economicCalendar || [],
             tickData: polygonClient.getTickSummary(ticker) || null,
-            polygonTA: null,  // fetched async below
-            polygonSnapshot: polygonClient.getSnapshotData(ticker) || null
+            polygonTA: null,
+            polygonSnapshot: polygonClient.getSnapshotData(ticker) || null,
+            polygonMinuteBars: polygonClient.getMinuteBars(ticker) || []
         };
+
+        // Fetch Polygon TA indicators (async) — signal #37 needs this
+        try {
+            if (process.env.POLYGON_API_KEY) {
+                data.polygonTA = await polygonClient.getAllIndicators(ticker);
+            }
+        } catch (taErr) { /* optional — signal #37 will just skip */ }
+
         const signalResult = signalEngine.score(ticker, data, state.session);
 
         // Detect trade horizon: day trade for active sessions, swing otherwise
@@ -1990,6 +2049,7 @@ async function refreshAll() {
 
     // Analyze gaps (needs prev_close from quotes)
     try {
+        state.polygonSnapshots = polygonClient.snapshotCache || {};
         state.gapAnalysis = gapAnalyzer.analyzeGaps(state);
     } catch (e) { console.error('Gap analysis error:', e.message); }
 
@@ -2177,6 +2237,7 @@ async function refreshAll() {
     // Run at 4:20 PM EST (market closed + 20 mins for data to settle)
     if (hour === 16 && min >= 20 && min < 30 && !state.eodReportGenerated) {
         console.log('📉 Market Closed — Generating EOD Report...');
+        state.polygonTickSummaries = polygonClient.getAllSummaries();
         eodReporter.generateReport(state, tradeJournal, optionsPaper);
         state.eodReportGenerated = true;
     }
@@ -2446,6 +2507,7 @@ function startYahooPriceRefresh() {
                 state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yahooQuotes);
 
                 // Re-run gap analysis with fresh Yahoo prev_close/open data
+                state.polygonSnapshots = polygonClient.snapshotCache || {};
                 state.gapAnalysis = gapAnalyzer.analyzeGaps(state);
 
                 // Update paper trade P&L with fresh prices
@@ -2541,7 +2603,15 @@ function generateMorningBrief() {
                 earningsRisk: (state.earningsRisk || {})[ticker] || null,
                 setup: setup ? { entry: setup.entry, target1: setup.target1, target2: setup.target2, stop: setup.stop, rr: setup.riskReward } : null,
                 bull: score.bull,
-                bear: score.bear
+                bear: score.bear,
+                // Polygon tick data summary
+                tickData: (function () {
+                    var td = polygonClient.getTickSummary(ticker);
+                    if (!td) return null;
+                    return { buyPct: td.buyPct, sellPct: td.sellPct, flowImbalance: td.flowImbalance, vwap: td.vwap, totalVolume: td.totalVolume, largeBlockBuys: td.largeBlockBuys, largeBlockSells: td.largeBlockSells };
+                })(),
+                // Polygon snapshot data
+                snapshotData: polygonClient.getSnapshotData(ticker) || null
             };
         }
     }

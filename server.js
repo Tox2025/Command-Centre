@@ -1116,19 +1116,42 @@ app.post('/api/chat', async (req, res) => {
             + context + historyContext;
 
         var userContent = slashResult ? slashResult + '\nUser question: ' + userMsg : 'User question: ' + userMsg;
-        var result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }],
-            generationConfig: { maxOutputTokens: 2500, temperature: 0.3 }
-        });
 
-        var reply = result.response.text();
+        // Retry with exponential backoff for rate limits (429)
+        var reply = null;
+        var maxRetries = 3;
+        for (var attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                var result = await model.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }],
+                    generationConfig: { maxOutputTokens: 2500, temperature: 0.3 }
+                });
+                reply = result.response.text();
+                break; // Success — exit retry loop
+            } catch (retryErr) {
+                var is429 = retryErr.message && (retryErr.message.includes('429') || retryErr.message.includes('Resource exhausted'));
+                if (is429 && attempt < maxRetries - 1) {
+                    var waitMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+                    console.log('Chat: Gemini rate limited, retrying in ' + (waitMs / 1000) + 's (attempt ' + (attempt + 1) + '/' + maxRetries + ')');
+                    await new Promise(function (resolve) { setTimeout(resolve, waitMs); });
+                } else {
+                    throw retryErr; // Non-429 error or final attempt — let outer catch handle it
+                }
+            }
+        }
+
+        if (!reply) reply = 'Rate limited by Gemini API. Please wait a moment and try again.';
+
         // Store assistant reply in history
         history.push({ role: 'assistant', text: reply });
         if (history.length > 20) history.splice(0, history.length - 20);
         res.json({ reply: reply });
     } catch (e) {
         console.error('Chat error:', e.message);
-        res.json({ reply: 'Error: ' + e.message });
+        var userError = e.message && e.message.includes('429')
+            ? '⏳ Gemini API is rate limited. Please wait 30 seconds and try again.'
+            : 'Error: ' + e.message;
+        res.json({ reply: userError });
     }
 });
 

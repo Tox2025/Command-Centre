@@ -355,6 +355,14 @@ app.post('/api/ml/retrain', async (req, res) => {
         var dayTradeSuccess = mlCalibrator.train(recentData, 'dayTrade');
         var swingSuccess = mlCalibrator.train(fullData, 'swing');
 
+        // Step 4: Persist cumulative training data so ML survives restarts
+        try {
+            var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+            if (allData.length > 50000) allData = allData.slice(-50000);
+            require('fs').writeFileSync(cumulPath, JSON.stringify(allData));
+            console.log('🧠 ML training data saved: ' + allData.length + ' samples → ' + cumulPath);
+        } catch (saveErr) { console.error('ML data save error:', saveErr.message); }
+
         var status = mlCalibrator.getStatus();
         console.log('🧠 ML Retrain complete! DayTrade: ' + (dayTradeSuccess ? status.dayTrade.accuracy + '%' : 'failed') +
             ' | Swing: ' + (swingSuccess ? status.swing.accuracy + '%' : 'failed'));

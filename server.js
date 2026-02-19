@@ -1739,6 +1739,9 @@ async function scoreTickerSignals(ticker) {
 
                 const setup = {
                     ticker, direction: dir, entry: price, confidence: signalResult.confidence,
+                    technicalConfidence: signalResult.technicalConfidence || signalResult.confidence,
+                    mlConfidence: signalResult.mlConfidence || null,
+                    blendedConfidence: signalResult.blendedConfidence || null,
                     target1: dir === 'LONG' ? +(price + scaledATR).toFixed(2) : +(price - scaledATR).toFixed(2),
                     target2: dir === 'LONG' ? +(price + scaledATR * 2).toFixed(2) : +(price - scaledATR * 2).toFixed(2),
                     stop: dir === 'LONG' ? +(price - stopDist).toFixed(2) : +(price + stopDist).toFixed(2),

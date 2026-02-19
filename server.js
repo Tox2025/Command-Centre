@@ -60,6 +60,23 @@ const alertEngine = new AlertEngine();
 const signalEngine = new SignalEngine();
 const tradeJournal = new TradeJournal();
 const mlCalibrator = new MLCalibrator();
+
+// Auto-load ML model from persisted cumulative training data
+(function () {
+    try {
+        var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+        if (require('fs').existsSync(cumulPath)) {
+            var cumulative = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8'));
+            if (cumulative && cumulative.length >= 30) {
+                var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
+                mlCalibrator.train(recent, 'dayTrade');
+                mlCalibrator.train(cumulative, 'swing');
+                var st = mlCalibrator.getStatus();
+                console.log('🧠 ML models loaded from disk: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
+            }
+        }
+    } catch (e) { console.error('ML auto-load error:', e.message); }
+})();
 const earningsCalendar = new EarningsCalendar(uw);
 const marketRegime = new MarketRegime();
 const newsSentiment = new NewsSentiment();

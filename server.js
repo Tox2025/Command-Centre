@@ -891,14 +891,29 @@ app.post('/api/chat', async (req, res) => {
             if (pTA) context += 'Polygon TA: ' + JSON.stringify(pTA) + '\n';
         }
 
-        // Earnings calendar
+        // Earnings calendar (show full list, not just 5)
         if (state.earningsToday) {
-            var preEarn = (state.earningsToday.premarket || []).slice(0, 5).map(function (e) { return e.ticker + ' (' + (e.report_time || '') + ')' }).join(', ');
-            var postEarn = (state.earningsToday.afterhours || []).slice(0, 5).map(function (e) { return e.ticker + ' (' + (e.report_time || '') + ')' }).join(', ');
+            var todayDate = new Date().toISOString().slice(0, 10);
+            var preEarn = (state.earningsToday.premarket || []).slice(0, 25).map(function (e) {
+                var info = (e.ticker || e.symbol || '?');
+                if (e.name || e.company) info += ' (' + (e.name || e.company) + ')';
+                if (e.eps) info += ' EPS=' + e.eps;
+                if (e.eps_estimate) info += ' est=' + e.eps_estimate;
+                if (e.report_date) info += ' ' + e.report_date;
+                return info;
+            }).join(', ');
+            var postEarn = (state.earningsToday.afterhours || []).slice(0, 25).map(function (e) {
+                var info = (e.ticker || e.symbol || '?');
+                if (e.name || e.company) info += ' (' + (e.name || e.company) + ')';
+                if (e.eps) info += ' EPS=' + e.eps;
+                if (e.eps_estimate) info += ' est=' + e.eps_estimate;
+                if (e.report_date) info += ' ' + e.report_date;
+                return info;
+            }).join(', ');
             if (preEarn || postEarn) {
-                context += '\n--- EARNINGS TODAY ---\n';
-                if (preEarn) context += 'Pre-market: ' + preEarn + '\n';
-                if (postEarn) context += 'After-hours: ' + postEarn + '\n';
+                context += '\n--- EARNINGS TODAY (' + todayDate + ') ---\n';
+                if (preEarn) context += 'Pre-market (' + (state.earningsToday.premarket || []).length + ' total): ' + preEarn + '\n';
+                if (postEarn) context += 'After-hours (' + (state.earningsToday.afterhours || []).length + ' total): ' + postEarn + '\n';
             }
         }
 

@@ -18,7 +18,8 @@ async function loadReportList() {
         });
 
         if (list.length > 0) {
-            // Select most recent by default? No, let user choose.
+            select.value = list[0]; // most recent (already sorted desc)
+            loadSelectedReport();
         }
     } catch (e) {
         console.error('Failed to load reports:', e);

@@ -15,7 +15,7 @@ const SIGNAL_WEIGHTS = {
     gex_positioning: 2,
     iv_rank: 1,
     short_interest: 1,
-    volume_spike: 2,        // ↑ from 1 — Session Bounce had 80% accuracy
+    volume_spike: 3,        // ↑ from 2 — Session Bounce 80% + Volume Spike 80% accuracy
     regime_alignment: 3,
     gamma_wall: 2,
     iv_skew: 1,
@@ -996,13 +996,16 @@ class SignalEngine {
                 }
             }
 
-            // Polygon EMA alignment
-            if (pTA.emaBias === 'BULLISH') {
-                bull += 1;
-                signals.push({ name: '🔷 Polygon EMA', dir: 'BULL', weight: 1, detail: 'EMA 9>20>50 stacked bullish' });
-            } else if (pTA.emaBias === 'BEARISH') {
-                bear += 1;
-                signals.push({ name: '🔷 Polygon EMA', dir: 'BEAR', weight: 1, detail: 'EMA 9<20<50 stacked bearish' });
+            // Polygon EMA alignment — gated to TRENDING regimes only (33% accuracy in RANGING)
+            var isTrending = regime && (regime.regime === 'BULL_TREND' || regime.regime === 'BEAR_TREND' || regime.regime === 'TRENDING');
+            if (isTrending) {
+                if (pTA.emaBias === 'BULLISH') {
+                    bull += 1;
+                    signals.push({ name: '🔷 Polygon EMA', dir: 'BULL', weight: 1, detail: 'EMA 9>20>50 stacked bullish (trending regime)' });
+                } else if (pTA.emaBias === 'BEARISH') {
+                    bear += 1;
+                    signals.push({ name: '🔷 Polygon EMA', dir: 'BEAR', weight: 1, detail: 'EMA 9<20<50 stacked bearish (trending regime)' });
+                }
             }
 
             // Polygon MACD signal

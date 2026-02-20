@@ -292,7 +292,7 @@ class TradeJournal {
     }
     // Kelly Criterion Position Sizing (half-Kelly for safety)
     calculateKellySize(confidence, accountSize) {
-        accountSize = accountSize || 10000;
+        accountSize = accountSize || 100000;
         var closed = this.trades.filter(function (t) { return t.status !== 'PENDING' && t.status !== 'EXPIRED'; });
         if (closed.length < 10) {
             // Not enough data, use fixed 2% risk

@@ -1,6 +1,13 @@
 node_modules/
 .env
-data/
-!data/.keep
 .DS_Store
 *.log
+
+# Generated server-side data (don't track, regenerated on server)
+data/eod-reports/
+data/trade-journal.json
+data/options-trades.json
+
+# Keep these tracked (needed across deploys):
+# data/watchlist.json
+# data/ml-model-*.json

@@ -103,8 +103,10 @@ function renderReport(report) {
         recsDiv.innerHTML = '<div style="color:#94a3b8;font-style:italic">No recommendations generated.</div>';
     }
 
-    // 2.5 Horizon Breakdown
-    if (perf.paper?.byHorizon) {
+    // 2.5 Horizon Breakdown — use dedicated container to prevent duplication
+    var horizonContainer = document.getElementById('horizonContainer');
+    if (horizonContainer) horizonContainer.innerHTML = '';
+    if (perf.paper?.byHorizon && horizonContainer) {
         const hDiv = document.createElement('div');
         hDiv.className = 'report-card';
         hDiv.innerHTML = '<h3>⏳ Performance by Horizon</h3><div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"></div>';
@@ -117,9 +119,7 @@ function renderReport(report) {
             box.innerHTML = `<div class="stat-label">${h}</div><div class="stat-value" style="font-size:1.2em;color:${data.pnl >= 0 ? '#4ade80' : '#f87171'}">${formatMoney(data.pnl)}</div><div class="stat-label">${data.count} trades</div>`;
             grid.appendChild(box);
         });
-        // Insert after summary section
-        const section = document.querySelector('.report-section');
-        section.appendChild(hDiv);
+        horizonContainer.appendChild(hDiv);
     }
 
     // 3. Signals
@@ -138,18 +138,17 @@ function renderReport(report) {
         tvmCard.className = 'report-card';
         tvmCard.innerHTML = '<h3>📊 Tech vs ML Accuracy</h3>' +
             '<div style="display:flex;gap:30px;align-items:center;margin:15px 0">' +
-            '<div style="text-align:center;flex:1"><div style="color:#94a3b8;font-size:12px">TECHNICAL</div><div style="font-size:28px;font-weight:700;color:#4ade80">' + (tvm.techAccuracy || 0) + '%</div><div style="color:#64748b;font-size:11px">' + tvm.techTotal + ' predictions</div></div>' +
+            '<div style="text-align:center;flex:1"><div style="color:var(--text-muted);font-size:12px">TECHNICAL</div><div style="font-size:28px;font-weight:700;color:#4ade80">' + (tvm.techAccuracy || 0) + '%</div><div style="color:var(--text-muted);font-size:11px">' + tvm.techTotal + ' predictions</div></div>' +
             '<div style="text-align:center"><div style="font-size:24px;font-weight:700;color:' + winnerColor + '">' + winnerLabel + '</div></div>' +
-            '<div style="text-align:center;flex:1"><div style="color:#94a3b8;font-size:12px">ML MODEL</div><div style="font-size:28px;font-weight:700;color:#818cf8">' + (tvm.mlAccuracy || 0) + '%</div><div style="color:#64748b;font-size:11px">' + tvm.mlTotal + ' predictions</div></div>' +
+            '<div style="text-align:center;flex:1"><div style="color:var(--text-muted);font-size:12px">ML MODEL</div><div style="font-size:28px;font-weight:700;color:#818cf8">' + (tvm.mlAccuracy || 0) + '%</div><div style="color:var(--text-muted);font-size:11px">' + tvm.mlTotal + ' predictions</div></div>' +
             '</div>' +
             '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">' +
-            '<div style="flex:1;background:#0f172a;padding:8px 12px;border-radius:6px;text-align:center;border:1px solid #334155"><div style="color:#4ade80;font-weight:600">' + tvm.bothAgree + '</div><div style="color:#64748b;font-size:10px">Both Right</div></div>' +
-            '<div style="flex:1;background:#0f172a;padding:8px 12px;border-radius:6px;text-align:center;border:1px solid #334155"><div style="color:#fbbf24;font-weight:600">' + tvm.techOnlyRight + '</div><div style="color:#64748b;font-size:10px">Tech Only</div></div>' +
-            '<div style="flex:1;background:#0f172a;padding:8px 12px;border-radius:6px;text-align:center;border:1px solid #334155"><div style="color:#818cf8;font-weight:600">' + tvm.mlOnlyRight + '</div><div style="color:#64748b;font-size:10px">ML Only</div></div>' +
-            '<div style="flex:1;background:#0f172a;padding:8px 12px;border-radius:6px;text-align:center;border:1px solid #334155"><div style="color:#f87171;font-weight:600">' + tvm.bothWrong + '</div><div style="color:#64748b;font-size:10px">Both Wrong</div></div>' +
+            '<div style="flex:1;background:var(--bg-input);padding:8px 12px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="color:#4ade80;font-weight:600">' + tvm.bothAgree + '</div><div style="color:var(--text-muted);font-size:10px">Both Right</div></div>' +
+            '<div style="flex:1;background:var(--bg-input);padding:8px 12px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="color:#fbbf24;font-weight:600">' + tvm.techOnlyRight + '</div><div style="color:var(--text-muted);font-size:10px">Tech Only</div></div>' +
+            '<div style="flex:1;background:var(--bg-input);padding:8px 12px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="color:#818cf8;font-weight:600">' + tvm.mlOnlyRight + '</div><div style="color:var(--text-muted);font-size:10px">ML Only</div></div>' +
+            '<div style="flex:1;background:var(--bg-input);padding:8px 12px;border-radius:6px;text-align:center;border:1px solid var(--border)"><div style="color:#f87171;font-weight:600">' + tvm.bothWrong + '</div><div style="color:var(--text-muted);font-size:10px">Both Wrong</div></div>' +
             '</div>';
-        // Insert after signal analysis section
-        var sigSection = document.querySelectorAll('.report-section')[2];
+        var sigSection = document.getElementById('signalAnalysisSection');
         if (sigSection) sigSection.appendChild(tvmCard);
     }
 

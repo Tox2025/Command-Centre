@@ -293,6 +293,32 @@ app.get('/api/market/spike', (req, res) => res.json(state.marketSpike));
 app.get('/api/journal/stats', (req, res) => res.json(tradeJournal.getStats()));
 app.get('/api/journal/trades', (req, res) => res.json(tradeJournal.getRecentTrades(50)));
 app.get('/api/ml/status', (req, res) => res.json(mlCalibrator.getStatus()));
+
+// ── EOD Report endpoints ──
+app.get('/api/eod-reports', (req, res) => {
+    try {
+        res.json(eodReporter.listReports());
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.post('/api/eod-report/generate', async (req, res) => {
+    try {
+        const report = eodReporter.generateReport(state, tradeJournal, optionsPaper);
+        res.json({ success: true, report });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+app.get('/api/eod-report/:date', (req, res) => {
+    try {
+        const report = eodReporter.getReport(req.params.date);
+        if (!report) return res.status(404).json({ error: 'Report not found' });
+        res.json(report);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 app.get('/api/signals/:ticker', (req, res) => {
     const t = req.params.ticker.toUpperCase();
     res.json(state.signalScores[t] || null);

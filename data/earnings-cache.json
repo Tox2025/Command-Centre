@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-02-20T01:10:59.270Z",
+  "lastUpdated": "2026-02-20T03:11:06.998Z",
   "entries": {
     "APP": {
       "ticker": "APP",
@@ -11,7 +11,7 @@
       "ticker": "MU",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771533320037
+      "fetchedAt": 1771557066877
     },
     "NBIS": {
       "ticker": "NBIS",
@@ -29,7 +29,7 @@
       "ticker": "MSFT",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771532046515
+      "fetchedAt": 1771557066997
     },
     "ASML": {
       "ticker": "ASML",

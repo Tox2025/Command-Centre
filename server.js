@@ -1247,7 +1247,7 @@ app.post('/api/chat', async (req, res) => {
 
         // Build Gemini request — upgraded to Gemini 3 Flash
         var genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        var model = genAI.getGenerativeModel({ model: 'gemini-3.0-flash-preview' });
+        var model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
         var systemPrompt = 'You are an expert AI trading analyst — the oracle of a live trading command centre. '
             + 'You have access to ALL real-time intelligence:\n'

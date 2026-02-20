@@ -78,10 +78,15 @@ function renderReport(report) {
     updateStat('statAccuracy', signals.accuracy + '%', signals.accuracy >= 50 ? '#4ade80' : '#f87171');
     document.getElementById('statAccuracyBar').style.width = signals.accuracy + '%';
 
-    // Show Total $ P&L
+    // Show Total P&L (all-time realized) and today's P&L
     const paperPnl = perf.paper?.totalPnl || 0;
+    const todayPnl = perf.paper?.todayPnl || 0;
+    const unrealizedPnl = perf.paper?.unrealizedPnl || 0;
     updateStat('statEquityPnl', formatMoney(paperPnl), paperPnl >= 0 ? '#4ade80' : '#f87171');
-    document.getElementById('statEquityWinRate').innerText = (perf.paper?.winRate || 0) + '% Win Rate (' + (perf.paper?.totalTrades || 0) + ' trades)';
+    var equityDetail = (perf.paper?.winRate || 0) + '% WR | ' + (perf.paper?.totalTrades || 0) + ' closed today';
+    if (todayPnl !== 0) equityDetail += ' | Today: ' + formatMoney(todayPnl);
+    if (unrealizedPnl !== 0) equityDetail += ' | Open: ' + formatMoney(unrealizedPnl);
+    document.getElementById('statEquityWinRate').innerText = equityDetail;
 
     const optPnl = perf.options?.totalPnl || 0;
     updateStat('statOptionsPnl', formatMoney(optPnl), optPnl >= 0 ? '#4ade80' : '#f87171');

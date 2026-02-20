@@ -22,46 +22,59 @@ class EODReporter {
         // 1. Signal Accuracy Analysis
         const signalAccuracy = this.analyzeSignalAccuracy(state);
 
-        // 2. Paper Trading P&L
-        const paperStats = tradeJournal.getStats();
-        // Filter for today's trades only (using Eastern market time)
-        const todayStr = eastern.toLocaleDateString('en-US');
-        const todayTrades = tradeJournal.getPaperTrades().filter(t => {
-            const tDate = new Date(t.entryTime).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-            return tDate === todayStr;
+        // 2. Paper Trading P&L — aligned with /api/paper-trades/stats logic
+        const allTrades = tradeJournal.getPaperTrades().map(t => {
+            // Ensure pnl field exists (some old trades only have pnlPct)
+            if (t.pnl === undefined && t.pnlPct !== undefined) t.pnl = t.pnlPct;
+            // Ensure pnlPoints exists for old trades
+            if (t.status !== 'PENDING' && t.pnlPoints === undefined) {
+                var exit = t.exitPrice || t.outcome || t.entry;
+                var entry = t.paperEntry || t.entry;
+                t.pnlPoints = t.direction === 'SHORT' ? +(entry - exit).toFixed(2) : +(exit - entry).toFixed(2);
+            }
+            return t;
         });
+        const allClosed = allTrades.filter(t => t.status !== 'PENDING');
+        const allOpen = allTrades.filter(t => t.status === 'PENDING');
+
+        // Filter TODAY's closed trades by closedAt date (matches paper trading page)
+        const todayStr = eastern.toLocaleDateString('en-US');
+        const todayClosed = allClosed.filter(t => {
+            if (!t.closedAt) return false;
+            return new Date(t.closedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === todayStr;
+        });
+
+        // Realized P&L (closed trades)
+        const totalPnlDollar = allClosed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+        const todayPnlDollar = todayClosed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+        const todayWins = todayClosed.filter(t => t.pnl > 0).length;
+        const todayLosses = todayClosed.filter(t => t.pnl <= 0).length;
+        const todayWinRate = todayClosed.length > 0 ? Math.round(todayWins / todayClosed.length * 100) : 0;
+
+        // Unrealized P&L (open trades)
+        const unrealizedPnlDollar = allOpen.reduce((s, t) => s + (t.unrealizedPnlTotal || t.unrealizedPnlDollar || 0), 0);
+
         const todayStats = {
-            totalTrades: todayTrades.length,
-            wins: todayTrades.filter(t => t.pnl > 0).length,
-            losses: todayTrades.filter(t => t.pnl <= 0 && t.status === 'CLOSED').length,
-            pnlPoints: todayTrades.reduce((s, t) => s + (t.pnlPoints || 0), 0),
-            totalPnl: todayTrades.reduce((s, t) => {
-                if (t.pnlTotal !== undefined) return s + t.pnlTotal;
-                // Fallback for calculating historical P&L ($) if fields missing
-                let shares = t.shares;
-                if (!shares) {
-                    const entry = t.paperEntry || t.entry || 0;
-                    const stop = t.stop || 0;
-                    const risk = Math.abs(entry - stop);
-                    shares = risk > 0 ? Math.floor(2000 / risk) : 1;
-                }
-                return s + ((t.pnlPoints || 0) * shares);
-            }, 0),
-            winRate: 0,
+            totalTrades: todayClosed.length,
+            openTrades: allOpen.length,
+            wins: todayWins,
+            losses: todayLosses,
+            pnlPoints: todayClosed.reduce((s, t) => s + (t.pnlPoints || 0), 0),
+            totalPnl: +totalPnlDollar.toFixed(2),
+            todayPnl: +todayPnlDollar.toFixed(2),
+            unrealizedPnl: +unrealizedPnlDollar.toFixed(2),
+            winRate: todayWinRate,
             byHorizon: {}
         };
-        todayStats.winRate = todayTrades.filter(t => t.status === 'CLOSED').length > 0
-            ? Math.round(todayStats.wins / todayTrades.filter(t => t.status === 'CLOSED').length * 100)
-            : 0;
 
-        // Break down by Horizon
+        // Break down by Horizon (closed trades only)
         const horizons = ['Scalp / Day Trade', 'Day Trade', 'Day Trade (volatile)', 'Swing (2-5d)', 'Intraday', 'Extended Hours'];
         horizons.forEach(h => {
-            const hTrades = todayTrades.filter(t => (t.horizon || 'Swing').includes(h.split(' ')[0])); // loose match
+            const hTrades = todayClosed.filter(t => (t.horizon || 'Swing').includes(h.split(' ')[0]));
             if (hTrades.length > 0) {
                 todayStats.byHorizon[h] = {
                     count: hTrades.length,
-                    pnl: hTrades.reduce((s, t) => s + (t.pnlTotal || 0), 0)
+                    pnl: hTrades.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0)
                 };
             }
         });

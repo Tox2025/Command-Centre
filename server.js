@@ -2447,7 +2447,20 @@ async function refreshAll() {
     try {
         var yahooQuotes = await yahooPriceFeed.fetchQuotes(state.tickers);
         state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yahooQuotes);
-    } catch (e) { console.error('Yahoo price feed error:', e.message); }
+        // Overlay Polygon WebSocket real-time prices (paid premium source takes priority)
+        (state.tickers || []).forEach(function (ticker) {
+            var tickSummary = polygonClient.getTickSummary(ticker);
+            if (tickSummary && tickSummary.lastPrice > 0) {
+                if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                state.quotes[ticker].last = tickSummary.lastPrice;
+                state.quotes[ticker].price = tickSummary.lastPrice;
+                state.quotes[ticker].bid = tickSummary.bid || state.quotes[ticker].bid;
+                state.quotes[ticker].ask = tickSummary.ask || state.quotes[ticker].ask;
+                state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
+                state.quotes[ticker].priceSource = 'polygon-ws';
+            }
+        });
+    } catch (e) { console.error('Yahoo/Polygon price feed error:', e.message); }
 
     // Analyze gaps (needs prev_close from quotes)
     try {
@@ -2951,14 +2964,35 @@ function startYahooPriceRefresh() {
 
             var yahooQuotes = await yahooPriceFeed.fetchQuotes(allTickers);
             if (Object.keys(yahooQuotes).length > 0) {
-                // Merge Yahoo prices into state quotes
+                // Merge Yahoo prices into state quotes (fallback source)
                 state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yahooQuotes);
+
+                // ── Polygon Premium Override ──
+                // Polygon WebSocket tick data is the PAID real-time source
+                // Override Yahoo prices with Polygon for all subscribed tickers
+                var polygonOverrideCount = 0;
+                (state.tickers || []).forEach(function (ticker) {
+                    var tickSummary = polygonClient.getTickSummary(ticker);
+                    if (tickSummary && tickSummary.lastPrice > 0) {
+                        if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                        state.quotes[ticker].last = tickSummary.lastPrice;
+                        state.quotes[ticker].price = tickSummary.lastPrice;
+                        state.quotes[ticker].bid = tickSummary.bid || state.quotes[ticker].bid;
+                        state.quotes[ticker].ask = tickSummary.ask || state.quotes[ticker].ask;
+                        state.quotes[ticker].high = tickSummary.highOfDay || state.quotes[ticker].high;
+                        state.quotes[ticker].low = tickSummary.lowOfDay || state.quotes[ticker].low;
+                        state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
+                        state.quotes[ticker].priceSource = 'polygon-ws';
+                        state.quotes[ticker].polygonUpdatedAt = tickSummary.updatedAt;
+                        polygonOverrideCount++;
+                    }
+                });
 
                 // Re-run gap analysis with fresh Yahoo prev_close/open data
                 state.polygonSnapshots = polygonClient.snapshotCache || {};
                 state.gapAnalysis = gapAnalyzer.analyzeGaps(state);
 
-                // Update paper trade P&L with fresh prices
+                // Update paper trade P&L with fresh prices (Polygon-enhanced)
                 tradeJournal.updatePaperPnL(state.quotes);
                 tradeJournal.checkOutcomes(state.quotes);
 

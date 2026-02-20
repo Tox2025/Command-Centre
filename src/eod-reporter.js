@@ -82,6 +82,35 @@ class EODReporter {
         // 3. Options Paper Stats
         const optionsStats = optionsPaper.getStats(); // Already has today/total logic
 
+        // 3.5 Trade summaries for report
+        const tradeSummaries = {
+            closed: allClosed.slice(-100).map(t => ({
+                ticker: t.ticker,
+                direction: t.direction,
+                horizon: t.horizon || 'Unknown',
+                entry: t.paperEntry || t.entry || 0,
+                exit: t.exitPrice || t.outcome || 0,
+                pnlPct: +(t.pnl || 0).toFixed(2),
+                pnlDollar: +(t.pnlTotal || t.pnlPoints || 0).toFixed(2),
+                shares: t.shares || 0,
+                entryTime: t.entryTime,
+                closedAt: t.closedAt,
+                status: t.status
+            })).reverse(),
+            open: allOpen.map(t => ({
+                ticker: t.ticker,
+                direction: t.direction,
+                horizon: t.horizon || 'Unknown',
+                entry: t.paperEntry || t.entry || 0,
+                current: t.lastPrice || t.currentPrice || 0,
+                pnlPct: +(t.unrealizedPnl || 0).toFixed(2),
+                pnlDollar: +(t.unrealizedPnlTotal || t.unrealizedPnlDollar || 0).toFixed(2),
+                shares: t.shares || 0,
+                entryTime: t.entryTime,
+                status: 'OPEN'
+            }))
+        };
+
         // 4. Regime Analysis
         const regime = state.marketRegime || { regime: 'UNKNOWN' };
 
@@ -98,6 +127,7 @@ class EODReporter {
                 paper: todayStats,
                 options: optionsStats.today || {}
             },
+            trades: tradeSummaries,
             signalAnalysis: {
                 tickersTracked: Object.keys(state.signalScores || {}).length,
                 accuracy: signalAccuracy.overallAccuracy,

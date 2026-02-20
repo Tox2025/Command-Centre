@@ -395,6 +395,59 @@
                 </div>
             </section>
 
+            <!-- Trades -->
+            <section class="report-section" id="tradesSection">
+                <h2>📋 Trades</h2>
+                <div class="report-card">
+                    <h3>✅ Closed Trades (<span id="closedTradeCount">0</span>)</h3>
+                    <div style="overflow-x:auto">
+                        <table class="signal-table">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Dir</th>
+                                    <th>Horizon</th>
+                                    <th>Entry</th>
+                                    <th>Exit</th>
+                                    <th>Shares</th>
+                                    <th>P&L %</th>
+                                    <th>P&L $</th>
+                                    <th>Closed</th>
+                                </tr>
+                            </thead>
+                            <tbody id="closedTradesBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="noClosedTrades" style="color:var(--text-muted);font-style:italic;padding:10px">No closed
+                        trades.
+                    </div>
+                </div>
+
+                <div class="report-card">
+                    <h3>📂 Open Positions (<span id="openTradeCount">0</span>)</h3>
+                    <div style="overflow-x:auto">
+                        <table class="signal-table">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Dir</th>
+                                    <th>Horizon</th>
+                                    <th>Entry</th>
+                                    <th>Current</th>
+                                    <th>Shares</th>
+                                    <th>P&L %</th>
+                                    <th>P&L $</th>
+                                </tr>
+                            </thead>
+                            <tbody id="openTradesBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="noOpenTrades" style="color:var(--text-muted);font-style:italic;padding:10px">No open
+                        positions.
+                    </div>
+                </div>
+            </section>
+
             <section class="report-section">
                 <h2>🛠️ Raw Report JSON</h2>
                 <div class="report-card">

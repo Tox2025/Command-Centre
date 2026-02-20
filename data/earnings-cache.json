@@ -1,0 +1,113 @@
+{
+  "lastUpdated": "2026-02-20T13:12:19.780Z",
+  "entries": {
+    "APP": {
+      "ticker": "APP",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771589526226
+    },
+    "MU": {
+      "ticker": "MU",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771578707205
+    },
+    "NBIS": {
+      "ticker": "NBIS",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771593139780
+    },
+    "META": {
+      "ticker": "META",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771525388721
+    },
+    "MSFT": {
+      "ticker": "MSFT",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771557066997
+    },
+    "ASML": {
+      "ticker": "ASML",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771571488900
+    },
+    "TSLA": {
+      "ticker": "TSLA",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771549859269
+    },
+    "RKLB": {
+      "ticker": "RKLB",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771335338552
+    },
+    "NVDA": {
+      "ticker": "NVDA",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771335466212
+    },
+    "RIME": {
+      "ticker": "RIME",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771337052761
+    },
+    "SNDK": {
+      "ticker": "SNDK",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771446516857
+    },
+    "COIN": {
+      "ticker": "COIN",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771340193132
+    },
+    "BE": {
+      "ticker": "BE",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771385667107
+    },
+    "AMZN": {
+      "ticker": "AMZN",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771408594002
+    },
+    "PLTR": {
+      "ticker": "PLTR",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771424822359
+    },
+    "PANW": {
+      "ticker": "PANW",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771424831279
+    },
+    "SNPS": {
+      "ticker": "SNPS",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771424841011
+    },
+    "SNSE": {
+      "ticker": "SNSE",
+      "nextEarnings": null,
+      "daysUntil": null,
+      "fetchedAt": 1771424850651
+    }
+  }
+}

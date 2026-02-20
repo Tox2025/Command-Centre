@@ -50,9 +50,25 @@ class YahooPriceFeed {
             quoteArray.forEach(q => {
                 if (!q || !q.symbol) return;
                 const ticker = q.symbol;
+
+                // Use extended hours price when available (pre-market > post-market > regular)
+                var livePrice = q.regularMarketPrice || 0;
+                var priceSource = 'regular';
+                if (q.preMarketPrice && q.preMarketPrice > 0) {
+                    livePrice = q.preMarketPrice;
+                    priceSource = 'premarket';
+                } else if (q.postMarketPrice && q.postMarketPrice > 0) {
+                    livePrice = q.postMarketPrice;
+                    priceSource = 'postmarket';
+                }
+
                 const data = {
-                    price: q.regularMarketPrice || 0,
-                    last: q.regularMarketPrice || 0,
+                    price: livePrice,
+                    last: livePrice,
+                    regularMarketPrice: q.regularMarketPrice || 0,
+                    preMarketPrice: q.preMarketPrice || null,
+                    postMarketPrice: q.postMarketPrice || null,
+                    priceSource: priceSource,
                     open: q.regularMarketOpen || 0,
                     high: q.regularMarketDayHigh || 0,
                     low: q.regularMarketDayLow || 0,
@@ -62,6 +78,10 @@ class YahooPriceFeed {
                     volume: q.regularMarketVolume || 0,
                     change: q.regularMarketChange || 0,
                     changePercent: q.regularMarketChangePercent || 0,
+                    preMarketChange: q.preMarketChange || null,
+                    preMarketChangePercent: q.preMarketChangePercent || null,
+                    postMarketChange: q.postMarketChange || null,
+                    postMarketChangePercent: q.postMarketChangePercent || null,
                     bid: q.bid || 0,
                     ask: q.ask || 0,
                     marketCap: q.marketCap || 0,

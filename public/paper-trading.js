@@ -91,12 +91,12 @@ function refreshTrades() {
 
 function fetchStats() {
     fetch('/api/paper-trades/stats').then(function (r) { return r.json(); }).then(function (s) {
-        var acctValue = s.accountSize + s.totalPnl + s.unrealizedPnl;
+        var acctValue = s.accountSize + (s.totalPnlDollar || 0) + (s.unrealizedPnlDollar || 0);
         $('statAccount').textContent = '$' + acctValue.toLocaleString('en-US', { minimumFractionDigits: 0 });
         $('statAccount').className = 'stat-value' + (acctValue >= s.accountSize ? ' positive' : ' negative');
 
-        $('statTotalPnl').textContent = (s.totalPnl >= 0 ? '+' : '') + '$' + s.totalPnl.toFixed(2);
-        $('statTotalPnl').className = 'stat-value' + (s.totalPnl >= 0 ? ' positive' : ' negative');
+        $('statTotalPnl').textContent = (s.totalPnlDollar >= 0 ? '+' : '') + '$' + (s.totalPnlDollar || 0).toFixed(2);
+        $('statTotalPnl').className = 'stat-value' + (s.totalPnlDollar >= 0 ? ' positive' : ' negative');
 
         $('statUnrealizedPnl').textContent = (s.unrealizedPnl >= 0 ? '+' : '') + s.unrealizedPnl.toFixed(2) + '% ($' + ((s.unrealizedPnlTotal || s.unrealizedPnlDollar || 0) >= 0 ? '+' : '') + (s.unrealizedPnlTotal || s.unrealizedPnlDollar || 0).toFixed(2) + ')';
         $('statUnrealizedPnl').className = 'stat-value' + (s.unrealizedPnl >= 0 ? ' positive' : ' negative');

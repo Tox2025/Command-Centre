@@ -7,6 +7,9 @@ node_modules/
 data/eod-reports/
 data/trade-journal.json
 data/options-trades.json
+data/options-paper-trades.json
+data/state-cache.json
+data/earnings-cache.json
 
 # Keep these tracked (needed across deploys):
 # data/watchlist.json

@@ -10,19 +10,24 @@ class EODReporter {
     }
 
     generateReport(state, tradeJournal, optionsPaper) {
-        const date = new Date().toISOString().split('T')[0];
+        // Use US Eastern (market) time, not UTC — prevents "tomorrow" dates after 7pm ET
+        const now = new Date();
+        const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const date = eastern.getFullYear() + '-' +
+            String(eastern.getMonth() + 1).padStart(2, '0') + '-' +
+            String(eastern.getDate()).padStart(2, '0');
         const reportId = date;
-        const timestamp = new Date().toISOString();
+        const timestamp = now.toISOString();
 
         // 1. Signal Accuracy Analysis
         const signalAccuracy = this.analyzeSignalAccuracy(state);
 
         // 2. Paper Trading P&L
         const paperStats = tradeJournal.getStats();
-        // Filter for today's trades only
-        const todayStr = new Date().toLocaleDateString('en-US');
+        // Filter for today's trades only (using Eastern market time)
+        const todayStr = eastern.toLocaleDateString('en-US');
         const todayTrades = tradeJournal.getPaperTrades().filter(t => {
-            const tDate = new Date(t.entryTime).toLocaleDateString('en-US');
+            const tDate = new Date(t.entryTime).toLocaleDateString('en-US', { timeZone: 'America/New_York' });
             return tDate === todayStr;
         });
         const todayStats = {

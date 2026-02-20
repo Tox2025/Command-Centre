@@ -511,7 +511,7 @@ app.get('/api/paper-trades/stats', (req, res) => {
     const open = trades.filter(t => t.status === 'PENDING');
     const wins = closed.filter(t => t.pnl > 0).length;
     const losses = closed.filter(t => t.pnl <= 0).length;
-    const totalPnl = closed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+    const totalPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
     const totalPnlDollar = closed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
     const unrealizedPnl = open.reduce((s, t) => s + (t.unrealizedPnlTotal || t.unrealizedPnlDollar || 0), 0);
     const unrealizedPnlDollar = open.reduce((s, t) => s + (t.unrealizedPnlTotal || t.unrealizedPnlDollar || 0), 0);
@@ -525,7 +525,7 @@ app.get('/api/paper-trades/stats', (req, res) => {
         if (!t.closedAt) return false;
         return new Date(t.closedAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === todayStr;
     });
-    const todayPnl = todayClosed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+    const todayPnl = todayClosed.reduce((s, t) => s + (t.pnl || 0), 0);
     const todayPnlDollar = todayClosed.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
     const todayWins = todayClosed.filter(t => t.pnl > 0).length;
     const todayLosses = todayClosed.filter(t => t.pnl <= 0).length;
@@ -538,10 +538,10 @@ app.get('/api/paper-trades/stats', (req, res) => {
         const bt = byTicker[t.ticker];
         bt.trades++;
         if (t.pnl > 0) bt.wins++; else bt.losses++;
-        bt.pnl += (t.pnlTotal || t.pnlPoints || 0);
+        bt.pnl += (t.pnl || 0);
         bt.pnlDollar += (t.pnlTotal || t.pnlPoints || 0);
-        if (t.direction === 'LONG') { bt.longs++; bt.longPnl += (t.pnlTotal || t.pnlPoints || 0); bt.longPnlDollar += (t.pnlTotal || t.pnlPoints || 0); }
-        else { bt.shorts++; bt.shortPnl += (t.pnlTotal || t.pnlPoints || 0); bt.shortPnlDollar += (t.pnlTotal || t.pnlPoints || 0); }
+        if (t.direction === 'LONG') { bt.longs++; bt.longPnl += (t.pnl || 0); bt.longPnlDollar += (t.pnlTotal || t.pnlPoints || 0); }
+        else { bt.shorts++; bt.shortPnl += (t.pnl || 0); bt.shortPnlDollar += (t.pnlTotal || t.pnlPoints || 0); }
     });
     const tickerBreakdown = Object.values(byTicker).sort((a, b) => b.pnl - a.pnl);
 
@@ -550,17 +550,17 @@ app.get('/api/paper-trades/stats', (req, res) => {
     const shorts = closed.filter(t => t.direction === 'SHORT');
     const longWins = longs.filter(t => t.pnl > 0).length;
     const shortWins = shorts.filter(t => t.pnl > 0).length;
-    const longPnl = longs.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+    const longPnl = longs.reduce((s, t) => s + (t.pnl || 0), 0);
     const longPnlDollar = longs.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
-    const shortPnl = shorts.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
+    const shortPnl = shorts.reduce((s, t) => s + (t.pnl || 0), 0);
     const shortPnlDollar = shorts.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0);
 
     // ── Avg Win / Avg Loss ──
     const winTrades = closed.filter(t => t.pnl > 0);
     const lossTrades = closed.filter(t => t.pnl <= 0);
-    const avgWin = winTrades.length > 0 ? +(winTrades.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0) / winTrades.length).toFixed(2) : 0;
+    const avgWin = winTrades.length > 0 ? +(winTrades.reduce((s, t) => s + (t.pnl || 0), 0) / winTrades.length).toFixed(2) : 0;
     const avgWinDollar = winTrades.length > 0 ? +(winTrades.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0) / winTrades.length).toFixed(2) : 0;
-    const avgLoss = lossTrades.length > 0 ? +(lossTrades.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0) / lossTrades.length).toFixed(2) : 0;
+    const avgLoss = lossTrades.length > 0 ? +(lossTrades.reduce((s, t) => s + (t.pnl || 0), 0) / lossTrades.length).toFixed(2) : 0;
     const avgLossDollar = lossTrades.length > 0 ? +(lossTrades.reduce((s, t) => s + (t.pnlTotal || t.pnlPoints || 0), 0) / lossTrades.length).toFixed(2) : 0;
 
     // ── Best/Worst with details ──

@@ -920,29 +920,54 @@ app.post('/api/chat', async (req, res) => {
             if (pTA) context += 'Polygon TA: ' + JSON.stringify(pTA) + '\n';
         }
 
-        // Earnings calendar (show full list, not just 5)
+        // Earnings calendar with beat/miss analysis
         if (state.earningsToday) {
             var todayDate = new Date().toISOString().slice(0, 10);
-            var preEarn = (state.earningsToday.premarket || []).slice(0, 25).map(function (e) {
-                var info = (e.ticker || e.symbol || '?');
+            var enriched = state.earningsToday.enriched || {};
+            var reactions = state.earningsToday.reactions || {};
+
+            // Helper to format a single earnings entry with enrichment
+            var formatEarning = function (e) {
+                var tkr = e.ticker || e.symbol || '?';
+                var info = tkr;
                 if (e.name || e.company) info += ' (' + (e.name || e.company) + ')';
-                if (e.eps) info += ' EPS=' + e.eps;
-                if (e.eps_estimate) info += ' est=' + e.eps_estimate;
-                if (e.report_date) info += ' ' + e.report_date;
+                // Add enriched beat/miss data if available
+                var enr = enriched[tkr];
+                if (enr) {
+                    if (enr.beat) info += ' [' + enr.beat + ']';
+                    if (enr.eps_actual != null) info += ' EPS_actual=$' + enr.eps_actual;
+                    if (enr.eps_estimate != null) info += ' est=$' + enr.eps_estimate;
+                    if (enr.surprise_pct) info += ' surprise=' + enr.surprise_pct;
+                    if (enr.revenue_actual != null) info += ' rev=$' + (parseFloat(enr.revenue_actual) / 1e9).toFixed(2) + 'B';
+                    if (enr.revenue_estimate != null) info += ' rev_est=$' + (parseFloat(enr.revenue_estimate) / 1e9).toFixed(2) + 'B';
+                    if (enr.guidance) info += ' guidance=' + enr.guidance;
+                }
+                // Add price reaction
+                var rx = reactions[tkr];
+                if (rx) {
+                    if (rx.change_pct != null) info += ' day_chg=' + rx.change_pct + '%';
+                    if (rx.afterhours_change != null) info += ' AH_chg=' + rx.afterhours_change + '%';
+                    else if (rx.afterhours_price && rx.price) {
+                        var ahPct = ((parseFloat(rx.afterhours_price) - parseFloat(rx.price)) / parseFloat(rx.price) * 100).toFixed(1);
+                        info += ' AH_move=' + ahPct + '%';
+                    }
+                }
                 return info;
-            }).join(', ');
-            var postEarn = (state.earningsToday.afterhours || []).slice(0, 25).map(function (e) {
-                var info = (e.ticker || e.symbol || '?');
-                if (e.name || e.company) info += ' (' + (e.name || e.company) + ')';
-                if (e.eps) info += ' EPS=' + e.eps;
-                if (e.eps_estimate) info += ' est=' + e.eps_estimate;
-                if (e.report_date) info += ' ' + e.report_date;
-                return info;
-            }).join(', ');
-            if (preEarn || postEarn) {
+            };
+
+            var preList = (state.earningsToday.premarket || []).slice(0, 25);
+            var postList = (state.earningsToday.afterhours || []).slice(0, 25);
+
+            if (preList.length > 0 || postList.length > 0) {
                 context += '\n--- EARNINGS TODAY (' + todayDate + ') ---\n';
-                if (preEarn) context += 'Pre-market (' + (state.earningsToday.premarket || []).length + ' total): ' + preEarn + '\n';
-                if (postEarn) context += 'After-hours (' + (state.earningsToday.afterhours || []).length + ' total): ' + postEarn + '\n';
+                if (preList.length > 0) {
+                    context += 'Pre-market (' + (state.earningsToday.premarket || []).length + ' total):\n';
+                    preList.forEach(function (e) { context += '  ' + formatEarning(e) + '\n'; });
+                }
+                if (postList.length > 0) {
+                    context += 'After-hours (' + (state.earningsToday.afterhours || []).length + ' total):\n';
+                    postList.forEach(function (e) { context += '  ' + formatEarning(e) + '\n'; });
+                }
             }
         }
 
@@ -2272,6 +2297,71 @@ async function fetchMarketData(tier) {
             const earnAH = await uw.getEarningsAfterhours();
             if (earnAH?.data) state.earningsToday.afterhours = Array.isArray(earnAH.data) ? earnAH.data : [];
             callCount++;
+
+            // Enrich earnings with individual EPS results + quote for beat/miss analysis
+            try {
+                var allEarningsTickers = []
+                    .concat((state.earningsToday.premarket || []).map(function (e) { return e.ticker || e.symbol; }))
+                    .concat((state.earningsToday.afterhours || []).map(function (e) { return e.ticker || e.symbol; }))
+                    .filter(Boolean)
+                    .slice(0, 20); // Limit to 20 to avoid rate limit
+
+                for (var eti = 0; eti < allEarningsTickers.length; eti++) {
+                    var et = allEarningsTickers[eti];
+                    try {
+                        // Fetch individual earnings data (EPS actual vs estimate)
+                        var earnData = await uw.getEarnings(et);
+                        callCount++;
+                        if (earnData?.data) {
+                            var earr = Array.isArray(earnData.data) ? earnData.data : [earnData.data];
+                            // Find today's or most recent earnings entry
+                            var latestE = earr[0]; // Usually the latest
+                            if (latestE) {
+                                var epsActual = latestE.eps || latestE.eps_actual || latestE.reported_eps || null;
+                                var epsEst = latestE.eps_estimate || latestE.eps_consensus || latestE.consensus_eps || null;
+                                var revActual = latestE.revenue || latestE.reported_revenue || null;
+                                var revEst = latestE.revenue_estimate || latestE.revenue_consensus || null;
+                                var enriched = {
+                                    eps_actual: epsActual,
+                                    eps_estimate: epsEst,
+                                    revenue_actual: revActual,
+                                    revenue_estimate: revEst,
+                                    beat: (epsActual != null && epsEst != null) ? (parseFloat(epsActual) > parseFloat(epsEst) ? 'BEAT' : parseFloat(epsActual) < parseFloat(epsEst) ? 'MISS' : 'MET') : null,
+                                    surprise_pct: (epsActual != null && epsEst != null && parseFloat(epsEst) !== 0) ? (((parseFloat(epsActual) - parseFloat(epsEst)) / Math.abs(parseFloat(epsEst))) * 100).toFixed(1) + '%' : null,
+                                    guidance: latestE.guidance || latestE.forward_guidance || null,
+                                    report_date: latestE.report_date || latestE.date || null
+                                };
+                                // Store enriched data on the earnings entry
+                                if (!state.earningsToday.enriched) state.earningsToday.enriched = {};
+                                state.earningsToday.enriched[et] = enriched;
+                            }
+                        }
+                        // Also fetch quote for after-hours price reaction
+                        var eq = await uw.getStockQuote(et);
+                        callCount++;
+                        if (eq?.data) {
+                            if (!state.earningsToday.reactions) state.earningsToday.reactions = {};
+                            state.earningsToday.reactions[et] = {
+                                price: eq.data.last || eq.data.price || eq.data.close || null,
+                                change_pct: eq.data.change_percent || eq.data.changePercent || null,
+                                afterhours_price: eq.data.afterhours_price || eq.data.ah_price || eq.data.extended_hours_price || null,
+                                afterhours_change: eq.data.afterhours_change_percent || eq.data.ah_change_pct || null,
+                                volume: eq.data.volume || null,
+                                prev_close: eq.data.prev_close || eq.data.previousClose || null
+                            };
+                        }
+                        // Small delay to respect rate limits
+                        if (eti < allEarningsTickers.length - 1) {
+                            await new Promise(function (resolve) { setTimeout(resolve, 300); });
+                        }
+                    } catch (enrichErr) {
+                        // Skip failed enrichments silently
+                    }
+                }
+                console.log('Enriched ' + Object.keys(state.earningsToday.enriched || {}).length + ' earnings tickers with EPS data');
+            } catch (enrichAllErr) {
+                console.log('Earnings enrichment error:', enrichAllErr.message);
+            }
 
             // Economic Calendar (macro events) — COLD
             try {

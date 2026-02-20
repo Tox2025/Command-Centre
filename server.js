@@ -1849,7 +1849,10 @@ async function scoreTickerSignals(ticker) {
             tickData: polygonClient.getTickSummary(ticker) || null,
             polygonTA: null,
             polygonSnapshot: polygonClient.getSnapshotData(ticker) || null,
-            polygonMinuteBars: polygonClient.getMinuteBars(ticker) || []
+            polygonMinuteBars: polygonClient.getMinuteBars(ticker) || [],
+            // Earnings gap trade data (signal #38)
+            earningsEnriched: (state.earningsToday && state.earningsToday.enriched) ? state.earningsToday.enriched[ticker] || null : null,
+            earningsReaction: (state.earningsToday && state.earningsToday.reactions) ? state.earningsToday.reactions[ticker] || null : null
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this

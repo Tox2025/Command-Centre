@@ -37,7 +37,8 @@ const SIGNAL_WEIGHTS = {
     insider_conviction: 3,     // insider net buy/sell flow
     spot_gamma_pin: 3,         // gamma pinning detection at spot price
     flow_horizon: 2,           // options flow expiry concentration
-    volume_direction: 3         // buy vs sell volume proxy from flow + dark pool
+    volume_direction: 3,       // buy vs sell volume proxy from flow + dark pool
+    earnings_gap_trade: 6      // earnings beat/miss + gap direction — highest edge
 };
 
 // Session multipliers: scale signal weights per trading session
@@ -53,7 +54,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.6, strike_flow_levels: 1.4, greek_flow_momentum: 1.5,
         sector_tide_alignment: 0.6, etf_tide_macro: 0.6, squeeze_composite: 1.0,
         seasonality_alignment: 0.3, vol_regime: 0.5, insider_conviction: 0.2,
-        spot_gamma_pin: 1.4, flow_horizon: 0.8, volume_direction: 1.5
+        spot_gamma_pin: 1.4, flow_horizon: 0.8, volume_direction: 1.5,
+        earnings_gap_trade: 1.5
     },
     POWER_OPEN: {  // 9:21-10:00 AM — momentum + flow
         ema_alignment: 0.8, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.8,
@@ -65,7 +67,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.4, strike_flow_levels: 1.3, greek_flow_momentum: 1.3,
         sector_tide_alignment: 0.8, etf_tide_macro: 0.8, squeeze_composite: 1.0,
         seasonality_alignment: 0.4, vol_regime: 0.6, insider_conviction: 0.3,
-        spot_gamma_pin: 1.3, flow_horizon: 0.9, volume_direction: 1.3
+        spot_gamma_pin: 1.3, flow_horizon: 0.9, volume_direction: 1.3,
+        earnings_gap_trade: 1.5
     },
     PRE_MARKET: {  // 8:30-9:00 AM — news + gap driven
         ema_alignment: 0.5, rsi_position: 0.6, macd_histogram: 0.5, bollinger_position: 0.4,
@@ -77,7 +80,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.8, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
         sector_tide_alignment: 0.5, etf_tide_macro: 0.5, squeeze_composite: 0.8,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 1.0,
-        spot_gamma_pin: 0.5, flow_horizon: 0.5, volume_direction: 0.5
+        spot_gamma_pin: 0.5, flow_horizon: 0.5, volume_direction: 0.5,
+        earnings_gap_trade: 1.8
     },
     MIDDAY: {      // 10:01 AM-3:00 PM — balanced day trading
         ema_alignment: 1.0, rsi_position: 1.1, macd_histogram: 0.9, bollinger_position: 1.3,
@@ -89,7 +93,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.2, strike_flow_levels: 1.2, greek_flow_momentum: 1.2,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.2,
         seasonality_alignment: 1.0, vol_regime: 1.0, insider_conviction: 0.8,
-        spot_gamma_pin: 1.0, flow_horizon: 1.0, volume_direction: 1.0
+        spot_gamma_pin: 1.0, flow_horizon: 1.0, volume_direction: 1.0,
+        earnings_gap_trade: 0.4
     },
     POWER_HOUR: {  // 3:01-4:15 PM — closing momentum
         ema_alignment: 1.0, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.9,
@@ -101,7 +106,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 1.3, strike_flow_levels: 1.3, greek_flow_momentum: 1.2,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.0,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 0.5,
-        spot_gamma_pin: 1.2, flow_horizon: 1.0, volume_direction: 1.2
+        spot_gamma_pin: 1.2, flow_horizon: 1.0, volume_direction: 1.2,
+        earnings_gap_trade: 0.3
     },
     AFTER_HOURS: { // 4:16-5:00 PM — reduced signals
         ema_alignment: 1.2, rsi_position: 1.0, macd_histogram: 0.8, bollinger_position: 0.7,
@@ -113,7 +119,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.5, strike_flow_levels: 0.5, greek_flow_momentum: 0.5,
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 0.8,
         seasonality_alignment: 1.2, vol_regime: 1.0, insider_conviction: 1.2,
-        spot_gamma_pin: 0.3, flow_horizon: 0.5, volume_direction: 0.4
+        spot_gamma_pin: 0.3, flow_horizon: 0.5, volume_direction: 0.4,
+        earnings_gap_trade: 1.2
     },
     OVERNIGHT: {   // 5:01 PM-8:29 AM — swing analysis
         ema_alignment: 1.4, rsi_position: 1.2, macd_histogram: 1.1, bollinger_position: 1.0,
@@ -125,7 +132,8 @@ const SESSION_MULTIPLIERS = {
         net_premium_momentum: 0.4, strike_flow_levels: 0.4, greek_flow_momentum: 0.4,
         sector_tide_alignment: 1.2, etf_tide_macro: 1.2, squeeze_composite: 1.4,
         seasonality_alignment: 1.4, vol_regime: 1.2, insider_conviction: 1.5,
-        spot_gamma_pin: 0.2, flow_horizon: 0.3, volume_direction: 0.3
+        spot_gamma_pin: 0.2, flow_horizon: 0.3, volume_direction: 0.3,
+        earnings_gap_trade: 1.6
     }
 };
 
@@ -1016,11 +1024,62 @@ class SignalEngine {
             }
         }
 
+        // ── 38. Earnings Gap Trade (beat/miss + gap direction) ──
+        var wEGT = this._ew('earnings_gap_trade', sess);
+        if (data.earningsEnriched && data.earningsEnriched.beat) {
+            var earnResult = data.earningsEnriched.beat; // 'BEAT', 'MISS', or 'MET'
+            var earnSurprise = parseFloat(data.earningsEnriched.surprise_pct) || 0;
+            var earnRx = data.earningsReaction || {};
+            // Calculate gap: after-hours move or day change
+            var gapPct = 0;
+            if (earnRx.afterhours_change != null) {
+                gapPct = parseFloat(earnRx.afterhours_change);
+            } else if (earnRx.afterhours_price && earnRx.price) {
+                gapPct = ((parseFloat(earnRx.afterhours_price) - parseFloat(earnRx.price)) / parseFloat(earnRx.price)) * 100;
+            } else if (earnRx.change_pct != null) {
+                gapPct = parseFloat(earnRx.change_pct);
+            }
+
+            if (earnResult === 'BEAT') {
+                if (gapPct > 2) {
+                    // Beat + gap up = continuation long (strongest setup)
+                    var egtW = wEGT * 1.0;
+                    bull += egtW;
+                    signals.push({ name: '📈 Earnings Beat + Gap Up', dir: 'BULL', weight: +egtW.toFixed(2), detail: 'BEAT surprise=' + earnSurprise.toFixed(1) + '% gap=' + gapPct.toFixed(1) + '% — momentum long' });
+                } else if (gapPct < -1) {
+                    // Beat + gap down = overreaction reversal (buy the dip)
+                    var egtW2 = wEGT * 0.6;
+                    bull += egtW2;
+                    signals.push({ name: '📈 Earnings Beat + Dip', dir: 'BULL', weight: +egtW2.toFixed(2), detail: 'BEAT surprise=' + earnSurprise.toFixed(1) + '% but gap=' + gapPct.toFixed(1) + '% — reversal buy' });
+                } else {
+                    // Beat + flat = mild bullish
+                    bull += wEGT * 0.3;
+                    signals.push({ name: '📈 Earnings Beat', dir: 'BULL', weight: +(wEGT * 0.3).toFixed(2), detail: 'BEAT surprise=' + earnSurprise.toFixed(1) + '% gap=' + gapPct.toFixed(1) + '%' });
+                }
+            } else if (earnResult === 'MISS') {
+                if (gapPct < -2) {
+                    // Miss + gap down = short the dead cat bounce (strongest short setup)
+                    var egtW3 = wEGT * 1.0;
+                    bear += egtW3;
+                    signals.push({ name: '📉 Earnings Miss + Gap Down', dir: 'BEAR', weight: +egtW3.toFixed(2), detail: 'MISS surprise=' + earnSurprise.toFixed(1) + '% gap=' + gapPct.toFixed(1) + '% — short bounce' });
+                } else if (gapPct > 1) {
+                    // Miss + gap up = fade the move (market got it wrong)
+                    var egtW4 = wEGT * 0.7;
+                    bear += egtW4;
+                    signals.push({ name: '📉 Earnings Miss + Gap Up', dir: 'BEAR', weight: +egtW4.toFixed(2), detail: 'MISS surprise=' + earnSurprise.toFixed(1) + '% but gap=' + gapPct.toFixed(1) + '% — fade setup' });
+                } else {
+                    // Miss + flat = mild bearish
+                    bear += wEGT * 0.3;
+                    signals.push({ name: '📉 Earnings Miss', dir: 'BEAR', weight: +(wEGT * 0.3).toFixed(2), detail: 'MISS surprise=' + earnSurprise.toFixed(1) + '% gap=' + gapPct.toFixed(1) + '%' });
+                }
+            }
+        }
+
         // Compute final score — CONVICTION SPREAD (not ratio)
         // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
         // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
         const spread = Math.abs(bull - bear);
-        const maxWeight = 40;  // ↑ from 37 — accounts for Polygon TA + tick data signals
+        const maxWeight = 46;  // ↑ from 40 — accounts for earnings_gap_trade (w=6)
 
         // Regime-aware bear gating: in RANGING, require stronger bear spread to declare BEARISH
         // Bear signals had 29% accuracy in ranging on 2/19 — too many false bearish calls

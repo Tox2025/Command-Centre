@@ -1,47 +1,47 @@
 {
-  "lastUpdated": "2026-02-19T01:10:50.927Z",
+  "lastUpdated": "2026-02-20T01:10:59.270Z",
   "entries": {
     "APP": {
       "ticker": "APP",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771441677433
+      "fetchedAt": 1771539049340
     },
     "MU": {
       "ticker": "MU",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771459844387
+      "fetchedAt": 1771533320037
     },
     "NBIS": {
       "ticker": "NBIS",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771459844496
+      "fetchedAt": 1771549859085
     },
     "META": {
       "ticker": "META",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771459844605
+      "fetchedAt": 1771525388721
     },
     "MSFT": {
       "ticker": "MSFT",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771463450926
+      "fetchedAt": 1771532046515
     },
     "ASML": {
       "ticker": "ASML",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771459844726
+      "fetchedAt": 1771549859187
     },
     "TSLA": {
       "ticker": "TSLA",
       "nextEarnings": null,
       "daysUntil": null,
-      "fetchedAt": 1771459844835
+      "fetchedAt": 1771549859269
     },
     "RKLB": {
       "ticker": "RKLB",

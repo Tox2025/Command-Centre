@@ -1823,13 +1823,158 @@ async function scanVolatilityRunners() {
             console.log('\ud83d\ude80 Volatility Runner Found: ' + ticker +
                 ' | Gap +' + changePct.toFixed(1) + '% | Vol ' + (volume / 1000).toFixed(0) + 'K' +
                 ' | RVol ' + relVol.toFixed(1) + 'x | MCap $' + (mktCap / 1000000).toFixed(1) + 'M');
+
+            // Send Telegram alert for each runner
+            try {
+                var runnerMsg = '\ud83d\ude80 *Volatility Runner: ' + ticker + '*\n';
+                runnerMsg += 'Gap: +' + changePct.toFixed(1) + '%\n';
+                runnerMsg += 'Price: $' + price.toFixed(2) + '\n';
+                runnerMsg += 'Volume: ' + (volume / 1000).toFixed(0) + 'K';
+                if (relVol > 0) runnerMsg += ' (' + relVol.toFixed(1) + 'x avg)';
+                runnerMsg += '\n';
+                runnerMsg += 'MCap: $' + (mktCap / 1000000).toFixed(1) + 'M\n';
+                runnerMsg += 'Dollar Vol: $' + (dollarVol / 1000000).toFixed(1) + 'M';
+                notifier._sendTelegram(runnerMsg);
+            } catch (ne) { /* optional */ }
         }
 
+        // Full signal scoring for top 2 volatility runners
         if (newRunners > 0) {
             console.log('\ud83d\ude80 Volatility Scanner: ' + newRunners + ' new runners found (' + Object.keys(state.volatilityRunners).length + ' total tracked)');
+            var runnerTickers = Object.keys(state.volatilityRunners).slice(-newRunners);
+            for (var ri = 0; ri < Math.min(runnerTickers.length, 2); ri++) {
+                try {
+                    var runnerScore = await scoreDiscoveredTicker(runnerTickers[ri], 'VolatilityRunner');
+                    if (runnerScore && runnerScore.confidence >= 55) {
+                        var scoreMsg = '\ud83c\udfaf *Runner Signal: ' + runnerTickers[ri] + '*\n';
+                        scoreMsg += (runnerScore.direction === 'BULLISH' ? '\ud83d\udfe2' : '\ud83d\udd34') + ' ' + runnerScore.direction + ' — ' + runnerScore.confidence + '% confidence\n';
+                        if (runnerScore.mlConfidence) scoreMsg += 'ML Score: ' + runnerScore.mlConfidence + '%\n';
+                        scoreMsg += 'Signals: ' + runnerScore.signals.slice(0, 5).map(function (s) { return s.name; }).join(', ');
+                        notifier._sendTelegram(scoreMsg);
+                    }
+                } catch (rsErr) { /* optional */ }
+            }
         }
     } catch (e) {
         console.error('Volatility scanner error:', e.message);
+    }
+}
+
+// ── Score a discovered (non-watchlist) ticker: on-demand full signal scoring ──
+// Fetches UW data fresh, runs multi-TF, pipes through signal engine
+// Used by: scanner discoveries, volatility runners, halt resumes
+async function scoreDiscoveredTicker(ticker, source) {
+    try {
+        var t = ticker.toUpperCase();
+        console.log('🎯 Full scoring: ' + t + ' (source: ' + (source || 'discovery') + ')');
+
+        // 1. Fetch UW data on-demand (flow, dark pool, GEX, IV, SI)
+        var uwFlow = [], uwDP = [], uwGex = [], uwIV = null, uwSI = null, uwQuote = {};
+        try {
+            var results = await Promise.all([
+                uw.getFlowByTicker(t).catch(function () { return null; }),
+                uw.getDarkPoolData(t).catch(function () { return null; }),
+                uw.getGEXByTicker(t).catch(function () { return null; }),
+                uw.getIVRank(t).catch(function () { return null; }),
+                uw.getShortInterest(t).catch(function () { return null; }),
+                uw.getStockQuote(t).catch(function () { return null; })
+            ]);
+            uwFlow = results[0]?.data || [];
+            uwDP = results[1]?.data || [];
+            uwGex = results[2]?.data || [];
+            uwIV = results[3]?.data || null;
+            uwSI = results[4]?.data || null;
+            uwQuote = results[5]?.data || {};
+        } catch (e) { /* partial data is fine */ }
+
+        // 2. Get Polygon snapshot for price/volume
+        var snap = null;
+        try {
+            snap = await polygonClient.getTickerSnapshot(t);
+        } catch (e) { /* optional */ }
+
+        var price = 0, volume = 0;
+        if (snap) {
+            price = snap.lastTrade ? snap.lastTrade.p : (snap.day ? snap.day.c : 0);
+            volume = snap.day ? snap.day.v : 0;
+        }
+        if (!price && uwQuote) price = parseFloat(uwQuote.last || uwQuote.price || 0);
+
+        // 3. Run multi-TF analysis
+        var mtfData = null;
+        var isMarketSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        if (isMarketSession) {
+            try {
+                var siPct = 0;
+                if (uwSI) {
+                    var siArr = Array.isArray(uwSI) ? uwSI : [uwSI];
+                    siPct = parseFloat((siArr[siArr.length - 1] || {}).si_float_returned || 0);
+                }
+                mtfData = await multiTFAnalyzer.analyze(t, siPct);
+            } catch (e) { /* optional */ }
+        }
+
+        // 4. Build TA from Polygon candles (daily)
+        var ta = {};
+        try {
+            var fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() - 60);
+            var candles = await polygonClient.getAggregates(t, 1, 'day', fromDate.toISOString().split('T')[0], new Date().toISOString().split('T')[0]);
+            if (candles && candles.length >= 30) {
+                var TechnicalAnalysis = require('./src/technical');
+                ta = TechnicalAnalysis.analyze(candles) || {};
+            }
+        } catch (e) { /* optional */ }
+
+        // 5. Assemble data object (same shape as scoreTickerSignals)
+        var data = {
+            technicals: ta,
+            flow: uwFlow,
+            darkPool: uwDP,
+            gex: uwGex,
+            ivRank: uwIV,
+            shortInterest: uwSI,
+            insider: [],
+            congress: [],
+            quote: { price: price, last: price, volume: volume, ...(uwQuote || {}) },
+            regime: state.marketRegime,
+            sentiment: null,
+            multiTF: mtfData,
+            volatilityRunner: state.volatilityRunners[t] || null,
+            tickData: polygonClient.getTickSummary(t) || null,
+            polygonTA: null,
+            polygonSnapshot: polygonClient.getSnapshotData(t) || null,
+            polygonMinuteBars: polygonClient.getMinuteBars(t) || []
+        };
+
+        // Fetch Polygon TA indicators
+        try {
+            if (process.env.POLYGON_API_KEY) {
+                data.polygonTA = await polygonClient.getAllIndicators(t);
+            }
+        } catch (e) { /* optional */ }
+
+        // 6. Score through signal engine
+        var signalResult = signalEngine.score(t, data, state.session);
+
+        // 7. ML ensemble
+        var isSwingSession = ['OVERNIGHT', 'AFTER_HOURS'].includes(state.session);
+        var mlTimeframe = isSwingSession ? 'swing' : 'dayTrade';
+        var ensemble = mlCalibrator.ensemble(signalResult.confidence, signalResult.features, mlTimeframe);
+        signalResult.technicalConfidence = signalResult.confidence;
+        signalResult.mlConfidence = ensemble.mlConfidence || null;
+        signalResult.blendedConfidence = ensemble.confidence;
+        signalResult.ensemble = ensemble;
+        signalResult.price = price;
+        signalResult.source = source || 'discovery';
+
+        console.log('✅ Full score: ' + t + ' → ' + signalResult.direction + ' ' + signalResult.confidence +
+            '% (signals: ' + signalResult.signals.length + ', ML: ' + (ensemble.mlConfidence || 'N/A') + '%)');
+
+        return signalResult;
+    } catch (e) {
+        console.error('scoreDiscoveredTicker error for ' + ticker + ':', e.message);
+        return null;
     }
 }
 
@@ -2573,7 +2718,6 @@ async function refreshAll() {
                             newHits[mi].multiTF = mtfResult;
                             newHits[mi].confluenceBonus = mtfResult.confluence.confluenceBonus || 0;
                             newHits[mi].intradayBias = mtfResult.confluence.intradayBias || 'NEUTRAL';
-                            // Boost confidence if multi-TF agrees with scanner direction
                             if (mtfResult.confluence.dominantDirection === (newHits[mi].direction === 'BULLISH' ? 'BULL' : 'BEAR')) {
                                 newHits[mi].confidence = Math.min(95, (newHits[mi].confidence || 50) + mtfResult.confluence.confluenceBonus);
                                 newHits[mi].signals.push({ name: 'Multi-TF Confluence', dir: newHits[mi].direction === 'BULLISH' ? 'BULL' : 'BEAR', detail: mtfResult.confluence.timeframesAgreeing + '/5 TFs agree' });
@@ -2585,19 +2729,53 @@ async function refreshAll() {
                 state.scannerResults = scanner.getResults(); // refresh with MTF enrichment
             }
 
-            // Notify on new scanner discoveries
+            // Full signal scoring for top scanner discoveries (38-signal engine + ML)
+            for (var fi = 0; fi < Math.min(newHits.length, 3); fi++) {
+                try {
+                    var fullScore = await scoreDiscoveredTicker(newHits[fi].ticker, 'Scanner');
+                    if (fullScore) {
+                        newHits[fi].fullSignalScore = fullScore;
+                        newHits[fi].signalDirection = fullScore.direction;
+                        newHits[fi].signalConfidence = fullScore.confidence;
+                        newHits[fi].mlConfidence = fullScore.mlConfidence;
+                        newHits[fi].topSignals = fullScore.signals.slice(0, 5).map(function (s) { return s.name + ' (' + s.dir + ')'; });
+                    }
+                } catch (fsErr) { /* optional */ }
+            }
+
+            // Notify on new scanner discoveries with full signal detail
             for (var si = 0; si < newHits.length; si++) {
                 var hit = newHits[si];
                 try {
                     var scanMsg = '🔍 *Scanner Discovery: ' + hit.ticker + '*\n';
                     scanMsg += (hit.direction === 'BULLISH' ? '🟢' : hit.direction === 'BEARISH' ? '🔴' : '⚪');
-                    scanMsg += ' ' + hit.direction + ' — ' + hit.confidence + '% confidence\n';
+                    scanMsg += ' ' + hit.direction + '\n';
                     scanMsg += 'Price: $' + (hit.price || 0) + '\n';
                     scanMsg += 'Sources: ' + hit.sources.join(', ') + '\n';
-                    if (hit.details && hit.details.length > 0) {
-                        scanMsg += 'Details: ' + hit.details.slice(0, 3).join(' | ') + '\n';
+
+                    // Full signal engine results
+                    if (hit.fullSignalScore) {
+                        scanMsg += '\n📊 *Signal Engine:*\n';
+                        scanMsg += 'Direction: ' + hit.signalDirection + ' — ' + hit.signalConfidence + '% confidence\n';
+                        if (hit.mlConfidence) scanMsg += 'ML Score: ' + hit.mlConfidence + '%\n';
+                        if (hit.topSignals && hit.topSignals.length > 0) {
+                            scanMsg += 'Top Signals: ' + hit.topSignals.join(', ') + '\n';
+                        }
                     }
-                    scanMsg += 'Signals: ' + hit.signals.map(function (s) { return s.name; }).join(', ');
+
+                    // Multi-TF confluence
+                    if (hit.multiTF && hit.multiTF.confluence) {
+                        var conf = hit.multiTF.confluence;
+                        scanMsg += '\n📈 *Multi-TF:* ' + (conf.dominantDirection || 'NEUTRAL') + ' (' + (conf.timeframesAgreeing || 0) + '/5 TFs agree)\n';
+                        if (conf.swingBias && conf.swingBias !== 'NEUTRAL') {
+                            scanMsg += 'Swing Bias: ' + conf.swingBias + '\n';
+                        }
+                    }
+
+                    if (hit.details && hit.details.length > 0) {
+                        scanMsg += '\nDetails: ' + hit.details.slice(0, 3).join(' | ');
+                    }
+
                     await notifier._sendTelegram(scanMsg);
                 } catch (ne) { /* optional */ }
             }
@@ -2863,6 +3041,7 @@ async function fetchTradingHalts() {
 
         // Check for new halts on watchlist tickers
         var prevHalted = (state.halts || []).filter(function (h) { return h.status === 'HALTED'; }).map(function (h) { return h.ticker; });
+        var prevResumed = (state.halts || []).filter(function (h) { return h.status === 'RESUMED'; }).map(function (h) { return h.ticker; });
         halts.forEach(function (h) {
             if (h.status === 'HALTED' && h.isWatchlist && !prevHalted.includes(h.ticker)) {
                 try {
@@ -2875,6 +3054,51 @@ async function fetchTradingHalts() {
                 } catch (e) { /* optional */ }
             }
         });
+
+        // ── Halt Resume Auto-Ingestion ──────────────────────────
+        // When any ticker resumes from halt (especially LULD/volatility),
+        // auto-score it and alert — these often move 20%+ post-resume
+        var resumedTickers = halts.filter(function (h) {
+            return h.status === 'RESUMED' && !prevResumed.includes(h.ticker);
+        });
+
+        for (var hi = 0; hi < Math.min(resumedTickers.length, 3); hi++) {
+            var resumed = resumedTickers[hi];
+            try {
+                console.log('🔓 Halt resume detected: ' + resumed.ticker + ' (' + resumed.reason + ')');
+
+                // Send immediate resume alert
+                var resumeMsg = '🔓 *HALT RESUMED: ' + resumed.ticker + '*\n';
+                resumeMsg += 'Reason: ' + resumed.reason + '\n';
+                resumeMsg += 'Time: ' + (resumed.resumeTime || resumed.haltTime) + '\n';
+                if (resumed.price) resumeMsg += 'Last Price: $' + resumed.price + '\n';
+                await notifier._sendTelegram(resumeMsg);
+
+                // Skip watchlist tickers (already being scored) and index tickers
+                var skipTickers = ['SPX', 'SPXW', 'VIX', 'SPY', 'QQQ'];
+                if (state.tickers.includes(resumed.ticker) || skipTickers.includes(resumed.ticker)) continue;
+
+                // Full signal scoring for resumed ticker
+                var haltScore = await scoreDiscoveredTicker(resumed.ticker, 'HaltResume');
+                if (haltScore && haltScore.confidence >= 50) {
+                    var haltMsg = '🎯 *Halt Resume Signal: ' + resumed.ticker + '*\n';
+                    haltMsg += (haltScore.direction === 'BULLISH' ? '🟢' : '🔴') + ' ' + haltScore.direction + ' — ' + haltScore.confidence + '% confidence\n';
+                    if (haltScore.mlConfidence) haltMsg += 'ML Score: ' + haltScore.mlConfidence + '%\n';
+                    haltMsg += 'Halt Reason: ' + resumed.reason + '\n';
+                    haltMsg += 'Signals: ' + haltScore.signals.slice(0, 5).map(function (s) { return s.name; }).join(', ');
+                    await notifier._sendTelegram(haltMsg);
+                }
+
+                // Also ingest into X-alert monitor for tracking
+                try {
+                    await xAlertMonitor.ingestAlert(resumed.ticker, 'HaltResume', 'Resumed from halt: ' + resumed.reason, uw, polygonClient);
+                    state.xAlerts = xAlertMonitor.getAlerts();
+                } catch (xErr) { /* optional */ }
+
+            } catch (hre) {
+                console.error('Halt resume scoring error for ' + resumed.ticker + ':', hre.message);
+            }
+        }
 
         state.halts = halts.slice(0, 50); // keep last 50
     } catch (e) {

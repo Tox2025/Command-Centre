@@ -18,7 +18,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (DEFAULT_TICKERS, BACKTEST_CONFIG, DEFAULT_WEIGHTS,
-                    load_active_weights, load_version_weights, RESULTS_DIR)
+                    load_active_weights, load_version_weights, RESULTS_DIR,
+                    filter_weights_for_backtest)
 from backtester import PredictionValidator
 
 
@@ -195,11 +196,13 @@ def main():
 
         w1, profiles1, _ = load_version_weights(v1)
         w1 = _select_weights_for_mode(w1, profiles1, mode)
+        w1 = filter_weights_for_backtest(w1)
         validator_a = PredictionValidator(w1, config)
         results_a = validator_a.run_universe(tickers, mode)
 
         w2, profiles2, _ = load_version_weights(v2)
         w2 = _select_weights_for_mode(w2, profiles2, mode)
+        w2 = filter_weights_for_backtest(w2)
         validator_b = PredictionValidator(w2, config)
         results_b = validator_b.run_universe(tickers, mode)
 
@@ -216,6 +219,9 @@ def main():
     # Select the right weight profile for this mode
     weights = _select_weights_for_mode(weights, profiles, mode)
     profile_name = mode if profiles.get(mode) else 'default'
+
+    # Filter out proxy/dead signals — only score on real OHLCV data
+    weights = filter_weights_for_backtest(weights)
 
     print_header(mode, f"{version_name} ({profile_name})", args.threshold, tickers, lookback)
 

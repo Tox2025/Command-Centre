@@ -88,20 +88,50 @@ BACKTESTABLE_SIGNALS = [
     'candlestick_pattern',
 ]
 
-# Signals that use proxy calculations from OHLCV
-PROXY_SIGNALS = [
-    'call_put_ratio', 'sweep_activity', 'dark_pool_direction',
-    'gex_positioning', 'iv_rank', 'iv_skew', 'gamma_wall',
-    'short_interest', 'net_premium_momentum', 'strike_flow_levels',
-    'greek_flow_momentum', 'spot_gamma_pin', 'flow_horizon',
+# Signals that use ROUGH PROXIES — volume-based guesses pretending to be flow data
+# These fire but inject noise since they're just guessing at options flow from OHLCV
+PROXY_GUESS_SIGNALS = [
+    'call_put_ratio',          # guesses flow from price direction + volume
+    'sweep_activity',          # guesses sweeps from vol_ratio > 3
+    'dark_pool_direction',     # guesses dark pool from high vol + low price change
+    'sector_tide_alignment',   # uses regime (SMA200) as sector proxy
+    'etf_tide_macro',          # uses regime (SMA200) as macro proxy
 ]
 
-# Signals that are constants or external data
-EXTERNAL_SIGNALS = [
-    'insider_congress', 'news_sentiment', 'sector_tide_alignment',
-    'etf_tide_macro', 'seasonality_alignment', 'insider_conviction',
-    'volatility_runner', 'earnings_gap_trade',
+# Signals that ALWAYS RETURN ZERO — dead weight, need external data we don't have
+DEAD_SIGNALS = [
+    'gex_positioning',         # needs options chain data
+    'iv_skew',                 # needs options chain data
+    'gamma_wall',              # needs options chain data
+    'short_interest',          # needs short interest data
+    'strike_flow_levels',      # needs options flow data
+    'greek_flow_momentum',     # needs options flow data
+    'spot_gamma_pin',          # needs options chain data
+    'flow_horizon',            # needs options flow data
+    'news_sentiment',          # needs NLP/news API
+    'insider_conviction',      # needs insider trading data
+    'insider_congress',        # needs congressional trading data
+    'seasonality_alignment',   # needs seasonal database
+    'earnings_gap_trade',      # needs earnings calendar data
 ]
+
+# All signals to DISABLE in backtesting (no real data behind them)
+BACKTEST_DISABLED_SIGNALS = PROXY_GUESS_SIGNALS + DEAD_SIGNALS
+
+
+def filter_weights_for_backtest(weights):
+    """Zero out signals that don't have real data in backtesting.
+    Only keeps the 18 signals that compute from real Polygon OHLCV + volume.
+    """
+    filtered = weights.copy()
+    disabled = 0
+    for sig in BACKTEST_DISABLED_SIGNALS:
+        if sig in filtered and filtered[sig] != 0:
+            filtered[sig] = 0
+            disabled += 1
+    kept = sum(1 for v in filtered.values() if v > 0)
+    print(f"  ⚡ Backtest filter: disabled {disabled} proxy/dead signals, {kept} real signals active")
+    return filtered
 
 # ── Prediction Accuracy Parameters ───────────────────────
 BACKTEST_CONFIG = {

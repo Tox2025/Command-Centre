@@ -147,7 +147,7 @@ class SignalEngine:
         weight_keys = [k for k in self.weights.keys() if k in signals_df.columns]
         bull_score = pd.Series(0.0, index=signals_df.index)
         bear_score = pd.Series(0.0, index=signals_df.index)
-        max_score = 0
+        active_weight_sum = pd.Series(0.0, index=signals_df.index)
 
         for key in weight_keys:
             w = self.weights[key]
@@ -156,23 +156,28 @@ class SignalEngine:
             sig = signals_df[key].fillna(0)
             bull_score += np.maximum(sig, 0) * w
             bear_score += np.maximum(-sig, 0) * w
-            max_score += w
+            # Only count weight if signal is non-zero on this bar
+            active_weight_sum += (sig.abs() > 0.01).astype(float) * w
 
-        if max_score == 0:
-            max_score = 1
+        # Use active weights as denominator (signals that actually fired)
+        active_weight_sum = active_weight_sum.replace(0, 1)
 
         result = pd.DataFrame(index=signals_df.index)
         result['bull_score'] = bull_score
         result['bear_score'] = bear_score
         result['net_score'] = bull_score - bear_score
-        result['confidence'] = ((bull_score + bear_score) / max_score * 100).clip(0, 100)
+
+        # Confidence based on active signals only
+        result['confidence'] = ((bull_score + bear_score) / active_weight_sum * 100).clip(0, 100)
         result['direction'] = np.where(result['net_score'] > 0, 1, np.where(result['net_score'] < 0, -1, 0))
 
-        # Confidence = how strong is the directional conviction
+        # Directional conviction: how one-sided is the score
         total = bull_score + bear_score
         total = total.replace(0, np.nan)
         result['directional_conf'] = ((bull_score - bear_score).abs() / total * 100).fillna(0).clip(0, 100)
-        result['confidence'] = (result['confidence'] * 0.5 + result['directional_conf'] * 0.5).clip(0, 100)
+
+        # Final confidence = blend of signal strength + directional agreement
+        result['confidence'] = (result['confidence'] * 0.6 + result['directional_conf'] * 0.4).clip(0, 100)
 
         return result
 
@@ -181,6 +186,31 @@ class SignalEngine:
         entries_long = (score_df['direction'] == 1) & (score_df['confidence'] >= threshold)
         entries_short = (score_df['direction'] == -1) & (score_df['confidence'] >= threshold)
         return entries_long, entries_short
+
+    def debug_scores(self, df):
+        """Print score distribution for debugging"""
+        signals = self.compute_all_signals(df)
+        scores = self.score(signals)
+        print(f"\n📊 Score Distribution:")
+        print(f"  Confidence: min={scores['confidence'].min():.1f} "
+              f"median={scores['confidence'].median():.1f} "
+              f"max={scores['confidence'].max():.1f} "
+              f"mean={scores['confidence'].mean():.1f}")
+        print(f"  Direction:  Bull={int((scores['direction']==1).sum())} "
+              f"Bear={int((scores['direction']==-1).sum())} "
+              f"Neutral={int((scores['direction']==0).sum())}")
+        bins = [0, 30, 50, 60, 65, 70, 80, 100]
+        hist = pd.cut(scores['confidence'], bins=bins).value_counts().sort_index()
+        print(f"  Histogram:")
+        for bucket, count in hist.items():
+            pct = count / len(scores) * 100
+            bar = '█' * int(pct / 2)
+            print(f"    {str(bucket):>12}: {count:>4} ({pct:>5.1f}%) {bar}")
+        # Active signals per bar
+        active = sum(1 for k in self.weights if k in signals.columns
+                     and self.weights[k] > 0 and (signals[k].abs() > 0.01).any())
+        print(f"  Active signals (any bar): {active}/{len(self.weights)}")
+        return scores
 
     def extract_ml_features(self, signals_df):
         """Extract 25-feature vector matching Node.js MLCalibrator format"""

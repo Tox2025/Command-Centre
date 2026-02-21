@@ -10,9 +10,37 @@ class UWClient {
       'Authorization': `Bearer ${apiKey}`,
       'Accept': 'application/json'
     };
+    // Rate limiter: sliding window, 100 req/min (headroom below UW's 120 limit)
+    this._requestTimestamps = [];
+    this._rateLimit = 100;        // max requests per window
+    this._rateWindow = 60 * 1000; // 60 seconds
+    this._queue = [];
+    this._processing = false;
+  }
+
+  // Wait until we have capacity in the sliding window
+  async _waitForCapacity() {
+    const now = Date.now();
+    // Trim old timestamps outside the window
+    this._requestTimestamps = this._requestTimestamps.filter(ts => now - ts < this._rateWindow);
+    if (this._requestTimestamps.length < this._rateLimit) {
+      this._requestTimestamps.push(now);
+      return; // capacity available
+    }
+    // Wait until the oldest request in the window expires
+    const oldest = this._requestTimestamps[0];
+    const waitMs = (oldest + this._rateWindow) - now + 50; // +50ms buffer
+    if (waitMs > 0) {
+      console.log(`⏳ UW rate limiter: ${this._requestTimestamps.length}/${this._rateLimit} req/min — waiting ${waitMs}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+    }
+    // Recurse to re-check after waiting
+    return this._waitForCapacity();
   }
 
   async _fetch(endpoint, params = {}) {
+    await this._waitForCapacity();
+
     const url = new URL(`${BASE_URL}${endpoint}`);
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null) url.searchParams.set(k, v);
@@ -20,6 +48,25 @@ class UWClient {
 
     try {
       const res = await fetch(url.toString(), { headers: this.headers });
+
+      // Handle rate limit (429) with retry
+      if (res.status === 429) {
+        // Read the reset header if available
+        const resetMs = parseInt(res.headers.get('x-uw-req-per-minute-reset') || '5000', 10);
+        const waitTime = Math.min(Math.max(resetMs, 2000), 30000); // 2-30s
+        console.log(`🚫 UW 429 on ${endpoint} — backing off ${waitTime}ms`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        // Retry once after backoff
+        const retry = await fetch(url.toString(), { headers: this.headers });
+        if (!retry.ok) {
+          const text = await retry.text();
+          console.error(`UW API retry failed ${retry.status} on ${endpoint}: ${text.substring(0, 200)}`);
+          return null;
+        }
+        this._requestTimestamps.push(Date.now());
+        return await retry.json();
+      }
+
       if (!res.ok) {
         const text = await res.text();
         console.error(`UW API error ${res.status} on ${endpoint}: ${text}`);

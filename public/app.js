@@ -99,8 +99,22 @@ function renderBrief() {
         var dirClass = d.direction === 'BULLISH' ? 'brief-bull' : d.direction === 'BEARISH' ? 'brief-bear' : 'brief-neutral';
         var icon = d.direction === 'BULLISH' ? '&#9650;' : d.direction === 'BEARISH' ? '&#9660;' : '&#9654;';
         h += '<div class="brief-card ' + dirClass + '" onclick="openTickerView(\'' + t + '\')">';
+        // Top row: ticker + price
         h += '<div class="brief-top"><span class="brief-ticker">' + t + '</span><span class="brief-price">$' + fmt(d.price) + '</span></div>';
-        h += '<div class="brief-dir">' + icon + ' ' + d.direction + ' <span class="brief-conf">' + d.confidence + '%</span></div>';
+        // Direction + Signal/ML confidence row
+        var sigPct = d.confidence || 0;
+        var mlPct = (d.ensemble && d.ensemble.confidence != null) ? d.ensemble.confidence : null;
+        h += '<div class="brief-dir">' + icon + ' ' + d.direction + '</div>';
+        h += '<div class="brief-confidence-row">';
+        h += '<span class="brief-conf-item" title="Signal Engine Prediction"><span class="conf-label">Sig</span> <span class="conf-value ' + (sigPct >= 65 ? 'text-bull' : sigPct >= 50 ? '' : 'text-bear') + '">' + sigPct + '%</span></span>';
+        if (mlPct !== null) {
+            h += '<span class="brief-conf-item" title="ML Model Prediction"><span class="conf-label">ML</span> <span class="conf-value ' + (mlPct >= 60 ? 'text-bull' : mlPct >= 45 ? '' : 'text-bear') + '">' + mlPct + '%</span></span>';
+        }
+        // Blended confidence (if ensemble)
+        if (d.ensemble && d.ensemble.blended != null) {
+            h += '<span class="brief-conf-item" title="Blended (Signal + ML)"><span class="conf-label">Mix</span> <span class="conf-value" style="color:#a78bfa">' + d.ensemble.blended + '%</span></span>';
+        }
+        h += '</div>';
         // Bull/Bear score bar
         if (d.bull !== undefined && d.bear !== undefined) {
             var total = (d.bull + d.bear) || 1;
@@ -129,6 +143,18 @@ function renderBrief() {
             badges += '<span class="badge" style="background:' + sentColor + ';font-size:0.55rem;padding:1px 3px">' + sent.label.substring(0, 4) + '</span>';
         }
         if (badges) h += '<div style="margin:2px 0">' + badges + '</div>';
+        // Polygon tick data (buy/sell flow)
+        if (d.tickData && d.tickData.totalVolume > 0) {
+            var buyPct = d.tickData.buyPct || 0;
+            var flowColor = buyPct > 55 ? '#00dc82' : buyPct < 45 ? '#ff3b5c' : '#f59e0b';
+            h += '<div class="brief-flow">';
+            h += '<span style="color:' + flowColor + ';font-weight:600">' + buyPct + '% buy</span>';
+            if (d.tickData.vwap > 0) h += '<span style="color:var(--text-muted)">VWAP $' + fmt(d.tickData.vwap) + '</span>';
+            if (d.tickData.largeBlockBuys > 0 || d.tickData.largeBlockSells > 0) {
+                h += '<span style="font-size:9px;color:var(--text-muted)">Blocks ' + (d.tickData.largeBlockBuys || 0) + 'B/' + (d.tickData.largeBlockSells || 0) + 'S</span>';
+            }
+            h += '</div>';
+        }
         // Signals (max 3)
         var sigs = (d.signals || []).slice(0, 3);
         if (sigs.length > 0) {
@@ -136,8 +162,14 @@ function renderBrief() {
             sigs.forEach(function (s) { h += '<span class="brief-signal">' + s + '</span>'; });
             h += '</div>';
         }
+        // Setup prices with clear labels
         if (d.setup) {
-            h += '<div class="brief-setup">E$' + fmt(d.setup.entry) + ' T$' + fmt(d.setup.target1) + ' S$' + fmt(d.setup.stop) + '</div>';
+            h += '<div class="brief-setup-grid">';
+            h += '<div class="setup-level"><span class="setup-label">Entry</span><span class="setup-price">$' + fmt(d.setup.entry) + '</span></div>';
+            h += '<div class="setup-level"><span class="setup-label" style="color:var(--bull)">Target</span><span class="setup-price" style="color:var(--bull)">$' + fmt(d.setup.target1) + '</span></div>';
+            h += '<div class="setup-level"><span class="setup-label" style="color:var(--bear)">Stop</span><span class="setup-price" style="color:var(--bear)">$' + fmt(d.setup.stop) + '</span></div>';
+            if (d.setup.rr) h += '<div class="setup-level"><span class="setup-label">R:R</span><span class="setup-price" style="color:var(--accent-blue)">' + d.setup.rr + '</span></div>';
+            h += '</div>';
         }
         h += '</div>';
     });

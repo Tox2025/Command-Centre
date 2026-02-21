@@ -24,8 +24,8 @@ from backtester import PredictionValidator
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Signal Engine Prediction Accuracy Validator')
-    parser.add_argument('--mode', choices=['day', 'swing'], default='day',
-                        help='Trading mode: day (5m bars, intraday) or swing (daily bars)')
+    parser.add_argument('--mode', choices=['scalp', 'day', 'swing'], default='day',
+                        help='Trading mode: scalp (1m bars), day (5m bars), or swing (daily bars)')
     parser.add_argument('--tickers', nargs='+', default=None,
                         help='Tickers to test (default: universe)')
     parser.add_argument('--lookback', type=int, default=None,
@@ -45,20 +45,24 @@ def print_header(mode, version, threshold, tickers, lookback):
     print(f"\n{'═'*70}")
     print(f"  SIGNAL ENGINE PREDICTION ACCURACY VALIDATOR")
     print(f"{'═'*70}")
-    print(f"  Mode:       {'Day Trade (5m bars)' if mode == 'day' else 'Swing Trade (daily bars)'}")
+    mode_labels = {'scalp': 'Scalp Trade (1m bars)', 'day': 'Day Trade Momentum (5m bars)', 'swing': 'Swing Trade (daily bars)'}
+    horizon_labels = {'scalp': '1min / 3min / 5min / 10min', 'day': '15min / 30min / 1hr / 2hr', 'swing': '1d / 2d / 3d / 5d'}
+    print(f"  Mode:       {mode_labels.get(mode, mode)}")
     print(f"  Version:    {version}")
     print(f"  Threshold:  {threshold}% confidence minimum")
     print(f"  Tickers:    {len(tickers)} tickers")
     print(f"  Lookback:   {lookback} days")
-    if mode == 'day':
-        print(f"  Horizons:   15min / 30min / 1hr / 2hr")
-    else:
-        print(f"  Horizons:   1d / 2d / 3d / 5d")
+    print(f"  Horizons:   {horizon_labels.get(mode, '?')}")
     print(f"{'═'*70}")
 
 
+def _mode_config_key(mode):
+    """Map mode name to config key prefix"""
+    return {'scalp': 'scalp', 'day': 'day_trade', 'swing': 'swing'}.get(mode, 'day_trade')
+
+
 def print_aggregate(agg, mode):
-    labels = BACKTEST_CONFIG[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
+    labels = BACKTEST_CONFIG[f'{_mode_config_key(mode)}_horizon_labels']
     print(f"\n{'═'*70}")
     print(f"  AGGREGATE RESULTS — {agg['tickers_tested']} tickers")
     print(f"{'═'*70}")
@@ -82,7 +86,7 @@ def print_aggregate(agg, mode):
 
 
 def print_per_ticker_table(results, mode):
-    labels = BACKTEST_CONFIG[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
+    labels = BACKTEST_CONFIG[f'{_mode_config_key(mode)}_horizon_labels']
     valid = [r for r in results if r.get('predictions', 0) > 0]
     if not valid:
         print("  No valid results to display.")
@@ -105,7 +109,7 @@ def print_per_ticker_table(results, mode):
 
 
 def print_comparison(results_a, results_b, v1, v2, mode):
-    labels = BACKTEST_CONFIG[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
+    labels = BACKTEST_CONFIG[f'{_mode_config_key(mode)}_horizon_labels']
     main_label = labels[2] if len(labels) > 2 else labels[-1]
 
     valid_a = {r['ticker']: r for r in results_a if r.get('predictions', 0) > 0}
@@ -162,15 +166,9 @@ def print_comparison(results_a, results_b, v1, v2, mode):
 
 def _select_weights_for_mode(weights, profiles, mode):
     """Select the right weight profile for the backtest mode"""
-    if mode == 'day':
-        # Day trade backtests use scalp weights (5min bars = intraday scalps)
-        profile = profiles.get('scalp') or profiles.get('day')
-        if profile:
-            return profile
-    elif mode == 'swing':
-        profile = profiles.get('swing')
-        if profile:
-            return profile
+    profile = profiles.get(mode) or profiles.get({'scalp': 'scalp', 'day': 'day', 'swing': 'swing'}.get(mode, 'day'))
+    if profile:
+        return profile
     return weights  # fallback to default
 
 
@@ -180,17 +178,15 @@ def main():
     mode = args.mode
 
     # Set lookback
+    config_key = _mode_config_key(mode)
     if args.lookback:
         lookback = args.lookback
     else:
-        lookback = BACKTEST_CONFIG['day_trade_lookback_days'] if mode == 'day' else BACKTEST_CONFIG['swing_lookback_days']
+        lookback = BACKTEST_CONFIG[f'{config_key}_lookback_days']
 
     config = BACKTEST_CONFIG.copy()
     config['confidence_threshold'] = args.threshold
-    if mode == 'day':
-        config['day_trade_lookback_days'] = lookback
-    else:
-        config['swing_lookback_days'] = lookback
+    config[f'{config_key}_lookback_days'] = lookback
 
     # ── Compare mode ───────────────────────────────────────
     if args.compare:
@@ -219,16 +215,14 @@ def main():
 
     # Select the right weight profile for this mode
     weights = _select_weights_for_mode(weights, profiles, mode)
-    profile_name = 'scalp' if mode == 'day' and profiles.get('scalp') else \
-                   'day' if mode == 'day' and profiles.get('day') else \
-                   'swing' if mode == 'swing' and profiles.get('swing') else 'default'
+    profile_name = mode if profiles.get(mode) else 'default'
 
     print_header(mode, f"{version_name} ({profile_name})", args.threshold, tickers, lookback)
 
     validator = PredictionValidator(weights, config)
     results = validator.run_universe(tickers, mode)
 
-    labels = config[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
+    labels = config[f'{config_key}_horizon_labels']
     agg = PredictionValidator.aggregate_results(results, labels)
 
     if 'error' in agg:

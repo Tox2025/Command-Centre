@@ -51,6 +51,33 @@ class PredictionValidator:
 
         return self._measure_accuracy(ticker, df, scores, threshold, horizons, labels, 'day')
 
+    def validate_scalp(self, ticker, df=None):
+        """Validate predictions on 1m bars — scalp trades
+        Measures: did price move in predicted direction at 1m/3m/5m/10m?
+        """
+        bar_size = self.config['scalp_bar_size']
+        lookback = self.config['scalp_lookback_days']
+
+        if df is None or df.empty:
+            df = self.fetcher.fetch_intraday(ticker, bar_size, lookback)
+        if df.empty or len(df) < 200:
+            return {'ticker': ticker, 'error': 'Insufficient 1m data', 'predictions': 0}
+
+        # Filter to market hours only
+        df = self._filter_market_hours(df)
+        if len(df) < 200:
+            return {'ticker': ticker, 'error': 'Insufficient market-hours 1m data', 'predictions': 0}
+
+        # Compute signals and scores
+        signals = self.engine.compute_all_signals(df)
+        scores = self.engine.score(signals)
+        threshold = self.config['confidence_threshold']
+
+        horizons = self.config['scalp_horizons']
+        labels = self.config['scalp_horizon_labels']
+
+        return self._measure_accuracy(ticker, df, scores, threshold, horizons, labels, 'scalp')
+
     def validate_swing(self, ticker, df=None):
         """Validate predictions on daily bars
         Measures: did price move in predicted direction at 1d/2d/3d/5d?
@@ -262,7 +289,9 @@ class PredictionValidator:
             print(f"[{i+1}/{len(tickers)}] {ticker} — {mode} trade validation")
             print(f"{'='*60}")
             try:
-                if mode == 'day':
+                if mode == 'scalp':
+                    r = self.validate_scalp(ticker)
+                elif mode == 'day':
                     r = self.validate_day_trade(ticker)
                 else:
                     r = self.validate_swing(ticker)

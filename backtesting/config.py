@@ -105,7 +105,14 @@ EXTERNAL_SIGNALS = [
 
 # ── Prediction Accuracy Parameters ───────────────────────
 BACKTEST_CONFIG = {
-    # Day trade: 5m bars, measure outcome at these bar counts
+    # Scalp: 1m bars, measure outcome at these bar counts
+    # 1 bar = 1min, 3 = 3min, 5 = 5min, 10 = 10min
+    'scalp_bar_size': 1,                   # 1-minute bars
+    'scalp_horizons': [1, 3, 5, 10],       # bars forward on 1m chart
+    'scalp_horizon_labels': ['1min', '3min', '5min', '10min'],
+    'scalp_lookback_days': 14,             # 1min data is huge, keep short
+
+    # Day trade momentum: 5m bars, measure outcome at these bar counts
     # 3 bars = 15min, 6 = 30min, 12 = 1hr, 24 = 2hr
     'day_trade_bar_size': 5,               # 5-minute bars
     'day_trade_horizons': [3, 6, 12, 24],  # bars forward on 5m chart

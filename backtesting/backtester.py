@@ -307,7 +307,8 @@ class PredictionValidator:
 
     def _print_ticker_summary(self, r, mode):
         """Print a quick summary for one ticker"""
-        labels = self.config[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
+        mode_key = {'scalp': 'scalp', 'day': 'day_trade', 'swing': 'swing'}.get(mode, 'day_trade')
+        labels = self.config[f'{mode_key}_horizon_labels']
         print(f"\n  📊 {r['ticker']}: {r['predictions']} predictions "
               f"({r['bull_predictions']} BULL / {r['bear_predictions']} BEAR)")
         print(f"  Avg confidence: {r['avg_confidence']}%")

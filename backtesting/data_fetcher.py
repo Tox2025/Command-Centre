@@ -93,16 +93,21 @@ class DataFetcher:
 
         # Fetch in chunks for large date ranges
         all_results = []
-        chunk_start = datetime.now() - timedelta(days=lookback_days)
+        end_time = datetime.now()
+        chunk_start = end_time - timedelta(days=lookback_days)
         chunk_size = 7 if interval_min <= 5 else 30  # 7 days per chunk for 5m
+        chunk_num = 0
 
-        while chunk_start < datetime.now():
-            chunk_end = min(chunk_start + timedelta(days=chunk_size), datetime.now())
+        while chunk_start < end_time:
+            chunk_end = min(chunk_start + timedelta(days=chunk_size), end_time)
+            chunk_num += 1
+            print(f"    📥 Chunk {chunk_num}: {chunk_start.strftime('%m/%d')} → {chunk_end.strftime('%m/%d')}...", end=' ', flush=True)
             results = self._fetch_aggs(
                 ticker, interval_min, 'minute',
                 chunk_start.strftime('%Y-%m-%d'),
                 chunk_end.strftime('%Y-%m-%d')
             )
+            print(f"{len(results)} bars")
             all_results.extend(results)
             chunk_start = chunk_end
 

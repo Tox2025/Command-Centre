@@ -82,16 +82,16 @@ const marketRegime = new MarketRegime();
 const newsSentiment = new NewsSentiment();
 const correlationGuard = new CorrelationGuard();
 const notifier = new Notifier();
-const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPrice: 2 });
+const polygonClient = new PolygonTickClient(process.env.POLYGON_API_KEY);
+const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPrice: 2, polygonClient: polygonClient });
 const scheduler = new SessionScheduler({ dailyLimit: 15000, safetyMargin: 0.90 });
 const xAlertMonitor = new XAlertMonitor({ minScore: 50 });
 const gapAnalyzer = new GapAnalyzer();
 const yahooPriceFeed = new YahooPriceFeed();
-const multiTFAnalyzer = new MultiTFAnalyzer();
+const multiTFAnalyzer = new MultiTFAnalyzer(polygonClient);
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
 const eodReporter = new EODReporter();
-const polygonClient = new PolygonTickClient(process.env.POLYGON_API_KEY);
 
 const state = {
     tickers: TICKERS,
@@ -2563,6 +2563,27 @@ async function refreshAll() {
             console.log('🔍 Scanner harvest: ' + candidates.length + ' candidates' + (candidates.length > 0 ? ' — top: ' + candidates.slice(0, 5).map(function (c) { return c.ticker + '(' + c.weight.toFixed(1) + '/' + c.sources.length + 'src)'; }).join(', ') : ''));
             var newHits = await scanner.scan(scannerMarketData, state.tickers, uw, state.session, polygonClient);
             state.scannerResults = scanner.getResults();
+
+            // Run multi-TF analysis on scanner discoveries (same depth as watchlist)
+            if (newHits.length > 0 && (state.session === 'REGULAR' || state.session === 'PRE_MARKET')) {
+                for (var mi = 0; mi < Math.min(newHits.length, 3); mi++) {
+                    try {
+                        var mtfResult = await multiTFAnalyzer.analyze(newHits[mi].ticker, 0);
+                        if (mtfResult && mtfResult.confluence) {
+                            newHits[mi].multiTF = mtfResult;
+                            newHits[mi].confluenceBonus = mtfResult.confluence.confluenceBonus || 0;
+                            newHits[mi].intradayBias = mtfResult.confluence.intradayBias || 'NEUTRAL';
+                            // Boost confidence if multi-TF agrees with scanner direction
+                            if (mtfResult.confluence.dominantDirection === (newHits[mi].direction === 'BULLISH' ? 'BULL' : 'BEAR')) {
+                                newHits[mi].confidence = Math.min(95, (newHits[mi].confidence || 50) + mtfResult.confluence.confluenceBonus);
+                                newHits[mi].signals.push({ name: 'Multi-TF Confluence', dir: newHits[mi].direction === 'BULLISH' ? 'BULL' : 'BEAR', detail: mtfResult.confluence.timeframesAgreeing + '/5 TFs agree' });
+                            }
+                            console.log('📊 Scanner MTF: ' + newHits[mi].ticker + ' → ' + (mtfResult.confluence.dominantDirection || 'NEUTRAL') + ' (' + (mtfResult.confluence.timeframesAgreeing || 0) + '/5 TFs, bonus: +' + (mtfResult.confluence.confluenceBonus || 0) + ')');
+                        }
+                    } catch (mtfErr) { /* multi-TF optional */ }
+                }
+                state.scannerResults = scanner.getResults(); // refresh with MTF enrichment
+            }
 
             // Notify on new scanner discoveries
             for (var si = 0; si < newHits.length; si++) {

@@ -1,5 +1,5 @@
 // Multi-Timeframe Analyzer — mirrors the user's actual day trading strategy
-// Fetches 1m, 5m, 15m candles from Yahoo Finance (FREE) and runs
+// Fetches 1m, 5m, 15m, daily, weekly candles from Polygon REST API
 // RSI, MACD, BB, Volume, EMA on each timeframe for confluence scoring
 //
 // Key concepts:
@@ -7,22 +7,18 @@
 // - Consolidation: BB squeeze + ATR compression = breakout imminent
 // - Short-cover bounce: oversold RSI + lower BB on a heavily shorted stock = snap-back
 
-const yahooFinance = require('yahoo-finance2').default;
 const TechnicalAnalysis = require('./technical');
 
-// Rate limit tracker
-var lastFetchTime = {};
-var MIN_FETCH_INTERVAL = 8000; // 8s per ticker to avoid Yahoo throttling
-
 class MultiTFAnalyzer {
-    constructor() {
+    constructor(polygonClient) {
+        this.polygonClient = polygonClient || null;
         this.cache = {};         // ticker -> { tf -> { candles, analysis, timestamp } }
         this.maxCacheAge = 60000; // 60s cache for intraday data
         this.dailyCacheAge = 300000;  // 5min cache for daily candles
         this.weeklyCacheAge = 1800000; // 30min cache for weekly candles
     }
 
-    // ── Fetch candles from Yahoo Finance chart API ────────────────
+    // ── Fetch candles from Polygon REST API ────────────────
     async _fetchCandles(ticker, interval, rangeDays) {
         try {
             var now = Date.now();
@@ -33,37 +29,33 @@ class MultiTFAnalyzer {
                 return cached.candles;
             }
 
-            // Rate limit per ticker
-            var lastFetch = lastFetchTime[ticker] || 0;
-            if ((now - lastFetch) < MIN_FETCH_INTERVAL) {
-                return cached ? cached.candles : [];
-            }
-            lastFetchTime[ticker] = now;
-
-            var period1 = new Date();
-            period1.setDate(period1.getDate() - rangeDays);
-
-            var result = await yahooFinance.chart(ticker, {
-                period1: period1,
-                interval: interval
-            });
-
-            if (!result || !result.quotes || result.quotes.length === 0) {
+            if (!this.polygonClient) {
                 return cached ? cached.candles : [];
             }
 
-            var candles = result.quotes
-                .filter(function (q) { return q.close !== null && q.close !== undefined; })
-                .map(function (q) {
-                    return {
-                        date: q.date,
-                        open: q.open || q.close,
-                        high: q.high || q.close,
-                        low: q.low || q.close,
-                        close: q.close,
-                        volume: q.volume || 0
-                    };
-                });
+            // Map interval to Polygon multiplier + timespan
+            var polyMap = {
+                '1m': { multiplier: 1, timespan: 'minute' },
+                '5m': { multiplier: 5, timespan: 'minute' },
+                '15m': { multiplier: 15, timespan: 'minute' },
+                '1d': { multiplier: 1, timespan: 'day' },
+                '1wk': { multiplier: 1, timespan: 'week' }
+            };
+            var poly = polyMap[interval] || { multiplier: 1, timespan: 'day' };
+
+            var fromDate = new Date();
+            fromDate.setDate(fromDate.getDate() - rangeDays);
+            var fromStr = fromDate.toISOString().split('T')[0];
+            var toStr = new Date().toISOString().split('T')[0];
+
+            var result = await this.polygonClient.getAggregates(ticker, poly.multiplier, poly.timespan, fromStr, toStr);
+
+            if (!result || result.length === 0) {
+                return cached ? cached.candles : [];
+            }
+
+            // getAggregates already maps to { open, high, low, close, volume, date }
+            var candles = result.filter(function (c) { return c.close !== null && c.close !== undefined; });
 
             this.cache[cacheKey] = { candles: candles, timestamp: now };
             return candles;
@@ -391,7 +383,7 @@ class MultiTFAnalyzer {
         var siMap = shortInterestMap || {};
         var results = {};
 
-        // Process sequentially to avoid overwhelming Yahoo
+        // Process in parallel — Polygon is fast, no need for sequential throttling
         for (var i = 0; i < tickers.length; i++) {
             try {
                 results[tickers[i]] = await self.analyze(tickers[i], siMap[tickers[i]] || 0);

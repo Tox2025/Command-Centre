@@ -160,6 +160,20 @@ def print_comparison(results_a, results_b, v1, v2, mode):
         print(f"    {label:<10}: {v1} {acc_a:.1f}%  vs  {v2} {acc_b:.1f}%  ({delta_str}%)  {marker}")
 
 
+def _select_weights_for_mode(weights, profiles, mode):
+    """Select the right weight profile for the backtest mode"""
+    if mode == 'day':
+        # Day trade backtests use scalp weights (5min bars = intraday scalps)
+        profile = profiles.get('scalp') or profiles.get('day')
+        if profile:
+            return profile
+    elif mode == 'swing':
+        profile = profiles.get('swing')
+        if profile:
+            return profile
+    return weights  # fallback to default
+
+
 def main():
     args = parse_args()
     tickers = args.tickers or DEFAULT_TICKERS
@@ -183,11 +197,13 @@ def main():
         v1, v2 = args.compare
         print(f"\n🔄 Comparing {v1} vs {v2}...")
 
-        w1 = load_version_weights(v1)
+        w1, profiles1, _ = load_version_weights(v1)
+        w1 = _select_weights_for_mode(w1, profiles1, mode)
         validator_a = PredictionValidator(w1, config)
         results_a = validator_a.run_universe(tickers, mode)
 
-        w2 = load_version_weights(v2)
+        w2, profiles2, _ = load_version_weights(v2)
+        w2 = _select_weights_for_mode(w2, profiles2, mode)
         validator_b = PredictionValidator(w2, config)
         results_b = validator_b.run_universe(tickers, mode)
 
@@ -196,12 +212,18 @@ def main():
 
     # ── Single version mode ────────────────────────────────
     if args.version:
-        weights = load_version_weights(args.version)
+        weights, profiles, ticker_overrides = load_version_weights(args.version)
         version_name = args.version
     else:
-        weights, version_name = load_active_weights()
+        weights, version_name, profiles, ticker_overrides = load_active_weights()
 
-    print_header(mode, version_name, args.threshold, tickers, lookback)
+    # Select the right weight profile for this mode
+    weights = _select_weights_for_mode(weights, profiles, mode)
+    profile_name = 'scalp' if mode == 'day' and profiles.get('scalp') else \
+                   'day' if mode == 'day' and profiles.get('day') else \
+                   'swing' if mode == 'swing' and profiles.get('swing') else 'default'
+
+    print_header(mode, f"{version_name} ({profile_name})", args.threshold, tickers, lookback)
 
     validator = PredictionValidator(weights, config)
     results = validator.run_universe(tickers, mode)

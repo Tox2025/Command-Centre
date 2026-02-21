@@ -48,6 +48,10 @@ const DEFAULT_WEIGHTS = {
 var SIGNAL_WEIGHTS = DEFAULT_WEIGHTS;
 var SIGNAL_VERSION = 'default';
 var SIGNAL_GATING = {};
+var SIGNAL_WEIGHTS_SCALP = null;
+var SIGNAL_WEIGHTS_DAY = null;
+var SIGNAL_WEIGHTS_SWING = null;
+var SIGNAL_TICKER_OVERRIDES = {};
 try {
     var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
     if (fs.existsSync(versionsPath)) {
@@ -58,7 +62,13 @@ try {
             SIGNAL_WEIGHTS = Object.assign({}, DEFAULT_WEIGHTS, ver.weights);
             SIGNAL_VERSION = activeVer;
             SIGNAL_GATING = ver.gating || {};
-            console.log('📊 Signal Engine loaded version: ' + activeVer + ' — "' + ver.label + '" (tag: ' + (ver.gitTag || 'none') + ')');
+            // Load horizon-specific weight profiles
+            if (ver.weights_scalp) SIGNAL_WEIGHTS_SCALP = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_scalp);
+            if (ver.weights_day) SIGNAL_WEIGHTS_DAY = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_day);
+            if (ver.weights_swing) SIGNAL_WEIGHTS_SWING = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_swing);
+            SIGNAL_TICKER_OVERRIDES = ver.ticker_overrides || {};
+            var profiles = [ver.weights_scalp ? 'scalp' : null, ver.weights_day ? 'day' : null, ver.weights_swing ? 'swing' : null].filter(Boolean);
+            console.log('📊 Signal Engine loaded version: ' + activeVer + ' — "' + ver.label + '" (profiles: ' + (profiles.length > 0 ? profiles.join('/') : 'default') + ')');
         }
     }
 } catch (e) {
@@ -164,15 +174,40 @@ const SESSION_MULTIPLIERS = {
 class SignalEngine {
     constructor(weights) {
         this.weights = weights || { ...SIGNAL_WEIGHTS };
+        this.weightsScalp = SIGNAL_WEIGHTS_SCALP;
+        this.weightsDay = SIGNAL_WEIGHTS_DAY;
+        this.weightsSwing = SIGNAL_WEIGHTS_SWING;
+        this.tickerOverrides = SIGNAL_TICKER_OVERRIDES;
     }
 
     updateWeights(newWeights) {
         Object.assign(this.weights, newWeights);
     }
 
+    // Get the right weight set for this session + ticker combination
+    _getHorizonWeights(session, ticker) {
+        var base;
+        // Session → horizon mapping
+        if (session === 'OPEN_RUSH' || session === 'POWER_OPEN') {
+            base = this.weightsScalp || this.weights;
+        } else if (session === 'MIDDAY' || session === 'POWER_HOUR' || session === 'PRE_MARKET') {
+            base = this.weightsDay || this.weights;
+        } else if (session === 'OVERNIGHT' || session === 'AFTER_HOURS') {
+            base = this.weightsSwing || this.weights;
+        } else {
+            base = this.weights;  // fallback to default
+        }
+        // Apply per-ticker overrides on top
+        if (ticker && this.tickerOverrides[ticker]) {
+            return Object.assign({}, base, this.tickerOverrides[ticker]);
+        }
+        return base;
+    }
+
     // Get effective weight: base weight * session multiplier
-    _ew(key, session) {
-        const base = this.weights[key] || 0;
+    // Uses horizon-specific weights when available
+    _ew(key, session, horizonWeights) {
+        const base = horizonWeights ? (horizonWeights[key] || 0) : (this.weights[key] || 0);
         const mult = SESSION_MULTIPLIERS[session];
         return mult ? base * (mult[key] || 1.0) : base;
     }
@@ -182,6 +217,8 @@ class SignalEngine {
         const signals = [];
         let bull = 0, bear = 0;
         const sess = session || null;
+        // Select horizon-specific weights based on session + ticker
+        const hw = this._getHorizonWeights(sess, ticker);
         const ta = data.technicals || {};
         const flow = data.flow || [];
         const dp = data.darkPool || [];
@@ -196,7 +233,7 @@ class SignalEngine {
         const patterns = (ta.patterns || []);
 
         // 1. EMA Alignment — suppress bearish in RANGING regime (31% accuracy in ranging)
-        const w1 = this._ew('ema_alignment', sess);
+        const w1 = this._ew('ema_alignment', sess, hw);
         const isRanging = regime && regime.regime === 'RANGING';
         if (ta.emaBias === 'BULLISH') {
             bull += w1; signals.push({ name: 'EMA Alignment', dir: 'BULL', weight: w1, detail: '9>20>50 stacked bullish' });
@@ -206,7 +243,7 @@ class SignalEngine {
         }
 
         // 2. RSI Position - Context Aware
-        const w2 = this._ew('rsi_position', sess);
+        const w2 = this._ew('rsi_position', sess, hw);
         if (ta.rsi !== null && ta.rsi !== undefined) {
             // Check for strong trend context
             const isTrendingUp = regime && (regime.regime === 'TRENDING_UP');
@@ -235,7 +272,7 @@ class SignalEngine {
         }
 
         // 3. MACD Histogram — only fire if magnitude is meaningful (noise reduction)
-        const w3 = this._ew('macd_histogram', sess);
+        const w3 = this._ew('macd_histogram', sess, hw);
         if (ta.macd && ta.macd.histogram !== null) {
             const hist = ta.macd.histogram;
             const atrVal = ta.atr || 1;
@@ -251,7 +288,7 @@ class SignalEngine {
         }
 
         // 4. Bollinger Band Position — enhanced with volume-confirmed dip buy / overbought exit
-        const w4 = this._ew('bollinger_position', sess);
+        const w4 = this._ew('bollinger_position', sess, hw);
         if (ta.bollingerBands && ta.bollingerBands.position !== null) {
             const pos = ta.bollingerBands.position;
             const hasVolume = ta.volumeSpike || false; // volume confirmation
@@ -293,7 +330,7 @@ class SignalEngine {
         }
 
         // 5. Call/Put Flow Ratio
-        const w5 = this._ew('call_put_ratio', sess);
+        const w5 = this._ew('call_put_ratio', sess, hw);
         if (flow.length > 0) {
             let callPrem = 0, putPrem = 0;
             flow.forEach(f => {
@@ -314,7 +351,7 @@ class SignalEngine {
         }
 
         // 6. Sweep Activity
-        const w6 = this._ew('sweep_activity', sess);
+        const w6 = this._ew('sweep_activity', sess, hw);
         const sweeps = flow.filter(f => {
             const tt = (f.trade_type || f.execution_type || '').toLowerCase();
             return tt.includes('sweep');
@@ -334,7 +371,7 @@ class SignalEngine {
         }
 
         // 7. Dark Pool Direction
-        const w7 = this._ew('dark_pool_direction', sess);
+        const w7 = this._ew('dark_pool_direction', sess, hw);
         if (dp.length > 0) {
             let dpBull = 0, dpBear = 0;
             dp.forEach(d => {
@@ -354,7 +391,7 @@ class SignalEngine {
         }
 
         // 8. GEX Positioning
-        const w8 = this._ew('gex_positioning', sess);
+        const w8 = this._ew('gex_positioning', sess, hw);
         if (gex.length > 0) {
             const curPrice = parseFloat(quote.last || quote.price || quote.close || 0);
             if (curPrice > 0) {
@@ -374,7 +411,7 @@ class SignalEngine {
         }
 
         // 9. IV Rank
-        const w9 = this._ew('iv_rank', sess);
+        const w9 = this._ew('iv_rank', sess, hw);
         if (ivData) {
             const ivArr = Array.isArray(ivData) ? ivData : [ivData];
             const latest = ivArr[ivArr.length - 1] || {};
@@ -388,7 +425,7 @@ class SignalEngine {
         }
 
         // 10. Short Interest (with data validation — cap at 100% to reject bad data)
-        const w10 = this._ew('short_interest', sess);
+        const w10 = this._ew('short_interest', sess, hw);
         if (siData) {
             const siArr = Array.isArray(siData) ? siData : [siData];
             const latest = siArr[siArr.length - 1] || {};
@@ -402,7 +439,7 @@ class SignalEngine {
         }
 
         // 11. Insider/Congress Activity
-        const w11 = this._ew('insider_congress', sess);
+        const w11 = this._ew('insider_congress', sess, hw);
         const recentBuys = insiderData.filter(i => {
             const type = (i.transaction_type || i.acquisition_or_disposition || '').toUpperCase();
             return type.includes('BUY') || type.includes('P') || type === 'A';
@@ -422,7 +459,7 @@ class SignalEngine {
         }
 
         // 12. Volume Spike + Intraday Volume Rate
-        const w12 = this._ew('volume_spike', sess);
+        const w12 = this._ew('volume_spike', sess, hw);
         if (ta.volumeSpike) {
             const dir = bull > bear ? 'BULL' : 'BEAR';
             const pts = w12;
@@ -450,7 +487,7 @@ class SignalEngine {
         }
 
         // 13. Bollinger Squeeze (tight bands = breakout imminent)
-        const w13 = this._ew('bb_squeeze', sess);
+        const w13 = this._ew('bb_squeeze', sess, hw);
         if (ta.bollingerBands && ta.bollingerBands.bandwidth !== undefined) {
             const bw = ta.bollingerBands.bandwidth;
             const pos = ta.bollingerBands.position;
@@ -472,7 +509,7 @@ class SignalEngine {
         }
 
         // 14. VWAP Deviation (mean reversion for intraday)
-        const w14 = this._ew('vwap_deviation', sess);
+        const w14 = this._ew('vwap_deviation', sess, hw);
         if (ta.vwap && quote) {
             const curPrice = parseFloat(quote.last || quote.price || quote.close || 0);
             const vwap = parseFloat(ta.vwap);
@@ -499,7 +536,7 @@ class SignalEngine {
         }
 
         // 15. Market Regime Alignment
-        const w15 = this._ew('regime_alignment', sess);
+        const w15 = this._ew('regime_alignment', sess, hw);
         if (regime && regime.regime !== 'UNKNOWN') {
             const r = regime.regime;
             const rConf = (regime.confidence || 50) / 100;
@@ -518,7 +555,7 @@ class SignalEngine {
         }
 
         // 16. Gamma Wall Proximity
-        const w16 = this._ew('gamma_wall', sess);
+        const w16 = this._ew('gamma_wall', sess, hw);
         if (gex.length > 0 && quote) {
             const curPrice = parseFloat(quote.last || quote.price || quote.close || 0);
             // Find max gamma strike
@@ -541,7 +578,7 @@ class SignalEngine {
         }
 
         // 17. IV Skew (call IV vs put IV)
-        const w17 = this._ew('iv_skew', sess);
+        const w17 = this._ew('iv_skew', sess, hw);
         if (ivData) {
             const arr = Array.isArray(ivData) ? ivData : [ivData];
             const last = arr[arr.length - 1] || {};
@@ -558,7 +595,7 @@ class SignalEngine {
         }
 
         // 18. Candlestick Pattern Confirmation — bullish patterns 1.5x boost (75% accuracy on 2/19)
-        const w18 = this._ew('candlestick_pattern', sess);
+        const w18 = this._ew('candlestick_pattern', sess, hw);
         if (patterns.length > 0) {
             patterns.forEach(function (p) {
                 if (p.direction === 'BULL') {
@@ -572,7 +609,7 @@ class SignalEngine {
         }
 
         // 19. News Sentiment
-        const w19 = this._ew('news_sentiment', sess);
+        const w19 = this._ew('news_sentiment', sess, hw);
         if (sentiment && sentiment.score !== undefined) {
             const score = sentiment.score; // -100 to +100
             if (score > 30) {
@@ -583,7 +620,7 @@ class SignalEngine {
         }
 
         // ── 20. Multi-Timeframe Confluence (injected from MultiTFAnalyzer) ──
-        const w20 = this._ew('multi_tf_confluence', sess);
+        const w20 = this._ew('multi_tf_confluence', sess, hw);
         const mtf = data.multiTF || null;
         if (mtf && mtf.confluence) {
             const conf = mtf.confluence;
@@ -620,7 +657,7 @@ class SignalEngine {
         }
 
         // ── 21. RSI Divergence (new high-probability signal) ──
-        const w21 = this._ew('rsi_divergence', sess);
+        const w21 = this._ew('rsi_divergence', sess, hw);
         if (ta.rsiDivergence && ta.rsiDivergence.length > 0) {
             ta.rsiDivergence.forEach(function (div) {
                 var strength = div.strength || 0.5;
@@ -678,7 +715,7 @@ class SignalEngine {
         }
 
         // ── 23. Volatility Runner Detection (MLEC-style gap/halt setups) ──
-        var wVR = this._ew('volatility_runner', sess);
+        var wVR = this._ew('volatility_runner', sess, hw);
         if (data.volatilityRunner) {
             var vr = data.volatilityRunner;
             // Calculate runner quality score
@@ -712,7 +749,7 @@ class SignalEngine {
         }
 
         // ── 24. Net Premium Momentum (smart money flow direction) ──
-        var wNPM = this._ew('net_premium_momentum', sess);
+        var wNPM = this._ew('net_premium_momentum', sess, hw);
         if (data.netPremium) {
             var np = Array.isArray(data.netPremium) ? data.netPremium : [];
             if (np.length >= 3) {
@@ -727,7 +764,7 @@ class SignalEngine {
         }
 
         // ── 25. Strike Flow Levels (magnetic price levels for S/R) ──
-        var wSFL = this._ew('strike_flow_levels', sess);
+        var wSFL = this._ew('strike_flow_levels', sess, hw);
         if (data.flowPerStrike && quote.price) {
             var fps = Array.isArray(data.flowPerStrike) ? data.flowPerStrike : [];
             var curPrice = parseFloat(quote.price || quote.last || 0);
@@ -747,7 +784,7 @@ class SignalEngine {
         }
 
         // ── 26. Greek Flow Momentum (delta/gamma shift detection) ──
-        var wGFM = this._ew('greek_flow_momentum', sess);
+        var wGFM = this._ew('greek_flow_momentum', sess, hw);
         if (data.greekFlow) {
             var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : [];
             if (gfl.length >= 2) {
@@ -763,7 +800,7 @@ class SignalEngine {
         }
 
         // ── 27. Sector Tide Alignment ──
-        var wSTA = this._ew('sector_tide_alignment', sess);
+        var wSTA = this._ew('sector_tide_alignment', sess, hw);
         if (data.sectorTide && quote.sector) {
             var secTide = data.sectorTide[quote.sector];
             if (secTide) {
@@ -779,7 +816,7 @@ class SignalEngine {
         }
 
         // ── 28. ETF Tide Macro Direction ──
-        var wETM = this._ew('etf_tide_macro', sess);
+        var wETM = this._ew('etf_tide_macro', sess, hw);
         if (data.etfTide) {
             var spyTide = data.etfTide['SPY'];
             var qqqTide = data.etfTide['QQQ'];
@@ -800,7 +837,7 @@ class SignalEngine {
         }
 
         // ── 29. Squeeze Composite (short volume + FTDs) ──
-        var wSQ = this._ew('squeeze_composite', sess);
+        var wSQ = this._ew('squeeze_composite', sess, hw);
         if (data.shortVolume || data.failsToDeliver) {
             var sqScore = 0;
             if (data.shortVolume) {
@@ -827,7 +864,7 @@ class SignalEngine {
         }
 
         // ── 30. Seasonality Alignment ──
-        var wSZN = this._ew('seasonality_alignment', sess);
+        var wSZN = this._ew('seasonality_alignment', sess, hw);
         if (data.seasonality) {
             var sznData = Array.isArray(data.seasonality) ? data.seasonality : [];
             var curMonth = new Date().getMonth(); // 0-indexed
@@ -844,7 +881,7 @@ class SignalEngine {
         }
 
         // ── 31. Vol Regime (IV vs Realized Vol) ──
-        var wVOL = this._ew('vol_regime', sess);
+        var wVOL = this._ew('vol_regime', sess, hw);
         if (data.realizedVol && data.ivRank) {
             var rvData = Array.isArray(data.realizedVol) ? data.realizedVol : [];
             var lastRV = rvData[rvData.length - 1];
@@ -863,7 +900,7 @@ class SignalEngine {
         }
 
         // ── 32. Insider Conviction ──
-        var wIC = this._ew('insider_conviction', sess);
+        var wIC = this._ew('insider_conviction', sess, hw);
         if (data.insiderFlow) {
             var ifl = Array.isArray(data.insiderFlow) ? data.insiderFlow : [];
             if (ifl.length > 0) {
@@ -881,7 +918,7 @@ class SignalEngine {
         }
 
         // ── 33. Spot Gamma Pin Detection ──
-        var wSGP = this._ew('spot_gamma_pin', sess);
+        var wSGP = this._ew('spot_gamma_pin', sess, hw);
         if (data.spotExposures) {
             var spotData = Array.isArray(data.spotExposures) ? data.spotExposures : (data.spotExposures.data ? [data.spotExposures] : []);
             if (spotData.length > 0) {
@@ -894,7 +931,7 @@ class SignalEngine {
         }
 
         // ── 34. Flow Horizon Classification ──
-        var wFH = this._ew('flow_horizon', sess);
+        var wFH = this._ew('flow_horizon', sess, hw);
         if (data.flowPerExpiry) {
             var fpe = Array.isArray(data.flowPerExpiry) ? data.flowPerExpiry : [];
             if (fpe.length > 0) {
@@ -916,7 +953,7 @@ class SignalEngine {
         }
 
         // ── 35. Buy/Sell Volume Proxy ──
-        var wVD = this._ew('volume_direction', sess);
+        var wVD = this._ew('volume_direction', sess, hw);
         if (data.netPremium || (dp && dp.length > 0)) {
             var buyPressure = 0, sellPressure = 0;
             // Net premium direction
@@ -963,7 +1000,7 @@ class SignalEngine {
         // ── 36. Real Tick Data (Polygon.io) — overrides proxy when available ──
         if (data.tickData) {
             var tick = data.tickData;
-            var wTick = this._ew('volume_direction', sess) * 1.5; // boost for real data
+            var wTick = this._ew('volume_direction', sess, hw) * 1.5; // boost for real data
 
             // Flow imbalance from actual aggressor classification
             if (tick.flowImbalance !== undefined && tick.totalVolume > 1000) {
@@ -1052,7 +1089,7 @@ class SignalEngine {
         }
 
         // ── 38. Earnings Gap Trade (beat/miss + gap direction) ──
-        var wEGT = this._ew('earnings_gap_trade', sess);
+        var wEGT = this._ew('earnings_gap_trade', sess, hw);
         if (data.earningsEnriched && data.earningsEnriched.beat) {
             var earnResult = data.earningsEnriched.beat; // 'BEAT', 'MISS', or 'MET'
             var earnSurprise = parseFloat(data.earningsEnriched.surprise_pct) || 0;

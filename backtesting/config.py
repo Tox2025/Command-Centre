@@ -145,7 +145,7 @@ DEFAULT_TICKERS = [
 
 
 def load_active_weights():
-    """Load the active signal weights from signal-versions.json"""
+    """Load the active signal weights from signal-versions.json, including horizon profiles"""
     try:
         versions_path = os.path.join(DATA_DIR, 'signal-versions.json')
         with open(versions_path, 'r') as f:
@@ -153,26 +153,47 @@ def load_active_weights():
         active = config.get('activeVersion', 'v1.0')
         version = config['versions'].get(active, {})
         weights = version.get('weights', DEFAULT_WEIGHTS)
-        print(f"Loaded weights: {active} — {version.get('label', 'unknown')}")
-        return weights, active
+        # Load horizon-specific profiles if available
+        profiles = {
+            'scalp': version.get('weights_scalp'),
+            'day': version.get('weights_day'),
+            'swing': version.get('weights_swing'),
+        }
+        ticker_overrides = version.get('ticker_overrides', {})
+        available = [k for k, v in profiles.items() if v]
+        if available:
+            print(f"Loaded weights: {active} — {version.get('label', 'unknown')} (profiles: {'/'.join(available)})")
+        else:
+            print(f"Loaded weights: {active} — {version.get('label', 'unknown')}")
+        return weights, active, profiles, ticker_overrides
     except Exception as e:
         print(f"Using default weights: {e}")
-        return DEFAULT_WEIGHTS.copy(), 'default'
+        return DEFAULT_WEIGHTS.copy(), 'default', {}, {}
 
 
 def load_version_weights(version_name):
-    """Load specific version weights from signal-versions.json"""
+    """Load specific version weights from signal-versions.json, including horizon profiles"""
     try:
         versions_path = os.path.join(DATA_DIR, 'signal-versions.json')
         with open(versions_path, 'r') as f:
             config = json.load(f)
         version = config['versions'].get(version_name, {})
         weights = version.get('weights', DEFAULT_WEIGHTS)
-        print(f"Loaded weights: {version_name} — {version.get('label', 'unknown')}")
-        return weights
+        profiles = {
+            'scalp': version.get('weights_scalp'),
+            'day': version.get('weights_day'),
+            'swing': version.get('weights_swing'),
+        }
+        ticker_overrides = version.get('ticker_overrides', {})
+        available = [k for k, v in profiles.items() if v]
+        if available:
+            print(f"Loaded weights: {version_name} — {version.get('label', 'unknown')} (profiles: {'/'.join(available)})")
+        else:
+            print(f"Loaded weights: {version_name} — {version.get('label', 'unknown')}")
+        return weights, profiles, ticker_overrides
     except Exception as e:
         print(f"Using default weights: {e}")
-        return DEFAULT_WEIGHTS.copy()
+        return DEFAULT_WEIGHTS.copy(), {}, {}
 
 
 def save_optimized_weights(weights, metrics, label=''):

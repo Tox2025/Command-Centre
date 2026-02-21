@@ -1,45 +1,69 @@
 // Signal Engine - Multi-source weighted scoring for trade predictions
-// 19 signals across 8 categories with session-aware adjustable weights
+// Versioned signal weights — loaded from data/signal-versions.json
 
-const SIGNAL_WEIGHTS = {
-    ema_alignment: 5,      // ↑ from 3 — strongest trend predictor from trade data
-    rsi_position: 3,       // ↑ from 2 — RSI Bullish had 100% accuracy
+const path = require('path');
+const fs = require('fs');
+
+// Default weights (fallback if signal-versions.json not found)
+const DEFAULT_WEIGHTS = {
+    ema_alignment: 5,
+    rsi_position: 3,
     macd_histogram: 2,
     bollinger_position: 1,
     bb_squeeze: 2,
     vwap_deviation: 2,
     call_put_ratio: 3,
     sweep_activity: 2,
-    dark_pool_direction: 4, // ↑ from 3 — institutional flow is highly predictive
+    dark_pool_direction: 4,
     insider_congress: 1,
     gex_positioning: 2,
     iv_rank: 1,
     short_interest: 1,
-    volume_spike: 2,        // Reverted from 3 — Session Rejection at w3 was too aggressive on bear side
+    volume_spike: 2,
     regime_alignment: 3,
     gamma_wall: 2,
     iv_skew: 1,
     candlestick_pattern: 2,
-    news_sentiment: 2,      // ↑ from 1 — News Bullish had 83% accuracy
-    multi_tf_confluence: 5,  // multi-timeframe agreement bonus
-    rsi_divergence: 3,       // NEW — high-probability reversal/continuation signal
-    adx_filter: 0,           // NEW — not directional; used as gate/multiplier on other signals
-    volatility_runner: 5,     // NEW — gap-up micro-cap runner (MLEC-style halt setups)
-    // Phase 1 API Enhancement signals
-    net_premium_momentum: 5,   // smart money net call/put premium flow
-    strike_flow_levels: 4,     // options flow concentration at price levels
-    greek_flow_momentum: 4,    // delta/gamma exposure shifts
-    sector_tide_alignment: 3,  // sector-level call/put flow direction
-    etf_tide_macro: 3,         // SPY/QQQ flow for macro direction
-    squeeze_composite: 5,      // short volume + FTD squeeze score
-    seasonality_alignment: 2,  // historical monthly return patterns
-    vol_regime: 3,             // realized vol vs implied vol regime
-    insider_conviction: 3,     // insider net buy/sell flow
-    spot_gamma_pin: 3,         // gamma pinning detection at spot price
-    flow_horizon: 2,           // options flow expiry concentration
-    volume_direction: 3,       // buy vs sell volume proxy from flow + dark pool
-    earnings_gap_trade: 6      // earnings beat/miss + gap direction — highest edge
+    news_sentiment: 2,
+    multi_tf_confluence: 5,
+    rsi_divergence: 3,
+    adx_filter: 0,
+    volatility_runner: 5,
+    net_premium_momentum: 5,
+    strike_flow_levels: 4,
+    greek_flow_momentum: 4,
+    sector_tide_alignment: 3,
+    etf_tide_macro: 3,
+    squeeze_composite: 5,
+    seasonality_alignment: 2,
+    vol_regime: 3,
+    insider_conviction: 3,
+    spot_gamma_pin: 3,
+    flow_horizon: 2,
+    volume_direction: 3,
+    earnings_gap_trade: 6
 };
+
+// Load versioned weights
+var SIGNAL_WEIGHTS = DEFAULT_WEIGHTS;
+var SIGNAL_VERSION = 'default';
+var SIGNAL_GATING = {};
+try {
+    var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
+    if (fs.existsSync(versionsPath)) {
+        var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+        var activeVer = config.activeVersion || 'default';
+        if (config.versions && config.versions[activeVer]) {
+            var ver = config.versions[activeVer];
+            SIGNAL_WEIGHTS = Object.assign({}, DEFAULT_WEIGHTS, ver.weights);
+            SIGNAL_VERSION = activeVer;
+            SIGNAL_GATING = ver.gating || {};
+            console.log('📊 Signal Engine loaded version: ' + activeVer + ' — "' + ver.label + '" (tag: ' + (ver.gitTag || 'none') + ')');
+        }
+    }
+} catch (e) {
+    console.error('Signal version load error:', e.message, '— using defaults');
+}
 
 // Session multipliers: scale signal weights per trading session
 // Must match scheduler session names: OPEN_RUSH, POWER_OPEN, PRE_MARKET, MIDDAY, POWER_HOUR, AFTER_HOURS, OVERNIGHT
@@ -1218,4 +1242,4 @@ class SignalEngine {
     }
 }
 
-module.exports = { SignalEngine, SIGNAL_WEIGHTS, SESSION_MULTIPLIERS };
+module.exports = { SignalEngine, SIGNAL_WEIGHTS, SESSION_MULTIPLIERS, SIGNAL_VERSION, SIGNAL_GATING };

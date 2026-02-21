@@ -2146,6 +2146,23 @@ function trackDiscovery(ticker, source, signalResult, meta) {
             setupMsg += 'R:R: ' + setup.riskReward + '\n';
             setupMsg += 'Source: ' + source;
             notifier._sendTelegram(setupMsg);
+
+            // ── Auto Paper Trade for Discovery Setups ──
+            // Same logic as watchlist: cooldown + consecutive loss guard
+            tradeJournal.logSetup(setup, signalResult);
+            var maxConsecLosses = 3;
+            var consecLosses = tradeJournal.getConsecutiveLosses(t, dir);
+            if (consecLosses < maxConsecLosses) {
+                var cooldownMs = 30 * 60 * 1000;
+                var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs);
+                if (autoTrade) {
+                    console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
+                        ' (conf: ' + signalResult.confidence + '%, source: ' + source + ')');
+                    try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                }
+            } else {
+                console.log('⏭️  Discovery paper blocked ' + dir + ' ' + t + ': streak=' + consecLosses);
+            }
         } catch (setupErr) {
             console.error('Auto trade setup error for ' + t + ':', setupErr.message);
         }

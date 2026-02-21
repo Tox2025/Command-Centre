@@ -14,7 +14,7 @@ class XAlertMonitor {
 
     // ── Ingest Alert ──────────────────────────────────────
     // Called when a ticker alert arrives from any source
-    async ingestAlert(ticker, source, rawText, uw) {
+    async ingestAlert(ticker, source, rawText, uw, polygonClient) {
         ticker = (ticker || '').toUpperCase().trim();
         if (!ticker || ticker.length > 6) return null;
 
@@ -25,7 +25,7 @@ class XAlertMonitor {
         this.cooldown[ticker] = Date.now();
 
         try {
-            var data = await this.fetchValidationData(ticker, uw);
+            var data = await this.fetchValidationData(ticker, uw, polygonClient);
             var result = this.scoreAndPredict(ticker, data, source, rawText);
 
             // Store result
@@ -40,8 +40,8 @@ class XAlertMonitor {
     }
 
     // ── Fetch Validation Data ─────────────────────────────
-    // 5 UW API calls + 1 Yahoo fallback per ticker
-    async fetchValidationData(ticker, uw) {
+    // 5 UW API calls + Polygon REST fallback per ticker
+    async fetchValidationData(ticker, uw, polygonClient) {
         var results = {};
 
         // 1. Quote (price, volume)
@@ -74,29 +74,41 @@ class XAlertMonitor {
             results.stockState = stockState?.data || {};
         } catch (e) { results.stockState = {}; }
 
-        // 6. Yahoo Finance fallback (free, no API key needed)
-        try {
-            var yahooFinance = require('yahoo-finance2').default;
-            var yQuote = await yahooFinance.quote(ticker);
-            results.yahooFallback = {
-                sharesOutstanding: yQuote.sharesOutstanding || 0,
-                floatShares: yQuote.floatShares || 0,
-                marketCap: yQuote.marketCap || 0,
-                shortRatio: yQuote.shortPercentOfFloat ? yQuote.shortPercentOfFloat * 100 : 0,
-                avgVolume: yQuote.averageDailyVolume3Month || yQuote.averageDailyVolume10Day || 0,
-                changePercent: yQuote.regularMarketChangePercent || 0,
-                volume: yQuote.regularMarketVolume || 0,
-                price: yQuote.regularMarketPrice || 0
-            };
-            // Also fill in primary quote if UW returned nothing useful
-            if (!results.quote.price && !results.quote.last && yQuote.regularMarketPrice) {
-                results.quote.price = yQuote.regularMarketPrice;
-                results.quote.last = yQuote.regularMarketPrice;
-                results.quote.volume = yQuote.regularMarketVolume || 0;
+        // 6. Polygon REST fallback (replaces Yahoo Finance)
+        results.yahooFallback = {}; // keep field name for backward compat with scoreAndPredict
+        if (polygonClient) {
+            try {
+                var snap = await polygonClient.getTickerSnapshot(ticker);
+                var details = await polygonClient.getTickerDetails(ticker);
+                var polyData = {};
+                // Snapshot: price, volume, change
+                if (snap) {
+                    var lastPrice = snap.lastTrade ? snap.lastTrade.p : (snap.day ? snap.day.c : 0);
+                    var dayVol = snap.day ? snap.day.v : 0;
+                    var prevClose = snap.prevDay ? snap.prevDay.c : 0;
+                    var changePct = prevClose > 0 ? ((lastPrice - prevClose) / prevClose * 100) : 0;
+                    polyData.price = lastPrice || 0;
+                    polyData.volume = dayVol || 0;
+                    polyData.changePercent = changePct;
+                }
+                // Details: float, shares outstanding, market cap
+                if (details) {
+                    polyData.sharesOutstanding = details.share_class_shares_outstanding || details.weighted_shares_outstanding || 0;
+                    polyData.floatShares = details.share_class_shares_outstanding || 0; // Polygon doesn't have float separately
+                    polyData.marketCap = details.market_cap || 0;
+                    polyData.avgVolume = 0; // Would need historical aggregates
+                    polyData.shortRatio = 0; // Not available from Polygon
+                }
+                results.yahooFallback = polyData;
+                // Fill in primary quote if UW returned nothing useful
+                if (!results.quote.price && !results.quote.last && polyData.price > 0) {
+                    results.quote.price = polyData.price;
+                    results.quote.last = polyData.price;
+                    results.quote.volume = polyData.volume || 0;
+                }
+            } catch (e) {
+                console.log('Polygon fallback unavailable for ' + ticker + ': ' + e.message);
             }
-        } catch (e) {
-            results.yahooFallback = {};
-            console.log('Yahoo fallback unavailable for ' + ticker + ': ' + e.message);
         }
 
         return results;
@@ -421,7 +433,7 @@ class XAlertMonitor {
 
     // ── Scan Market for Low-Float Candidates ────────────────
     // Discovers potential low-float movers from flow, dark pool, and halts
-    async scanMarket(state, uw) {
+    async scanMarket(state, uw, polygonClient) {
         var candidates = {};
         var existingTickers = this.alerts.map(function (a) { return a.ticker; });
         var watchlist = state.tickers || [];
@@ -474,7 +486,7 @@ class XAlertMonitor {
             var cand = sorted[i];
             try {
                 console.log('🔎 Scanning low-float candidate: ' + cand.ticker + ' (weight: ' + cand.weight + ', sources: ' + cand.sources.join(',') + ')');
-                var result = await this.ingestAlert(cand.ticker, 'Auto-Scan', '', uw);
+                var result = await this.ingestAlert(cand.ticker, 'Auto-Scan', '', uw, polygonClient);
                 if (result && result.status !== 'COOLDOWN' && result.status !== 'ERROR') {
                     results.push(result);
                 }

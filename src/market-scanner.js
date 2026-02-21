@@ -2,7 +2,6 @@
 // Uses flow alerts, dark pool, top net impact, insider, and news feeds
 // to find tickers not on your watchlist that show unusual convergence
 
-const yahooFinance = require('yahoo-finance2').default;
 const TechnicalAnalysis = require('./technical');
 
 class MarketScanner {
@@ -15,10 +14,12 @@ class MarketScanner {
         this.cooldownMs = config.cooldownMs || 1800000; // 30 min per ticker
         this.results = [];
         this.lastScan = null;
+        this.polygonClient = config.polygonClient || null; // Polygon REST for candle/quote data
     }
 
     // ── Main Pipeline ──────────────────────────────────────
-    async scan(marketData, watchlist, uw, session) {
+    async scan(marketData, watchlist, uw, session, polygonClient) {
+        var poly = polygonClient || this.polygonClient;
         var self = this;
         var candidates = this.harvest(marketData, watchlist);
 
@@ -36,7 +37,7 @@ class MarketScanner {
             try {
                 // Delay between candidates to avoid UW rate limit (120 req/min)
                 if (i > 0) await new Promise(function (resolve) { setTimeout(resolve, 2000); });
-                var result = await this.quickScore(c, uw, session);
+                var result = await this.quickScore(c, uw, session, poly);
                 if (result) scored.push(result);
             } catch (e) {
                 console.error('Scanner: Error scoring ' + c.ticker + ':', e.message);
@@ -192,7 +193,7 @@ class MarketScanner {
     }
 
     // ── Step 2: Quick score a candidate (3 API calls) ──────
-    async quickScore(candidate, uw, session) {
+    async quickScore(candidate, uw, session, polygonClient) {
         var ticker = candidate.ticker;
 
         // Fetch lightweight data — handle failures gracefully so partial data still scores
@@ -204,6 +205,16 @@ class MarketScanner {
         var quoteData = quote?.data || {};
         var price = parseFloat(quoteData.last || quoteData.price || quoteData.close || 0);
 
+        // Polygon snapshot fallback for price if UW returned nothing
+        if (price === 0 && polygonClient) {
+            try {
+                var snap = await polygonClient.getTickerSnapshot(ticker);
+                if (snap && snap.lastTrade) price = parseFloat(snap.lastTrade.p || 0);
+                if (price === 0 && snap && snap.day) price = parseFloat(snap.day.c || snap.day.vw || 0);
+                if (price === 0 && snap && snap.prevDay) price = parseFloat(snap.prevDay.c || 0);
+            } catch (e) { /* Polygon snapshot failed */ }
+        }
+
         // Skip penny stocks
         if (price > 0 && price < this.minPrice) return null;
 
@@ -211,15 +222,23 @@ class MarketScanner {
         var bull = 0, bear = 0;
         var signals = [];
 
-        // ── Technical Analysis via Yahoo daily candles ──
+        // ── Technical Analysis via Polygon daily candles ──
         try {
-            var period1 = new Date();
-            period1.setDate(period1.getDate() - 60);
-            var chart = await yahooFinance.chart(ticker, { period1: period1, interval: '1d' });
-            if (chart && chart.quotes && chart.quotes.length >= 30) {
-                var candles = chart.quotes
-                    .filter(function (q) { return q.close !== null && q.close !== undefined; })
-                    .map(function (q) { return { date: q.date, open: q.open || q.close, high: q.high || q.close, low: q.low || q.close, close: q.close, volume: q.volume || 0 }; });
+            var candles = [];
+            if (polygonClient) {
+                var fromDate = new Date();
+                fromDate.setDate(fromDate.getDate() - 90);
+                var toDate = new Date();
+                var fromStr = fromDate.toISOString().split('T')[0];
+                var toStr = toDate.toISOString().split('T')[0];
+                var aggResult = await polygonClient.getAggregates(ticker, 1, 'day', fromStr, toStr);
+                if (aggResult && aggResult.results && aggResult.results.length >= 30) {
+                    candles = aggResult.results.map(function (bar) {
+                        return { date: new Date(bar.t).toISOString(), open: bar.o, high: bar.h, low: bar.l, close: bar.c, volume: bar.v || 0 };
+                    });
+                }
+            }
+            if (candles.length >= 30) {
                 var ta = TechnicalAnalysis.analyze(candles);
                 if (ta) {
                     // RSI scoring
@@ -246,7 +265,7 @@ class MarketScanner {
                     }
                 }
             }
-        } catch (taErr) { /* Yahoo fetch failed — continue without TA */ }
+        } catch (taErr) { /* Polygon candle fetch failed — continue without TA */ }
 
         // Flow analysis
         var flowData = (flow?.data) || [];

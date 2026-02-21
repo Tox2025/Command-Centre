@@ -719,7 +719,7 @@ app.post('/api/validate-ticker', async (req, res) => {
         if (!ticker) return res.status(400).json({ error: 'No ticker provided' });
 
         console.log('🎯 Validating X alert: ' + ticker + ' (source: ' + source + ')');
-        var result = await xAlertMonitor.ingestAlert(ticker, source, text, uw);
+        var result = await xAlertMonitor.ingestAlert(ticker, source, text, uw, polygonClient);
         scheduler.trackCalls(5); // 5 API calls per validation // 4 API calls per validation
 
         // If validated, send Telegram notification
@@ -754,7 +754,7 @@ app.post('/webhook/x-alert', async (req, res) => {
         if (!ticker) return res.status(400).json({ error: 'No ticker found' });
 
         console.log('🎯 X Alert webhook: ' + ticker + ' from ' + source);
-        var result = await xAlertMonitor.ingestAlert(ticker, source, text, uw);
+        var result = await xAlertMonitor.ingestAlert(ticker, source, text, uw, polygonClient);
         scheduler.trackCalls(5); // 5 API calls per validation
 
         if (result && result.status === 'VALIDATED') {
@@ -795,8 +795,8 @@ app.get('/api/gaps', (req, res) => {
 app.post('/api/scan-low-float', async (req, res) => {
     try {
         console.log('🔎 Manual low-float market scan triggered');
-        var results = await xAlertMonitor.scanMarket(state, uw);
-        scheduler.trackCalls(results.length * 6); // 6 calls per candidate (5 UW + 1 Yahoo)
+        var results = await xAlertMonitor.scanMarket(state, uw, polygonClient);
+        scheduler.trackCalls(results.length * 7); // 5 UW + 2 Polygon calls per candidate
         state.xAlerts = xAlertMonitor.getAlerts();
         broadcast({ type: 'full_state', data: state });
         res.json({
@@ -2561,7 +2561,7 @@ async function refreshAll() {
                 ' | watchlist=' + (state.tickers || []).length + ' tickers excluded');
             var candidates = scanner.harvest(scannerMarketData, state.tickers);
             console.log('🔍 Scanner harvest: ' + candidates.length + ' candidates' + (candidates.length > 0 ? ' — top: ' + candidates.slice(0, 5).map(function (c) { return c.ticker + '(' + c.weight.toFixed(1) + '/' + c.sources.length + 'src)'; }).join(', ') : ''));
-            var newHits = await scanner.scan(scannerMarketData, state.tickers, uw, state.session);
+            var newHits = await scanner.scan(scannerMarketData, state.tickers, uw, state.session, polygonClient);
             state.scannerResults = scanner.getResults();
 
             // Notify on new scanner discoveries

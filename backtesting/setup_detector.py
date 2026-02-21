@@ -99,158 +99,186 @@ class SetupDetector:
     # ── SCALP SETUPS ──────────────────────────────────────────
 
     def _rsi_oversold_bounce(self, ind):
-        """RSI < 30 + volume spike + bullish candle = long scalp"""
+        """RSI < 25 + volume 2x + bullish candle + near BB lower = long scalp"""
         return (
-            (ind['rsi'] < 30) &
-            (ind['vol_ratio'] > 1.5) &
+            (ind['rsi'] < 25) &
+            (ind['vol_ratio'] > 2.0) &
             (ind['bullish_candle']) &
-            (ind['body_ratio'] > 0.3)  # not a doji
+            (ind['body_ratio'] > 0.4) &
+            (ind['bb_pos'] < 0.15) &
+            (ind['macd_hist'] > ind['macd_hist'].shift(1))  # MACD turning up
         )
 
     def _rsi_overbought_fade(self, ind):
-        """RSI > 70 + volume spike + bearish candle = short scalp"""
+        """RSI > 75 + volume 2x + bearish candle + near BB upper = short scalp"""
         return (
-            (ind['rsi'] > 70) &
-            (ind['vol_ratio'] > 1.5) &
+            (ind['rsi'] > 75) &
+            (ind['vol_ratio'] > 2.0) &
             (ind['bearish_candle']) &
-            (ind['body_ratio'] > 0.3)
+            (ind['body_ratio'] > 0.4) &
+            (ind['bb_pos'] > 0.85) &
+            (ind['macd_hist'] < ind['macd_hist'].shift(1))  # MACD turning down
         )
 
     def _vwap_reclaim(self, ind):
-        """Price crosses above VWAP with volume after being below = long"""
+        """Price crosses above VWAP with strong volume + EMA support + MACD confirm"""
         prev_below = ind['close'].shift(1) < ind['vwap'].shift(1)
         now_above = ind['close'] > ind['vwap']
         return (
             prev_below &
             now_above &
-            (ind['vol_ratio'] > 1.3) &
-            (ind['rsi'] > 35) & (ind['rsi'] < 65)  # not already overbought
+            (ind['vol_ratio'] > 2.0) &
+            (ind['bullish_candle']) &
+            (ind['body_ratio'] > 0.4) &
+            (ind['rsi'] > 40) & (ind['rsi'] < 60) &
+            (ind['macd_hist'] > ind['macd_hist'].shift(1))  # momentum building
         )
 
     def _vwap_rejection(self, ind):
-        """Price fails at VWAP — wick above, close below = short"""
+        """Price fails at VWAP — strong rejection wick + volume + MACD confirm"""
         wick_above_vwap = ind['high'] > ind['vwap']
         close_below_vwap = ind['close'] < ind['vwap']
         return (
             wick_above_vwap &
             close_below_vwap &
-            (ind['vol_ratio'] > 1.3) &
+            (ind['vol_ratio'] > 2.0) &
             (ind['bearish_candle']) &
-            (ind['upper_wick_pct'] > 0.4)  # significant rejection wick
+            (ind['body_ratio'] > 0.4) &
+            (ind['upper_wick_pct'] > 0.5) &
+            (ind['rsi'] > 45) &
+            (ind['macd_hist'] < ind['macd_hist'].shift(1))  # momentum fading
         )
 
     def _volume_climax_reversal_long(self, ind):
-        """Extreme volume + long lower wick + bearish exhaustion = reversal long"""
+        """Extreme volume 3x + long lower wick + RSI < 30 + at BB lower"""
         return (
-            (ind['vol_ratio'] > 2.5) &
-            (ind['lower_wick_pct'] > 0.5) &
-            (ind['rsi'] < 40) &
-            (ind['body_ratio'] < 0.4)  # small body = indecision after selloff
+            (ind['vol_ratio'] > 3.0) &
+            (ind['lower_wick_pct'] > 0.6) &
+            (ind['rsi'] < 30) &
+            (ind['bb_pos'] < 0.1) &
+            (ind['body_ratio'] < 0.35)
         )
 
     def _volume_climax_reversal_short(self, ind):
-        """Extreme volume + long upper wick + bullish exhaustion = reversal short"""
+        """Extreme volume 3x + long upper wick + RSI > 70 + at BB upper"""
         return (
-            (ind['vol_ratio'] > 2.5) &
-            (ind['upper_wick_pct'] > 0.5) &
-            (ind['rsi'] > 60) &
-            (ind['body_ratio'] < 0.4)
+            (ind['vol_ratio'] > 3.0) &
+            (ind['upper_wick_pct'] > 0.6) &
+            (ind['rsi'] > 70) &
+            (ind['bb_pos'] > 0.9) &
+            (ind['body_ratio'] < 0.35)
         )
 
     # ── MOMENTUM / DAY TRADE SETUPS ───────────────────────────
 
     def _bb_squeeze_breakout_long(self, ind):
-        """BB squeeze + breakout above upper band + volume = long momentum"""
-        squeeze = ind['bb_bw'] < ind['bb_bw'].rolling(50, min_periods=20).quantile(0.2)
+        """BB squeeze + breakout above upper band + volume 2.5x + ADX > 20 + EMA aligned"""
+        squeeze = ind['bb_bw'] < ind['bb_bw'].rolling(50, min_periods=20).quantile(0.15)
         breakout = ind['close'] > ind['bb_upper']
+        ema_bull = ind['ema8'] > ind['ema21']
         return (
             squeeze &
             breakout &
-            (ind['vol_ratio'] > 1.5) &
+            (ind['vol_ratio'] > 2.5) &
             (ind['bullish_candle']) &
-            (ind['adx'] > 15)
+            (ind['body_ratio'] > 0.5) &
+            (ind['adx'] > 20) &
+            ema_bull
         )
 
     def _bb_squeeze_breakout_short(self, ind):
-        """BB squeeze + breakdown below lower band + volume = short momentum"""
-        squeeze = ind['bb_bw'] < ind['bb_bw'].rolling(50, min_periods=20).quantile(0.2)
+        """BB squeeze + breakdown below lower band + volume 2.5x + ADX > 20 + EMA aligned"""
+        squeeze = ind['bb_bw'] < ind['bb_bw'].rolling(50, min_periods=20).quantile(0.15)
         breakdown = ind['close'] < ind['bb_lower']
+        ema_bear = ind['ema8'] < ind['ema21']
         return (
             squeeze &
             breakdown &
-            (ind['vol_ratio'] > 1.5) &
+            (ind['vol_ratio'] > 2.5) &
             (ind['bearish_candle']) &
-            (ind['adx'] > 15)
+            (ind['body_ratio'] > 0.5) &
+            (ind['adx'] > 20) &
+            ema_bear
         )
 
     def _ema_trend_pullback_long(self, ind):
-        """EMA aligned bullish + pullback to EMA21 + bounce with volume = long"""
+        """Full EMA stack + pullback to EMA21 + bounce with volume 1.5x + ADX trending"""
         ema_aligned = (ind['ema8'] > ind['ema21']) & (ind['ema21'] > ind['ema50'])
-        at_support = (ind['low'] <= ind['ema21'] * 1.005) & (ind['close'] > ind['ema21'])
+        at_support = (ind['low'] <= ind['ema21'] * 1.003) & (ind['close'] > ind['ema21'])
         return (
             ema_aligned &
             at_support &
             (ind['bullish_candle']) &
-            (ind['vol_ratio'] > 1.0) &
-            (ind['rsi'] > 35) & (ind['rsi'] < 60) &
-            (ind['macd_hist'] > ind['macd_hist'].shift(1))  # MACD turning up
+            (ind['body_ratio'] > 0.4) &
+            (ind['vol_ratio'] > 1.5) &
+            (ind['rsi'] > 40) & (ind['rsi'] < 55) &
+            (ind['adx'] > 20) &
+            (ind['macd_hist'] > ind['macd_hist'].shift(1))
         )
 
     def _ema_trend_pullback_short(self, ind):
-        """EMA aligned bearish + rally to EMA21 + rejection with volume = short"""
+        """Full EMA stack bearish + rally to EMA21 + rejection with volume 1.5x + ADX trending"""
         ema_aligned = (ind['ema8'] < ind['ema21']) & (ind['ema21'] < ind['ema50'])
-        at_resistance = (ind['high'] >= ind['ema21'] * 0.995) & (ind['close'] < ind['ema21'])
+        at_resistance = (ind['high'] >= ind['ema21'] * 0.997) & (ind['close'] < ind['ema21'])
         return (
             ema_aligned &
             at_resistance &
             (ind['bearish_candle']) &
-            (ind['vol_ratio'] > 1.0) &
-            (ind['rsi'] > 40) & (ind['rsi'] < 65) &
-            (ind['macd_hist'] < ind['macd_hist'].shift(1))  # MACD turning down
+            (ind['body_ratio'] > 0.4) &
+            (ind['vol_ratio'] > 1.5) &
+            (ind['rsi'] > 45) & (ind['rsi'] < 60) &
+            (ind['adx'] > 20) &
+            (ind['macd_hist'] < ind['macd_hist'].shift(1))
         )
 
     def _macd_bullish_cross(self, ind):
-        """MACD line crosses above signal + RSI not overbought + volume = long"""
+        """MACD cross up + RSI mid-range + volume 1.5x + EMA8 > EMA21 + bullish candle"""
         cross_up = (ind['macd_line'] > ind['macd_signal']) & (ind['macd_line'].shift(1) <= ind['macd_signal'].shift(1))
         return (
             cross_up &
-            (ind['rsi'] > 35) & (ind['rsi'] < 65) &
-            (ind['vol_ratio'] > 1.0) &
+            (ind['rsi'] > 40) & (ind['rsi'] < 60) &
+            (ind['vol_ratio'] > 1.5) &
+            (ind['bullish_candle']) &
+            (ind['ema8'] > ind['ema21']) &
             (ind['macd_hist'] > 0)
         )
 
     def _macd_bearish_cross(self, ind):
-        """MACD line crosses below signal + RSI not oversold + volume = short"""
+        """MACD cross down + RSI mid-range + volume 1.5x + EMA8 < EMA21 + bearish candle"""
         cross_down = (ind['macd_line'] < ind['macd_signal']) & (ind['macd_line'].shift(1) >= ind['macd_signal'].shift(1))
         return (
             cross_down &
-            (ind['rsi'] > 35) & (ind['rsi'] < 65) &
-            (ind['vol_ratio'] > 1.0) &
+            (ind['rsi'] > 40) & (ind['rsi'] < 60) &
+            (ind['vol_ratio'] > 1.5) &
+            (ind['bearish_candle']) &
+            (ind['ema8'] < ind['ema21']) &
             (ind['macd_hist'] < 0)
         )
 
     def _momentum_breakout_long(self, ind):
-        """Strong move up: price > EMA8, volume > 2x, ADX rising, MACD positive"""
+        """Strong breakout: price > EMA8, vol 2.5x, ADX > 25, MACD positive, EMA stack"""
         return (
             (ind['close'] > ind['ema8']) &
-            (ind['close'] > ind['close'].shift(1)) &
-            (ind['vol_ratio'] > 2.0) &
-            (ind['adx'] > 20) &
+            (ind['ema8'] > ind['ema21']) &
+            (ind['vol_ratio'] > 2.5) &
+            (ind['adx'] > 25) &
             (ind['macd_hist'] > 0) &
-            (ind['rsi'] > 50) & (ind['rsi'] < 75) &
+            (ind['macd_hist'] > ind['macd_hist'].shift(1)) &
+            (ind['rsi'] > 55) & (ind['rsi'] < 72) &
             (ind['bullish_candle']) &
-            (ind['body_ratio'] > 0.5)  # strong body, not doji
+            (ind['body_ratio'] > 0.6)
         )
 
     def _momentum_breakout_short(self, ind):
-        """Strong move down: price < EMA8, volume > 2x, ADX rising, MACD negative"""
+        """Strong breakdown: price < EMA8, vol 2.5x, ADX > 25, MACD negative, EMA stack"""
         return (
             (ind['close'] < ind['ema8']) &
-            (ind['close'] < ind['close'].shift(1)) &
-            (ind['vol_ratio'] > 2.0) &
-            (ind['adx'] > 20) &
+            (ind['ema8'] < ind['ema21']) &
+            (ind['vol_ratio'] > 2.5) &
+            (ind['adx'] > 25) &
             (ind['macd_hist'] < 0) &
-            (ind['rsi'] > 25) & (ind['rsi'] < 50) &
+            (ind['macd_hist'] < ind['macd_hist'].shift(1)) &
+            (ind['rsi'] > 28) & (ind['rsi'] < 45) &
             (ind['bearish_candle']) &
-            (ind['body_ratio'] > 0.5)
+            (ind['body_ratio'] > 0.6)
         )

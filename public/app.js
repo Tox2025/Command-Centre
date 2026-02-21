@@ -66,6 +66,7 @@ function renderAll() {
     try { renderBrief(); } catch (e) { console.error('renderBrief', e); }
     try { renderWatchlist(); } catch (e) { console.error('renderWatchlist', e); }
     try { renderScanner(); } catch (e) { console.error('renderScanner', e); }
+    try { renderDiscoveries(); } catch (e) { console.error('renderDiscoveries', e); }
     try { renderSetups(); } catch (e) { console.error('renderSetups', e); }
     try { renderXAlerts(); } catch (e) { console.error('renderXAlerts', e); }
     try { renderTide(); } catch (e) { console.error('renderTide', e); }
@@ -952,6 +953,65 @@ function addScannerTicker(ticker, btn) {
         .then(function () {
             if (btn) { btn.textContent = '\u2713 Added'; btn.disabled = true; btn.style.background = '#10b981'; }
         });
+}
+
+// Live Discoveries renderer (runners + halt resumes)
+function renderDiscoveries() {
+    var cardsEl = $('discoveryCards'), statusEl = $('discoveryStatus'), countEl = $('discoveryCount');
+    if (!cardsEl) return;
+
+    // Collect discoveries from state
+    var discoveries = (state.liveDiscoveries || []);
+    if (countEl) countEl.textContent = discoveries.length;
+
+    if (statusEl) {
+        if (discoveries.length > 0) {
+            statusEl.innerHTML = '<span style="color:#10b981">\u2713</span> ' + discoveries.length + ' active discoveries';
+        } else {
+            statusEl.innerHTML = '<span class="scanner-spinner">\u27F3</span> Monitoring for runners & halt resumes...';
+        }
+    }
+
+    if (discoveries.length === 0) {
+        cardsEl.innerHTML = '<div class="discovery-empty">No active discoveries yet. Runners and halt resumes will appear here during market hours.</div>';
+        return;
+    }
+
+    var h = '';
+    discoveries.forEach(function (d) {
+        var sourceClass = d.source === 'VolatilityRunner' ? 'runner' : d.source === 'HaltResume' ? 'halt' : 'scanner';
+        var sourceLabel = d.source === 'VolatilityRunner' ? '\uD83D\uDE80 RUNNER' : d.source === 'HaltResume' ? '\uD83D\uDD13 HALT' : '\uD83D\uDD0D SCANNER';
+        var dirClass = d.direction === 'BULLISH' ? 'bull' : d.direction === 'BEARISH' ? 'bear' : 'neutral';
+
+        h += '<div class="discovery-card" onclick="openTickerView(\'' + d.ticker + '\')"> ';
+        h += '<div class="discovery-card-header">';
+        h += '<span class="discovery-ticker">' + d.ticker + '</span>';
+        h += '<span class="discovery-source-badge discovery-source-' + sourceClass + '">' + sourceLabel + '</span>';
+        h += '</div>';
+
+        h += '<div class="discovery-stats">';
+        if (d.price) h += '<div>Price: <span>$' + fmt(d.price) + '</span></div>';
+        if (d.gapPct) h += '<div>Gap: <span>' + d.gapPct.toFixed(1) + '%</span></div>';
+        if (d.volume) h += '<div>Vol: <span>' + fmtK(d.volume) + '</span></div>';
+        if (d.rVol) h += '<div>RVol: <span>' + d.rVol.toFixed(1) + 'x</span></div>';
+        if (d.haltReason) h += '<div>Reason: <span>' + d.haltReason + '</span></div>';
+        if (d.age) h += '<div>Age: <span>' + d.age + '</span></div>';
+        h += '</div>';
+
+        if (d.direction) {
+            h += '<div class="discovery-signal-row">';
+            h += '<span class="discovery-signal-dir ' + dirClass + '">' + d.direction + '</span>';
+            h += '<span class="discovery-conf" style="color:' + (d.confidence >= 70 ? 'var(--bull)' : d.confidence >= 55 ? 'var(--accent-amber)' : 'var(--text-secondary)') + '">' + (d.confidence || 0) + '%</span>';
+            if (d.mlConfidence) h += '<span style="font-size:11px;color:var(--text-muted)">ML: ' + d.mlConfidence + '%</span>';
+            h += '</div>';
+            if (d.topSignals && d.topSignals.length > 0) {
+                h += '<div class="discovery-signals-list">' + d.topSignals.slice(0, 4).join(' \u2022 ') + '</div>';
+            }
+        }
+
+        h += '</div>';
+    });
+    cardsEl.innerHTML = h;
 }
 
 // API Budget renderer

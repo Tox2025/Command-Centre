@@ -127,6 +127,20 @@
       </div>
     </section>
 
+    <!-- 3b. Live Discoveries (Runners + Halts) -->
+    <section class="panel panel-discoveries" id="panelDiscoveries">
+      <div class="panel-header">
+        <h2>&#128640; Live Discoveries <span class="info-tip"
+            data-tip="Real-time discoveries from volatility runners (>10% gap, micro-cap) and trading halt resumes. These are automatically scored with the full 38-signal engine + ML ensemble. Green = high confidence signal.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="discoveryCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div id="discoveryStatus" class="scanner-status">Monitoring for runners &amp; halt resumes...</div>
+        <div id="discoveryCards" class="discovery-grid"></div>
+      </div>
+    </section>
+
     <!-- 4. Trade Setups -->
     <section class="panel panel-setups" id="panelSetups">
       <div class="panel-header">

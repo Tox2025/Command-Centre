@@ -21,7 +21,7 @@ const { MarketScanner } = require('./src/market-scanner');
 const { SessionScheduler } = require('./src/session-scheduler');
 const { XAlertMonitor } = require('./src/x-alert-monitor');
 const { GapAnalyzer } = require('./src/gap-analyzer');
-const YahooPriceFeed = require('./src/yahoo-price-feed');
+// Yahoo Finance removed — Polygon REST + WS is the sole price source
 const MultiTFAnalyzer = require('./src/multi-tf-analyzer');
 const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
@@ -87,7 +87,7 @@ const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPri
 const scheduler = new SessionScheduler({ dailyLimit: 15000, safetyMargin: 0.90 });
 const xAlertMonitor = new XAlertMonitor({ minScore: 50 });
 const gapAnalyzer = new GapAnalyzer();
-const yahooPriceFeed = new YahooPriceFeed();
+// yahooPriceFeed removed — replaced by Polygon REST snapshots
 const multiTFAnalyzer = new MultiTFAnalyzer(polygonClient);
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
@@ -141,6 +141,8 @@ const state = {
     halts: [],
     multiTF: {},
     hotOpportunities: [],
+    liveDiscoveries: [],       // Active discoveries for dashboard (runners, halts, scanner)
+    discoveryHistory: [],      // Performance tracking log
     // Phase 1 API Enhancement data
     netPremium: {},
     flowPerStrike: {},
@@ -421,6 +423,7 @@ app.post('/api/ml/retrain', async (req, res) => {
 });
 app.get('/api/scanner/clear-cooldown', (req, res) => { scanner.clearCooldown(); res.json({ cleared: true }); });
 app.get('/api/budget', (req, res) => res.json(scheduler.getBudget()));
+app.get('/api/discovery-performance', (req, res) => res.json(getDiscoveryPerformanceStats()));
 app.get('/api/kelly/:ticker', (req, res) => {
     const t = req.params.ticker.toUpperCase();
     const conf = state.signalScores[t]?.confidence || 60;
@@ -1845,6 +1848,13 @@ async function scanVolatilityRunners() {
             for (var ri = 0; ri < Math.min(runnerTickers.length, 2); ri++) {
                 try {
                     var runnerScore = await scoreDiscoveredTicker(runnerTickers[ri], 'VolatilityRunner');
+                    var runnerData = state.volatilityRunners[runnerTickers[ri]] || {};
+                    trackDiscovery(runnerTickers[ri], 'VolatilityRunner', runnerScore, {
+                        price: runnerScore ? runnerScore.price : 0,
+                        gapPct: runnerData.changePct || 0,
+                        volume: runnerData.volume || 0,
+                        rVol: runnerData.relVol || 0
+                    });
                     if (runnerScore && runnerScore.confidence >= 55) {
                         var scoreMsg = '\ud83c\udfaf *Runner Signal: ' + runnerTickers[ri] + '*\n';
                         scoreMsg += (runnerScore.direction === 'BULLISH' ? '\ud83d\udfe2' : '\ud83d\udd34') + ' ' + runnerScore.direction + ' — ' + runnerScore.confidence + '% confidence\n';
@@ -1971,6 +1981,9 @@ async function scoreDiscoveredTicker(ticker, source) {
         console.log('✅ Full score: ' + t + ' → ' + signalResult.direction + ' ' + signalResult.confidence +
             '% (signals: ' + signalResult.signals.length + ', ML: ' + (ensemble.mlConfidence || 'N/A') + '%)');
 
+        // Auto-subscribe to Polygon WebSocket for real-time data
+        subscribeDiscoveredTicker(t);
+
         return signalResult;
     } catch (e) {
         console.error('scoreDiscoveredTicker error for ' + ticker + ':', e.message);
@@ -1978,10 +1991,302 @@ async function scoreDiscoveredTicker(ticker, source) {
     }
 }
 
+// ── Discovery WebSocket Subscription Management ──────────
+// Track discovered tickers with expiry for auto-cleanup
+state.discoverySubscriptions = {};  // { ticker: { subscribedAt, expiresAt, source } }
+var DISCOVERY_EXPIRY_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function subscribeDiscoveredTicker(ticker) {
+    var t = ticker.toUpperCase();
+
+    // Skip if already on watchlist (already subscribed)
+    if ((state.tickers || []).includes(t)) return;
+
+    // Skip if already subscribed as discovery
+    if (state.discoverySubscriptions[t]) {
+        // Extend expiry
+        state.discoverySubscriptions[t].expiresAt = Date.now() + DISCOVERY_EXPIRY_MS;
+        return;
+    }
+
+    state.discoverySubscriptions[t] = {
+        subscribedAt: Date.now(),
+        expiresAt: Date.now() + DISCOVERY_EXPIRY_MS,
+        source: 'discovery'
+    };
+
+    // Update Polygon WS subscriptions (watchlist + discoveries)
+    var allSubs = (state.tickers || []).concat(Object.keys(state.discoverySubscriptions));
+    var unique = allSubs.filter(function (t, i) { return allSubs.indexOf(t) === i; });
+    polygonClient.updateSubscriptions(unique);
+
+    console.log('📡 Discovery subscribed to WS: ' + t + ' (expires in 2h, total: ' + unique.length + ')');
+}
+
+function cleanupExpiredDiscoveries() {
+    var now = Date.now();
+    var expired = [];
+    Object.keys(state.discoverySubscriptions).forEach(function (t) {
+        if (state.discoverySubscriptions[t].expiresAt < now) {
+            expired.push(t);
+            delete state.discoverySubscriptions[t];
+        }
+    });
+
+    if (expired.length > 0) {
+        // Update Polygon WS subscriptions (remove expired)
+        var allSubs = (state.tickers || []).concat(Object.keys(state.discoverySubscriptions));
+        var unique = allSubs.filter(function (t, i) { return allSubs.indexOf(t) === i; });
+        polygonClient.updateSubscriptions(unique);
+        console.log('📡 Discovery cleanup: removed ' + expired.join(', ') + ' (total: ' + unique.length + ')');
+    }
+}
+
+// Run cleanup every 15 minutes
+setInterval(cleanupExpiredDiscoveries, 15 * 60 * 1000);
+
+// ── Discovery Tracking + Auto Trade Setup ────────────────
+// Records discoveries for dashboard display and performance tracking
+// Auto-generates trade setups for high-confidence discoveries (≥70%)
+function trackDiscovery(ticker, source, signalResult, meta) {
+    var t = ticker.toUpperCase();
+    var now = Date.now();
+
+    // Build discovery object for dashboard
+    var discovery = {
+        ticker: t,
+        source: source,
+        discoveredAt: now,
+        discoveredAtISO: new Date(now).toISOString(),
+        price: (signalResult && signalResult.price) || (meta && meta.price) || 0,
+        direction: signalResult ? signalResult.direction : 'NEUTRAL',
+        confidence: signalResult ? signalResult.confidence : 0,
+        mlConfidence: signalResult ? signalResult.mlConfidence : null,
+        topSignals: signalResult ? signalResult.signals.slice(0, 5).map(function (s) { return s.name; }) : [],
+        gapPct: meta ? meta.gapPct : null,
+        volume: meta ? meta.volume : null,
+        rVol: meta ? meta.rVol : null,
+        haltReason: meta ? meta.haltReason : null,
+        age: null
+    };
+
+    // Remove existing entry for same ticker (update if re-scored)
+    state.liveDiscoveries = state.liveDiscoveries.filter(function (d) { return d.ticker !== t; });
+    state.liveDiscoveries.unshift(discovery); // newest first
+
+    // Cap to 20 active discoveries
+    if (state.liveDiscoveries.length > 20) state.liveDiscoveries = state.liveDiscoveries.slice(0, 20);
+
+    // Update ages for all discoveries
+    state.liveDiscoveries.forEach(function (d) {
+        var mins = Math.round((now - d.discoveredAt) / 60000);
+        d.age = mins < 60 ? mins + 'm ago' : Math.round(mins / 60) + 'h ago';
+    });
+
+    // Expire discoveries older than 4 hours
+    state.liveDiscoveries = state.liveDiscoveries.filter(function (d) {
+        return (now - d.discoveredAt) < 4 * 60 * 60 * 1000;
+    });
+
+    // ── Auto Trade Setup for High-Confidence Discoveries ──
+    if (signalResult && signalResult.confidence >= 70 && signalResult.direction !== 'NEUTRAL') {
+        try {
+            var price = signalResult.price;
+            if (!price || price <= 0) return;
+
+            var dir = signalResult.direction === 'BULLISH' ? 'LONG' : 'SHORT';
+
+            // ATR-based targets (use 2% of price as rough ATR if unavailable)
+            var atrEst = price * 0.02;
+            var ta = signalResult.signals || [];
+            // Try to get ATR from signal data
+            ta.forEach(function (s) {
+                if (s.name === 'ATR Regime' && s.raw && s.raw.atr) atrEst = s.raw.atr;
+            });
+
+            var scaledATR = atrEst * 1.5;
+            var stopDist = atrEst * 0.8;
+
+            var setup = {
+                ticker: t,
+                direction: dir,
+                entry: price,
+                confidence: signalResult.confidence,
+                technicalConfidence: signalResult.technicalConfidence || signalResult.confidence,
+                mlConfidence: signalResult.mlConfidence || null,
+                blendedConfidence: signalResult.blendedConfidence || null,
+                target1: dir === 'LONG' ? +(price + scaledATR).toFixed(2) : +(price - scaledATR).toFixed(2),
+                target2: dir === 'LONG' ? +(price + scaledATR * 2).toFixed(2) : +(price - scaledATR * 2).toFixed(2),
+                stop: dir === 'LONG' ? +(price - stopDist).toFixed(2) : +(price + stopDist).toFixed(2),
+                riskReward: +(scaledATR / stopDist).toFixed(2),
+                signals: signalResult.signals,
+                session: state.session,
+                horizon: 'Intraday',
+                source: source,
+                discoverySetup: true
+            };
+
+            // Kelly sizing
+            var kelly = tradeJournal.calculateKellySize(signalResult.confidence);
+            setup.kellySizing = kelly;
+
+            state.tradeSetups[t] = setup;
+            discovery.tradeSetup = setup;
+
+            console.log('🎯 Auto trade setup: ' + t + ' ' + dir + ' Entry: $' + price +
+                ' T1: $' + setup.target1 + ' Stop: $' + setup.stop + ' R:R: ' + setup.riskReward);
+
+            // Telegram alert with trade setup
+            var setupMsg = '🎯 *Discovery Trade Setup: ' + t + '*\n';
+            setupMsg += (dir === 'LONG' ? '🟢' : '🔴') + ' ' + dir + ' — ' + signalResult.confidence + '% confidence\n';
+            setupMsg += 'Entry: $' + price + '\n';
+            setupMsg += 'Target 1: $' + setup.target1 + '\n';
+            setupMsg += 'Target 2: $' + setup.target2 + '\n';
+            setupMsg += 'Stop: $' + setup.stop + '\n';
+            setupMsg += 'R:R: ' + setup.riskReward + '\n';
+            setupMsg += 'Source: ' + source;
+            notifier._sendTelegram(setupMsg);
+        } catch (setupErr) {
+            console.error('Auto trade setup error for ' + t + ':', setupErr.message);
+        }
+    }
+
+    // Record to history for performance tracking
+    state.discoveryHistory.push({
+        ticker: t,
+        source: source,
+        discoveredAt: now,
+        priceAtDiscovery: discovery.price,
+        direction: discovery.direction,
+        confidence: discovery.confidence,
+        checked1h: false,
+        checked4h: false,
+        checkedEOD: false
+    });
+
+    // Cap history to 200 entries
+    if (state.discoveryHistory.length > 200) {
+        state.discoveryHistory = state.discoveryHistory.slice(-200);
+    }
+}
+
+// ── Discovery Performance Tracking ───────────────────────
+// Checks how discoveries performed after 1h, 4h, and EOD
+// Saves results to data/scanner-performance.json
+var PERF_FILE = require('path').join(__dirname, 'data', 'scanner-performance.json');
+
+function checkDiscoveryPerformance() {
+    var now = Date.now();
+    var oneHour = 60 * 60 * 1000;
+    var fourHours = 4 * 60 * 60 * 1000;
+    var eodHours = 8 * 60 * 60 * 1000; // approximate EOD delta
+
+    state.discoveryHistory.forEach(function (d) {
+        if (!d.priceAtDiscovery || d.priceAtDiscovery <= 0) return;
+        var elapsed = now - d.discoveredAt;
+
+        // Get current price
+        var currentPrice = 0;
+        var q = state.quotes[d.ticker];
+        if (q) currentPrice = parseFloat(q.last || q.price || 0);
+        if (!currentPrice) {
+            var ts = polygonClient.getTickSummary(d.ticker);
+            if (ts) currentPrice = ts.lastPrice || 0;
+        }
+        if (!currentPrice || currentPrice <= 0) return;
+
+        var changePct = ((currentPrice - d.priceAtDiscovery) / d.priceAtDiscovery * 100);
+
+        // Determine if prediction was correct
+        var correct = false;
+        if (d.direction === 'BULLISH' && changePct > 0) correct = true;
+        if (d.direction === 'BEARISH' && changePct < 0) correct = true;
+
+        // 1-hour check
+        if (!d.checked1h && elapsed >= oneHour) {
+            d.checked1h = true;
+            d.price1h = currentPrice;
+            d.pnl1h = +changePct.toFixed(2);
+            d.correct1h = correct;
+        }
+
+        // 4-hour check
+        if (!d.checked4h && elapsed >= fourHours) {
+            d.checked4h = true;
+            d.price4h = currentPrice;
+            d.pnl4h = +changePct.toFixed(2);
+            d.correct4h = correct;
+        }
+
+        // EOD check (~8h from discovery)
+        if (!d.checkedEOD && elapsed >= eodHours) {
+            d.checkedEOD = true;
+            d.priceEOD = currentPrice;
+            d.pnlEOD = +changePct.toFixed(2);
+            d.correctEOD = correct;
+        }
+    });
+
+    // Save to file periodically
+    try {
+        var stats = getDiscoveryPerformanceStats();
+        var fs = require('fs');
+        fs.writeFileSync(PERF_FILE, JSON.stringify({
+            lastUpdated: new Date().toISOString(),
+            stats: stats,
+            history: state.discoveryHistory.slice(-100) // last 100
+        }, null, 2));
+    } catch (e) { /* best-effort */ }
+}
+
+function getDiscoveryPerformanceStats() {
+    var history = state.discoveryHistory;
+    if (!history || history.length === 0) return { total: 0 };
+
+    var checked1h = history.filter(function (d) { return d.checked1h; });
+    var checked4h = history.filter(function (d) { return d.checked4h; });
+    var checkedEOD = history.filter(function (d) { return d.checkedEOD; });
+
+    var calc = function (arr, field, correctField) {
+        if (arr.length === 0) return { count: 0, hitRate: 0, avgReturn: 0 };
+        var correct = arr.filter(function (d) { return d[correctField]; }).length;
+        var totalReturn = arr.reduce(function (sum, d) { return sum + (d[field] || 0); }, 0);
+        return {
+            count: arr.length,
+            hitRate: +(correct / arr.length * 100).toFixed(1),
+            avgReturn: +(totalReturn / arr.length).toFixed(2)
+        };
+    };
+
+    // By source
+    var sources = {};
+    ['Scanner', 'VolatilityRunner', 'HaltResume'].forEach(function (src) {
+        var srcHistory = history.filter(function (d) { return d.source === src; });
+        var src1h = srcHistory.filter(function (d) { return d.checked1h; });
+        sources[src] = {
+            total: srcHistory.length,
+            checked: src1h.length,
+            hitRate: src1h.length > 0 ? +(src1h.filter(function (d) { return d.correct1h; }).length / src1h.length * 100).toFixed(1) : 0,
+            avgReturn: src1h.length > 0 ? +(src1h.reduce(function (s, d) { return s + (d.pnl1h || 0); }, 0) / src1h.length).toFixed(2) : 0
+        };
+    });
+
+    return {
+        total: history.length,
+        performance1h: calc(checked1h, 'pnl1h', 'correct1h'),
+        performance4h: calc(checked4h, 'pnl4h', 'correct4h'),
+        performanceEOD: calc(checkedEOD, 'pnlEOD', 'correctEOD'),
+        bySource: sources
+    };
+}
+
+// Check performance every 30 minutes
+setInterval(checkDiscoveryPerformance, 30 * 60 * 1000);
+
 // ── Score a single ticker: signal engine + ML ensemble + trade setup ──
 async function scoreTickerSignals(ticker) {
     try {
-        // Fetch multi-timeframe analysis during market hours (uses Yahoo — free)
+        // Fetch multi-timeframe analysis during market hours (uses Polygon REST)
         var multiTFData = null;
         var isMarketSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
         if (isMarketSession && state.multiTF && state.multiTF[ticker]) {
@@ -2588,11 +2893,8 @@ async function refreshAll() {
     state.alerts = alertEngine.getAlerts();
     state.lastUpdate = new Date().toISOString();
 
-    // Merge Yahoo real-time prices (provides fresh prev_close, open, volume)
+    // Merge Polygon real-time prices (REST snapshots + WebSocket ticks)
     try {
-        var yahooQuotes = await yahooPriceFeed.fetchQuotes(state.tickers);
-        state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yahooQuotes);
-        // Overlay Polygon WebSocket real-time prices (paid premium source takes priority)
         (state.tickers || []).forEach(function (ticker) {
             var tickSummary = polygonClient.getTickSummary(ticker);
             if (tickSummary && tickSummary.lastPrice > 0) {
@@ -2605,7 +2907,7 @@ async function refreshAll() {
                 state.quotes[ticker].priceSource = 'polygon-ws';
             }
         });
-    } catch (e) { console.error('Yahoo/Polygon price feed error:', e.message); }
+    } catch (e) { console.error('Polygon price feed error:', e.message); }
 
     // Analyze gaps (needs prev_close from quotes)
     try {
@@ -2657,11 +2959,17 @@ async function refreshAll() {
                     if (rQuote?.data) state.quotes[rt] = rQuote.data;
                     scheduler.trackCalls(1);
 
-                    // Fetch Yahoo price for more accurate data
+                    // Fetch Polygon snapshot for real-time price
                     try {
-                        var yQuotes = await yahooPriceFeed.fetchQuotes([rt]);
-                        state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yQuotes);
-                    } catch (ye) { /* optional */ }
+                        var pSnap = await polygonClient.getTickerSnapshot(rt);
+                        if (pSnap && pSnap.day) {
+                            if (!state.quotes[rt]) state.quotes[rt] = {};
+                            state.quotes[rt].last = pSnap.lastTrade ? pSnap.lastTrade.p : (pSnap.day.c || state.quotes[rt].last);
+                            state.quotes[rt].price = state.quotes[rt].last;
+                            state.quotes[rt].volume = pSnap.day.v || state.quotes[rt].volume;
+                            state.quotes[rt].priceSource = 'polygon-rest';
+                        }
+                    } catch (pe) { /* optional */ }
 
                     await scoreTickerSignals(rt);
                 } catch (re) {
@@ -2739,6 +3047,9 @@ async function refreshAll() {
                         newHits[fi].signalConfidence = fullScore.confidence;
                         newHits[fi].mlConfidence = fullScore.mlConfidence;
                         newHits[fi].topSignals = fullScore.signals.slice(0, 5).map(function (s) { return s.name + ' (' + s.dir + ')'; });
+                        trackDiscovery(newHits[fi].ticker, 'Scanner', fullScore, {
+                            price: fullScore.price || newHits[fi].price || 0
+                        });
                     }
                 } catch (fsErr) { /* optional */ }
             }
@@ -3080,6 +3391,10 @@ async function fetchTradingHalts() {
 
                 // Full signal scoring for resumed ticker
                 var haltScore = await scoreDiscoveredTicker(resumed.ticker, 'HaltResume');
+                trackDiscovery(resumed.ticker, 'HaltResume', haltScore, {
+                    price: resumed.price || 0,
+                    haltReason: resumed.reason
+                });
                 if (haltScore && haltScore.confidence >= 50) {
                     var haltMsg = '🎯 *Halt Resume Signal: ' + resumed.ticker + '*\n';
                     haltMsg += (haltScore.direction === 'BULLISH' ? '🟢' : '🔴') + ' ' + haltScore.direction + ' — ' + haltScore.confidence + '% confidence\n';
@@ -3132,14 +3447,14 @@ function scheduleNext() {
     }, intervalMs);
 }
 
-// ── Mid-cycle Yahoo Price Refresh ────────────────────────
-// Fetches live prices from Yahoo Finance during all sessions
+// ── Mid-cycle Polygon Price Refresh ──────────────────────
+// Fetches live prices from Polygon REST snapshots during all sessions
 // Session-aware intervals: faster during active trading, slower overnight
 // Covers ALL tickers on the command centre, not just watchlist
-var yahooRefreshTimer = null;
+var polygonRefreshTimer = null;
 
-// Session-aware Yahoo refresh intervals (ms)
-var YAHOO_INTERVALS = {
+// Session-aware refresh intervals (ms)
+var POLYGON_REFRESH_INTERVALS = {
     'OPEN_RUSH': 10000,  // 10s — fastest during open chaos
     'POWER_OPEN': 10000,  // 10s — fast for day trade entries
     'PRE_MARKET': 15000,  // 15s — pre-market gaps changing fast
@@ -3149,9 +3464,9 @@ var YAHOO_INTERVALS = {
     'OVERNIGHT': 60000   // 60s — overnight, minimal movement
 };
 
-function getYahooInterval() {
+function getPolygonRefreshInterval() {
     var session = scheduler.getSessionName();
-    return YAHOO_INTERVALS[session] || 30000;
+    return POLYGON_REFRESH_INTERVALS[session] || 30000;
 }
 
 // Collect ALL tickers visible on the command centre
@@ -3192,52 +3507,107 @@ function getAllCommandCentreTickers() {
         if (a.ticker) tickerSet[a.ticker.toUpperCase()] = true;
     });
 
-    // Cap at 50 tickers to avoid overloading Yahoo
+    // 8. Scanner discovery tickers
+    ((state.scannerResults || {}).results || []).forEach(function (r) {
+        if (r.ticker) tickerSet[r.ticker.toUpperCase()] = true;
+    });
+
+    // 9. Volatility runner tickers
+    Object.keys(state.volatilityRunners || {}).forEach(function (t) { tickerSet[t] = true; });
+
+    // Cap at 50 tickers to avoid API overload
     var all = Object.keys(tickerSet).filter(function (t) {
         return t && /^[A-Z]{1,5}$/.test(t);
     });
     return all.slice(0, 50);
 }
 
-function startYahooPriceRefresh() {
-    if (yahooRefreshTimer) clearTimeout(yahooRefreshTimer);
+function startPolygonPriceRefresh() {
+    if (polygonRefreshTimer) clearTimeout(polygonRefreshTimer);
 
-    async function yahooTick() {
+    async function polygonTick() {
         try {
             var allTickers = getAllCommandCentreTickers();
-            if (allTickers.length === 0) { scheduleYahoo(); return; }
+            if (allTickers.length === 0) { schedulePolygonRefresh(); return; }
 
-            var yahooQuotes = await yahooPriceFeed.fetchQuotes(allTickers);
-            if (Object.keys(yahooQuotes).length > 0) {
-                // Merge Yahoo prices into state quotes (fallback source)
-                state.quotes = yahooPriceFeed.mergeWithUW(state.quotes, yahooQuotes);
-
-                // ── Polygon Premium Override ──
-                // Polygon WebSocket tick data is the PAID real-time source
-                // Override Yahoo prices with Polygon for all subscribed tickers
-                var polygonOverrideCount = 0;
-                (state.tickers || []).forEach(function (ticker) {
-                    var tickSummary = polygonClient.getTickSummary(ticker);
-                    if (tickSummary && tickSummary.lastPrice > 0) {
-                        if (!state.quotes[ticker]) state.quotes[ticker] = {};
-                        state.quotes[ticker].last = tickSummary.lastPrice;
-                        state.quotes[ticker].price = tickSummary.lastPrice;
-                        state.quotes[ticker].bid = tickSummary.bid || state.quotes[ticker].bid;
-                        state.quotes[ticker].ask = tickSummary.ask || state.quotes[ticker].ask;
-                        state.quotes[ticker].high = tickSummary.highOfDay || state.quotes[ticker].high;
-                        state.quotes[ticker].low = tickSummary.lowOfDay || state.quotes[ticker].low;
-                        state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
-                        state.quotes[ticker].priceSource = 'polygon-ws';
-                        state.quotes[ticker].polygonUpdatedAt = tickSummary.updatedAt;
-                        polygonOverrideCount++;
-                    }
+            // Batch fetch Polygon snapshots (single API call for all tickers)
+            var updatedCount = 0;
+            try {
+                // Fetch individual snapshots for each ticker (Polygon REST)
+                var snapPromises = allTickers.map(function (t) {
+                    return polygonClient.getTickerSnapshot(t).catch(function () { return null; });
                 });
+                var snaps = await Promise.all(snapPromises);
 
-                // Re-run gap analysis with fresh Yahoo prev_close/open data
+                for (var si = 0; si < allTickers.length; si++) {
+                    var t = allTickers[si];
+                    var snap = snaps[si];
+                    if (!snap) continue;
+
+                    if (!state.quotes[t]) state.quotes[t] = {};
+                    var q = state.quotes[t];
+
+                    // Price data
+                    if (snap.lastTrade && snap.lastTrade.p > 0) {
+                        q.last = snap.lastTrade.p;
+                        q.price = snap.lastTrade.p;
+                    } else if (snap.day && snap.day.c > 0) {
+                        q.last = snap.day.c;
+                        q.price = snap.day.c;
+                    }
+
+                    // Day OHLCV
+                    if (snap.day) {
+                        q.open = snap.day.o || q.open;
+                        q.high = snap.day.h || q.high;
+                        q.low = snap.day.l || q.low;
+                        q.volume = snap.day.v || q.volume;
+                        q.vwap = snap.day.vw || q.vwap;
+                    }
+
+                    // Previous close (for gap analysis)
+                    if (snap.prevDay && snap.prevDay.c > 0) {
+                        q.prev_close = snap.prevDay.c;
+                        q.previousClose = snap.prevDay.c;
+                    }
+
+                    // Change calculations
+                    if (q.last > 0 && q.prev_close > 0) {
+                        q.change = q.last - q.prev_close;
+                        q.changePct = ((q.last - q.prev_close) / q.prev_close * 100);
+                        q.changePercent = q.changePct;
+                    }
+
+                    q.priceSource = 'polygon-rest';
+                    updatedCount++;
+                }
+            } catch (snapErr) { /* partial data is fine */ }
+
+            // Polygon WebSocket override for watchlist tickers (real-time > REST)
+            var polygonOverrideCount = 0;
+            (state.tickers || []).forEach(function (ticker) {
+                var tickSummary = polygonClient.getTickSummary(ticker);
+                if (tickSummary && tickSummary.lastPrice > 0) {
+                    if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                    state.quotes[ticker].last = tickSummary.lastPrice;
+                    state.quotes[ticker].price = tickSummary.lastPrice;
+                    state.quotes[ticker].bid = tickSummary.bid || state.quotes[ticker].bid;
+                    state.quotes[ticker].ask = tickSummary.ask || state.quotes[ticker].ask;
+                    state.quotes[ticker].high = tickSummary.highOfDay || state.quotes[ticker].high;
+                    state.quotes[ticker].low = tickSummary.lowOfDay || state.quotes[ticker].low;
+                    state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
+                    state.quotes[ticker].priceSource = 'polygon-ws';
+                    state.quotes[ticker].polygonUpdatedAt = tickSummary.updatedAt;
+                    polygonOverrideCount++;
+                }
+            });
+
+            if (updatedCount > 0) {
+                // Re-run gap analysis with fresh prev_close/open data
                 state.polygonSnapshots = polygonClient.snapshotCache || {};
                 state.gapAnalysis = gapAnalyzer.analyzeGaps(state);
 
-                // Update paper trade P&L with fresh prices (Polygon-enhanced)
+                // Update paper trade P&L with fresh prices
                 tradeJournal.updatePaperPnL(state.quotes);
                 tradeJournal.checkOutcomes(state.quotes);
 
@@ -3270,17 +3640,17 @@ function startYahooPriceRefresh() {
                 broadcast({ type: 'full_state', data: state });
             }
         } catch (e) {
-            // Silent — Yahoo refresh is best-effort
+            // Silent — price refresh is best-effort
         }
-        scheduleYahoo();
+        schedulePolygonRefresh();
     }
 
-    function scheduleYahoo() {
-        var interval = getYahooInterval();
-        yahooRefreshTimer = setTimeout(yahooTick, interval);
+    function schedulePolygonRefresh() {
+        var interval = getPolygonRefreshInterval();
+        polygonRefreshTimer = setTimeout(polygonTick, interval);
     }
 
-    scheduleYahoo();
+    schedulePolygonRefresh();
 }
 
 // Load cached state on startup (so dashboard shows data immediately)
@@ -3302,9 +3672,9 @@ refreshAll().then(() => {
     console.log('\n⏱️  Dynamic scheduling active — interval adjusts per market session');
     console.log('📊 Session: ' + scheduler.getSessionName() + ' | Interval: ' + (scheduler.getSessionInterval() / 1000) + 's');
     scheduleNext();
-    startYahooPriceRefresh();
+    startPolygonPriceRefresh();
     startHaltRefresh();
-    console.log('📈 Yahoo price feed active — session-aware (' + (getYahooInterval() / 1000) + 's current, covers all command centre tickers)');
+    console.log('📈 Polygon price refresh active — session-aware (' + (getPolygonRefreshInterval() / 1000) + 's current, covers all command centre tickers)');
     console.log('🛑 Halt detection active — checking every ' + (HALT_REFRESH_MS / 1000) + 's');
 });
 

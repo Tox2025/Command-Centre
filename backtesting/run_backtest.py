@@ -209,6 +209,10 @@ def main():
     labels = config[f'{"day_trade" if mode == "day" else "swing"}_horizon_labels']
     agg = PredictionValidator.aggregate_results(results, labels)
 
+    if 'error' in agg:
+        print(f"\n  ❌ {agg['error']}")
+        return
+
     print_aggregate(agg, mode)
     print_per_ticker_table(results, mode)
 

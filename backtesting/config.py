@@ -6,13 +6,31 @@ Mirrors the Node.js signal engine weights and session multipliers
 import os
 import json
 
+# ── Load .env from project root (same as Node.js app) ────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+def _load_dotenv():
+    """Load key=value pairs from project .env file"""
+    env_path = os.path.join(PROJECT_DIR, '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+
+_load_dotenv()
+
 # ── Polygon API ──────────────────────────────────────────
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
 POLYGON_BASE_URL = 'https://api.polygon.io'
 
 # ── Data Paths ───────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(BASE_DIR)
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
 CACHE_DIR = os.path.join(BASE_DIR, 'cache')
 RESULTS_DIR = os.path.join(BASE_DIR, 'results')

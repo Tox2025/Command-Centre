@@ -61,7 +61,7 @@ DEFAULT_WEIGHTS = {
 }
 
 # Signals that can be accurately computed from OHLCV data alone
-# These are the ones we optimize via backtesting
+# These are the ones we can backtest from historical data
 BACKTESTABLE_SIGNALS = [
     'ema_alignment', 'rsi_position', 'macd_histogram', 'bollinger_position',
     'bb_squeeze', 'vwap_deviation', 'volume_spike', 'regime_alignment',
@@ -85,19 +85,28 @@ EXTERNAL_SIGNALS = [
     'volatility_runner', 'earnings_gap_trade',
 ]
 
-# ── Backtest Parameters ──────────────────────────────────
+# ── Prediction Accuracy Parameters ───────────────────────
 BACKTEST_CONFIG = {
-    'lookback_days': 365,
-    'commission_pct': 0.05,      # 0.05% per side
-    'slippage_pct': 0.05,        # 0.05% slippage
+    # Day trade: 5m bars, measure outcome at these bar counts
+    # 3 bars = 15min, 6 = 30min, 12 = 1hr, 24 = 2hr
+    'day_trade_bar_size': 5,               # 5-minute bars
+    'day_trade_horizons': [3, 6, 12, 24],  # bars forward on 5m chart
+    'day_trade_horizon_labels': ['15min', '30min', '1hr', '2hr'],
+    'day_trade_lookback_days': 60,         # days of intraday data
+
+    # Swing trade: daily bars, measure outcome at these day counts
+    'swing_horizons': [1, 2, 3, 5],
+    'swing_horizon_labels': ['1d', '2d', '3d', '5d'],
+    'swing_lookback_days': 365,
+
+    # Shared
+    'confidence_threshold': 65,            # minimum confidence to count as a prediction
+    'confidence_bins': [65, 70, 75, 80],   # bin boundaries for accuracy breakdown
     'initial_capital': 100000,
-    'confidence_threshold': 65,   # minimum confidence to enter
-    'hold_bars_min': 3,           # minimum hold period (bars)
-    'hold_bars_max': 30,          # maximum hold period (bars)
-    'stop_loss_atr_mult': 0.8,    # stop at 0.8x ATR
-    'take_profit_atr_mult': 1.5,  # TP at 1.5x ATR
-    'walk_forward_train_pct': 0.75,  # 75% train, 25% test
-    'walk_forward_windows': 4,       # number of rolling windows
+    'commission_pct': 0.05,                # 0.05% per side
+    'market_open_hour': 9,                 # 9:30 AM ET
+    'market_open_min': 30,
+    'market_close_hour': 16,               # 4:00 PM ET
 }
 
 # ── Optimization Parameters ──────────────────────────────
@@ -105,8 +114,8 @@ OPTIMIZE_CONFIG = {
     'weight_range': (0, 10),      # min/max weight values
     'weight_step': 1,             # grid step size
     'top_signals_to_optimize': 10, # optimize top N most impactful signals
-    'metric': 'sharpe',           # optimize for: sharpe, win_rate, profit_factor
-    'min_trades': 30,             # minimum trades for valid backtest
+    'metric': 'accuracy',         # optimize for: accuracy, avg_move, sharpe
+    'min_predictions': 30,        # minimum predictions for valid test
 }
 
 # ── Default Ticker Universe ──────────────────────────────
@@ -133,6 +142,21 @@ def load_active_weights():
         return DEFAULT_WEIGHTS.copy(), 'default'
 
 
+def load_version_weights(version_name):
+    """Load specific version weights from signal-versions.json"""
+    try:
+        versions_path = os.path.join(DATA_DIR, 'signal-versions.json')
+        with open(versions_path, 'r') as f:
+            config = json.load(f)
+        version = config['versions'].get(version_name, {})
+        weights = version.get('weights', DEFAULT_WEIGHTS)
+        print(f"Loaded weights: {version_name} — {version.get('label', 'unknown')}")
+        return weights
+    except Exception as e:
+        print(f"Using default weights: {e}")
+        return DEFAULT_WEIGHTS.copy()
+
+
 def save_optimized_weights(weights, metrics, label=''):
     """Save optimized weights as a new version in signal-versions.json"""
     try:
@@ -146,18 +170,15 @@ def save_optimized_weights(weights, metrics, label=''):
         new_version = f'v{major + 1}.0-optimized'
 
         config['versions'][new_version] = {
-            'label': label or f'VectorBt optimized — {metrics.get("sharpe", 0):.2f} Sharpe',
+            'label': label or f'VectorBt optimized — {metrics.get("accuracy", 0):.1f}% accuracy',
             'date': __import__('datetime').datetime.now().strftime('%Y-%m-%d'),
             'performance': {
-                'closedTrades': metrics.get('total_trades', 0),
-                'wins': metrics.get('wins', 0),
-                'losses': metrics.get('losses', 0),
-                'pnl': metrics.get('total_pnl', 0),
-                'winRate': metrics.get('win_rate', 0),
-                'sharpe': metrics.get('sharpe', 0),
-                'maxDrawdown': metrics.get('max_drawdown', 0),
-                'profitFactor': metrics.get('profit_factor', 0),
-                'notes': f'Backtested on {metrics.get("tickers_tested", 0)} tickers, {metrics.get("lookback_days", 365)}d lookback'
+                'totalPredictions': metrics.get('total_predictions', 0),
+                'accuracy': metrics.get('accuracy', 0),
+                'avgMove': metrics.get('avg_move', 0),
+                'avgMFE': metrics.get('avg_mfe', 0),
+                'avgMAE': metrics.get('avg_mae', 0),
+                'notes': f'Tested on {metrics.get("tickers_tested", 0)} tickers, {metrics.get("lookback_days", 365)}d lookback'
             },
             'weights': weights,
             'gating': config['versions'].get(config.get('activeVersion', 'v1.0'), {}).get('gating', {})

@@ -114,6 +114,38 @@ class DataFetcher:
         print(f"  ✅ {ticker} {interval_min}m: {len(df)} bars cached")
         return df
 
+    def fetch_weekly(self, ticker, lookback_days=365):
+        """Fetch weekly OHLCV by resampling daily bars"""
+        cache_path = os.path.join(CACHE_DIR, f"{ticker}_weekly.parquet")
+
+        if os.path.exists(cache_path):
+            mtime = os.path.getmtime(cache_path)
+            age_hours = (time.time() - mtime) / 3600
+            if age_hours < 12:
+                df = pd.read_parquet(cache_path)
+                print(f"  📦 Cache hit: {ticker} weekly ({len(df)} bars, {age_hours:.1f}h old)")
+                return df
+
+        # Fetch daily and resample to weekly
+        daily = self.fetch_daily(ticker, lookback_days)
+        if daily.empty:
+            return daily
+
+        weekly = daily.resample('W').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).dropna()
+
+        if 'vwap' in daily.columns:
+            weekly['vwap'] = daily['vwap'].resample('W').mean()
+
+        weekly.to_parquet(cache_path)
+        print(f"  ✅ {ticker} weekly: {len(weekly)} bars cached")
+        return weekly
+
     def fetch_multi_tf(self, ticker, lookback_days=365):
         """Fetch all timeframes needed for signal engine"""
         data = {}
@@ -130,6 +162,8 @@ class DataFetcher:
             try:
                 if timeframe == 'daily':
                     data[ticker] = self.fetch_daily(ticker, lookback_days)
+                elif timeframe == 'weekly':
+                    data[ticker] = self.fetch_weekly(ticker, lookback_days)
                 elif timeframe == 'multi':
                     data[ticker] = self.fetch_multi_tf(ticker, lookback_days)
                 else:

@@ -29,7 +29,10 @@ class Backtester:
     def run(self, ticker, df=None, timeframe='daily'):
         """Run a backtest on a single ticker. Returns metrics dict."""
         if df is None or df.empty:
-            df = self.fetcher.fetch_daily(ticker, self.config['lookback_days'])
+            if timeframe == 'weekly':
+                df = self.fetcher.fetch_weekly(ticker, self.config['lookback_days'])
+            else:
+                df = self.fetcher.fetch_daily(ticker, self.config['lookback_days'])
         if df.empty or len(df) < 50:
             return {'ticker': ticker, 'error': 'Insufficient data', 'total_trades': 0}
 

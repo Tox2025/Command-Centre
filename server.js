@@ -2457,8 +2457,9 @@ async function scoreTickerSignals(ticker) {
         const data = {
             technicals: state.technicals[ticker],
             flow: (state.optionsFlow || []).filter(f => (f.ticker || f.symbol) === ticker),
-            darkPool: Array.isArray(state.darkPool[ticker]?.data) ? state.darkPool[ticker].data : (Array.isArray(state.darkPool[ticker]) ? state.darkPool[ticker] : []),
-            gex: Array.isArray(state.gex[ticker]?.data) ? state.gex[ticker].data : (Array.isArray(state.gex[ticker]) ? state.gex[ticker] : []),
+            // BUG-3/4 FIX: data is now stored as flat arrays, read directly
+            darkPool: Array.isArray(state.darkPool[ticker]) ? state.darkPool[ticker] : [],
+            gex: Array.isArray(state.gex[ticker]) ? state.gex[ticker] : [],
             ivRank: state.ivRank[ticker],
             shortInterest: state.shortInterest[ticker],
             insider: state.insiderData[ticker] || [],
@@ -2497,7 +2498,14 @@ async function scoreTickerSignals(ticker) {
             institutionHoldings: state.institutionHoldings[ticker] || null,
             institutionActivity: state.institutionActivity[ticker] || null,
             shortVolumesByExchange: state.shortVolumesByExchange[ticker] || null,
-            fdaCalendar: state.fdaCalendar || []
+            fdaCalendar: state.fdaCalendar || [],
+            // GAP-1 through GAP-6: Previously fetched but never passed to signal engine
+            maxPain: state.maxPain[ticker] || null,
+            oiChange: state.oiChange[ticker] || null,
+            greeks: state.greeks[ticker] || null,
+            stockState: state.stockState[ticker] || null,
+            earnings: state.earnings[ticker] || null,
+            etfFlows: state.etfFlows || {}
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this
@@ -2694,24 +2702,24 @@ async function fetchTickerData(ticker, tier) {
     var callCount = 0;
     try {
         // ── HOT tier (every cycle) ──
-        // Quote
+        // Quote (company info — NOT price data)
         const quote = await uw.getStockQuote(ticker);
-        if (quote?.data) state.quotes[ticker] = quote.data;
+        var quoteInfo = quote?.data || {};
         callCount++;
 
         // Options volume levels
         const optVol = await uw.getOptionVolumeLevels(ticker);
-        if (optVol?.data) state.quotes[ticker] = { ...state.quotes[ticker], optionVolume: optVol.data };
+        var optVolData = optVol?.data || null;
         callCount++;
 
-        // Dark pool
+        // Dark pool (store as flat array — BUG-3 fix)
         const dp = await uw.getDarkPoolLevels(ticker);
-        if (dp?.data) state.darkPool[ticker] = dp.data;
+        if (dp?.data) state.darkPool[ticker] = Array.isArray(dp.data) ? dp.data : [dp.data];
         callCount++;
 
-        // GEX
+        // GEX (store as flat array — BUG-4 fix)
         const gex = await uw.getGEXByStrike(ticker);
-        if (gex?.data) state.gex[ticker] = gex.data;
+        if (gex?.data) state.gex[ticker] = Array.isArray(gex.data) ? gex.data : [gex.data];
         callCount++;
 
         // Historical for technicals
@@ -2727,28 +2735,39 @@ async function fetchTickerData(ticker, tier) {
             }));
             const analysis = TechnicalAnalysis.analyze(candles);
             state.technicals[ticker] = analysis;
-            const currentPrice = candles[candles.length - 1].close;
-            const prevClose = candles.length > 1 ? candles[candles.length - 2].close : currentPrice;
+            const lastCandle = candles[candles.length - 1];
+            const histClose = lastCandle.close;
+            const prevClose = candles.length > 1 ? candles[candles.length - 2].close : histClose;
+
+            // BUG-1 FIX: Use Polygon live price during market hours, fall back to historical close
+            var liveSnapshot = polygonClient.getSnapshotData(ticker);
+            var livePrice = null;
+            if (liveSnapshot && liveSnapshot.lastTrade && liveSnapshot.lastTrade.p) {
+                livePrice = parseFloat(liveSnapshot.lastTrade.p);
+            } else if (liveSnapshot && liveSnapshot.min && liveSnapshot.min.c) {
+                livePrice = parseFloat(liveSnapshot.min.c);
+            }
+            var currentPrice = (livePrice && livePrice > 0) ? livePrice : histClose;
+
             const changeAmt = currentPrice - prevClose;
             const changePct = prevClose ? (changeAmt / prevClose * 100) : 0;
-            const lastCandle = candles[candles.length - 1];
-            // Inject price data into quotes (UW getStockQuote returns info, not price)
+
+            // BUG-2 FIX: Build quote object ONCE with canonical keys
             state.quotes[ticker] = {
-                ...state.quotes[ticker],
+                ...quoteInfo,                         // Company info from getStockQuote
+                optionVolume: optVolData,              // Options volume merged in
                 price: currentPrice,
                 last: currentPrice,
-                close: currentPrice,
+                close: histClose,                     // Historical close (daily)
                 open: lastCandle.open,
                 high: lastCandle.high,
                 low: lastCandle.low,
-                prev_close: prevClose,
-                previousClose: prevClose,
-                prevClose: prevClose,
+                prevClose: prevClose,                  // Single canonical key
                 change: parseFloat(changeAmt.toFixed(2)),
-                change_amount: parseFloat(changeAmt.toFixed(2)),
                 changePercent: parseFloat(changePct.toFixed(2)),
-                change_percent: parseFloat(changePct.toFixed(2)),
-                volume: lastCandle.volume
+                volume: lastCandle.volume,
+                livePrice: livePrice,                 // Null if no Polygon data
+                priceSource: livePrice ? 'polygon_live' : 'uw_historical'
             };
             const setup = alertEngine.generateTradeSetup(ticker, analysis, currentPrice);
             if (setup) {
@@ -2942,6 +2961,27 @@ async function fetchTickerData(ticker, tier) {
                 if (sve?.data) state.shortVolumesByExchange[ticker] = sve.data;
                 callCount++;
             } catch (e) { /* optional */ }
+
+            // Interpolated IV (better IV surface for options pricing) — COLD (NEW)
+            try {
+                const iiv = await uw.getInterpolatedIV(ticker);
+                if (iiv?.data) state.interpolatedIV = state.interpolatedIV || {}, state.interpolatedIV[ticker] = iiv.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Short Interest V2 with float data — COLD (NEW)
+            try {
+                const siV2 = await uw.getShortInterestV2(ticker);
+                if (siV2?.data) state.shortInterestV2 = state.shortInterestV2 || {}, state.shortInterestV2[ticker] = siV2.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Risk Reversal Skew (put/call sentiment) — COLD (NEW)
+            try {
+                const rrs = await uw.getRiskReversalSkew(ticker);
+                if (rrs?.data) state.riskReversalSkew = state.riskReversalSkew || {}, state.riskReversalSkew[ticker] = rrs.data;
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
     } catch (err) {
@@ -3127,6 +3167,24 @@ async function fetchMarketData(tier) {
                 for (var efi = 0; efi < etfList.length; efi++) {
                     var ef = await uw.getETFFlow(etfList[efi]);
                     if (ef?.data) state.etfFlows[etfList[efi]] = ef.data;
+                    callCount++;
+                }
+            } catch (e) { /* optional */ }
+
+            // Short Screener (auto-discover squeeze candidates) — COLD (NEW)
+            try {
+                const ss = await uw.getShortScreener({ min_short_interest: 20, limit: 30 });
+                if (ss?.data) state.shortScreener = Array.isArray(ss.data) ? ss.data : [];
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Insider Sector Flow (sector-level insider sentiment) — COLD (NEW)
+            try {
+                var sectorFlowSectors = ['Technology', 'Healthcare', 'Financial', 'Energy'];
+                state.insiderSectorFlow = state.insiderSectorFlow || {};
+                for (var isfi = 0; isfi < sectorFlowSectors.length; isfi++) {
+                    var isf = await uw.getInsiderSectorFlow(sectorFlowSectors[isfi]);
+                    if (isf?.data) state.insiderSectorFlow[sectorFlowSectors[isfi]] = isf.data;
                     callCount++;
                 }
             } catch (e) { /* optional */ }

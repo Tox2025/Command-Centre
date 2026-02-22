@@ -417,6 +417,31 @@ class UWClient {
     return this._fetch(`/analyst/${ticker}/ratings`);
   }
 
+  // == NEW: Short Screener (auto-discover squeeze candidates) ==
+  async getShortScreener(params = {}) {
+    return this._fetch('/short_screener', params);
+  }
+
+  // == NEW: Interpolated IV (better IV surface for options pricing) ==
+  async getInterpolatedIV(ticker, date) {
+    return this._fetch(`/stock/${ticker}/interpolated-iv`, date ? { date } : {});
+  }
+
+  // == NEW: Short Interest V2 with float data (replaces V1) ==
+  async getShortInterestV2(ticker) {
+    return this._fetch(`/shorts/${ticker}/interest-float/v2`);
+  }
+
+  // == NEW: Historical Risk Reversal Skew (put/call sentiment) ==
+  async getRiskReversalSkew(ticker, delta) {
+    return this._fetch(`/stock/${ticker}/historical-risk-reversal-skew`, delta ? { delta } : {});
+  }
+
+  // == NEW: Insider Sector Flow (sector-level insider sentiment) ==
+  async getInsiderSectorFlow(sector) {
+    return this._fetch(`/insider/${sector}/sector-flow`);
+  }
+
   // == Alerts ==
   async getAlerts() {
     return this._fetch('/alerts');

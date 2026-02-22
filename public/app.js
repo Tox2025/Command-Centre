@@ -2099,6 +2099,70 @@ function openTickerView(ticker) {
             }
         }
     } catch (e) { console.error('Modal Strike Magnets error:', e); if ($('modalStrikeMagnets')) $('modalStrikeMagnets').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // ── Short Squeeze Composite Panel ──
+    try {
+        var sqEl = $('modalSqueeze');
+        if (sqEl) {
+            var svRaw = state.shortVolume && state.shortVolume[ticker];
+            var ftdRaw = state.failsToDeliver && state.failsToDeliver[ticker];
+            var siRaw = state.shortInterest && state.shortInterest[ticker];
+            var sqScore = 0;
+            var sqComponents = [];
+
+            // Component 1: Short Volume Ratio
+            var svArr = Array.isArray(svRaw) ? svRaw : [];
+            var lastSV = svArr.length > 0 ? svArr[svArr.length - 1] : null;
+            var svRatio = lastSV ? parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0) : 0;
+            var svPts = svRatio > 0.5 ? 2 : svRatio > 0.4 ? 1 : 0;
+            sqScore += svPts;
+            sqComponents.push({ label: 'Short Volume', value: svRatio > 0 ? (svRatio * 100).toFixed(1) + '%' : 'N/A', pts: svPts, max: 2, threshold: '>50%=2pts, >40%=1pt', icon: svPts >= 2 ? '✅' : svPts >= 1 ? '⚠️' : '❌' });
+
+            // Component 2: Fails to Deliver
+            var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
+            var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
+            var ftdQty = lastFTD ? parseFloat(lastFTD.quantity || lastFTD.fails || 0) : 0;
+            var ftdPts = ftdQty > 1000000 ? 2 : ftdQty > 500000 ? 1 : 0;
+            sqScore += ftdPts;
+            var ftdDisplay = ftdQty > 1000000 ? (ftdQty / 1e6).toFixed(1) + 'M' : ftdQty > 0 ? (ftdQty / 1e3).toFixed(0) + 'K' : 'N/A';
+            sqComponents.push({ label: 'Fails to Deliver', value: ftdDisplay + ' shares', pts: ftdPts, max: 2, threshold: '>1M=2pts, >500K=1pt', icon: ftdPts >= 2 ? '✅' : ftdPts >= 1 ? '⚠️' : '❌' });
+
+            // Component 3: Borrow Utilization
+            var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+            var utilPct = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || siObj.utilization_pct || 0) : 0;
+            var utilPts = utilPct > 90 ? 2 : utilPct > 70 ? 1 : 0;
+            sqScore += utilPts;
+            sqComponents.push({ label: 'Borrow Utilization', value: utilPct > 0 ? utilPct.toFixed(1) + '%' : 'N/A', pts: utilPts, max: 2, threshold: '>90%=2pts, >70%=1pt', icon: utilPts >= 2 ? '✅' : utilPts >= 1 ? '⚠️' : '❌' });
+
+            // Build HTML
+            var sqColor = sqScore >= 4 ? '#ef4444' : sqScore >= 2 ? '#f59e0b' : '#64748b';
+            var sqLabel = sqScore >= 5 ? 'EXTREME' : sqScore >= 4 ? 'HIGH' : sqScore >= 2 ? 'MODERATE' : 'LOW';
+            var html = '';
+
+            // Score gauge
+            html += '<div style="text-align:center;margin-bottom:10px">';
+            html += '<div style="font-size:28px;font-weight:800;color:' + sqColor + '">' + sqScore + '<span style="font-size:14px;color:#64748b">/6</span></div>';
+            html += '<div style="font-size:11px;color:' + sqColor + ';font-weight:600">' + sqLabel + ' SQUEEZE PROBABILITY</div>';
+            // Progress bar
+            html += '<div style="height:6px;background:#1e293b;border-radius:3px;margin-top:6px">';
+            html += '<div style="width:' + Math.round(sqScore / 6 * 100) + '%;height:100%;background:' + sqColor + ';border-radius:3px;transition:width 0.3s"></div>';
+            html += '</div></div>';
+
+            // Component rows
+            sqComponents.forEach(function (c) {
+                html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.05)">';
+                html += '<span style="color:#94a3b8">' + c.icon + ' ' + c.label + '</span>';
+                html += '<span style="font-weight:600;color:' + (c.pts >= 2 ? '#ef4444' : c.pts >= 1 ? '#f59e0b' : '#64748b') + '">' + c.value + '</span>';
+                html += '<span style="font-size:9px;color:#475569">' + c.pts + '/' + c.max + '</span>';
+                html += '</div>';
+            });
+
+            // Threshold guide
+            html += '<div style="margin-top:6px;font-size:9px;color:#475569;text-align:center">✅ Threshold met  ⚠️ Partial  ❌ Below threshold</div>';
+
+            sqEl.innerHTML = html;
+        }
+    } catch (e) { console.error('Modal Squeeze error:', e); if ($('modalSqueeze')) $('modalSqueeze').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
 }
 
 // Paper Trade from setup panel

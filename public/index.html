@@ -779,6 +779,17 @@
               levels for intraday entry/exit targets and stop placement.</p>
             <div id="modalStrikeMagnets"></div>
           </div>
+          <div class="modal-panel">
+            <h3>🔥 Short Squeeze Score <span class="info-tip"
+                data-tip="Composite squeeze probability from 3 independent data sources. Short Volume Ratio >50% means shorts dominate daily volume. Fails-to-Deliver (FTDs) are shares that MUST be bought back — forced buying pressure. Borrow Utilization >90% means almost no shares left to short — squeezes often trigger when utilization hits 95%+.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Short squeezes occur when heavily-shorted stocks face forced buying pressure, causing
+              rapid price spikes. This composite score combines three independent squeeze indicators: short volume ratio
+              (>50% = shorts dominating daily volume), fails-to-deliver (shares that must be bought back within T+35),
+              and borrow utilization (no shares left to short = squeeze imminent). A score of 4+/6 is a strong squeeze
+              candidate. Monitor these alongside rising price and volume for confirmation.</p>
+            <div id="modalSqueeze"></div>
+          </div>
         </div>
       </div>
     </div>

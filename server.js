@@ -956,6 +956,36 @@ app.post('/api/chat', async (req, res) => {
             // Polygon TA
             var pTA = state.polygonTA && state.polygonTA[ticker];
             if (pTA) context += 'Polygon TA: ' + JSON.stringify(pTA) + '\n';
+            // Phase 2 data
+            var tNope = state.nope && state.nope[ticker];
+            if (tNope) {
+                var nVal = parseFloat(tNope.nope || tNope.value || tNope.nope_value || 0);
+                context += 'NOPE: ' + nVal.toFixed(2) + ' (' + (nVal > 5 ? 'BULLISH hedging pressure' : nVal < -5 ? 'BEARISH hedging pressure' : 'NEUTRAL') + ')\n';
+            }
+            var tAnalyst = state.analystRatings && state.analystRatings[ticker];
+            if (tAnalyst) {
+                var ar = Array.isArray(tAnalyst) ? tAnalyst[0] : tAnalyst;
+                if (ar) context += 'Analyst: ' + (ar.consensus || ar.rating || 'N/A') + ' target=$' + (ar.price_target || ar.avg_price_target || 'N/A') + ' analysts=' + (ar.analyst_count || ar.num_analysts || '?') + '\n';
+            }
+            var tInst = state.institutionActivity && state.institutionActivity[ticker];
+            if (tInst) {
+                var instArr = Array.isArray(tInst) ? tInst : [tInst];
+                var instBuys = instArr.filter(function (x) { var t = (x.transaction_type || x.type || '').toUpperCase(); return t.includes('BUY') || t.includes('ACQUIRE'); }).length;
+                var instSells = instArr.length - instBuys;
+                context += 'Institutional Flow: ' + instBuys + ' buys / ' + instSells + ' sells (' + (instBuys > instSells ? 'ACCUMULATING' : instSells > instBuys ? 'DISTRIBUTING' : 'BALANCED') + ')\n';
+            }
+            var tFDA = (state.fdaCalendar || []).filter(function (f) { return (f.ticker || f.symbol || '').toUpperCase() === ticker.toUpperCase(); });
+            if (tFDA.length > 0) {
+                tFDA.forEach(function (f) {
+                    context += 'FDA EVENT: ' + (f.event_type || f.type || 'FDA') + ' ' + (f.drug || f.drug_name || '') + ' on ' + (f.event_date || f.date || 'TBD') + '\n';
+                });
+            }
+            var tMagnets = state.flowPerStrikeIntraday && state.flowPerStrikeIntraday[ticker];
+            if (tMagnets) {
+                var magArr = Array.isArray(tMagnets) ? tMagnets : (tMagnets.data || []);
+                var topMag = magArr.slice().sort(function (a, b) { return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0); }).slice(0, 3);
+                if (topMag.length > 0) context += 'Strike Magnets: ' + topMag.map(function (m) { return '$' + m.strike + '(' + (m.volume || m.total_volume || 0) + ' vol)'; }).join(', ') + '\n';
+            }
         }
 
         // Earnings calendar with beat/miss analysis
@@ -3791,7 +3821,13 @@ function generateMorningBrief() {
                     return { buyPct: td.buyPct, sellPct: td.sellPct, flowImbalance: td.flowImbalance, vwap: td.vwap, totalVolume: td.totalVolume, largeBlockBuys: td.largeBlockBuys, largeBlockSells: td.largeBlockSells };
                 })(),
                 // Polygon snapshot data
-                snapshotData: polygonClient.getSnapshotData(ticker) || null
+                snapshotData: polygonClient.getSnapshotData(ticker) || null,
+                // Phase 2 data
+                nope: (function () { var n = state.nope && state.nope[ticker]; return n ? parseFloat(n.nope || n.value || n.nope_value || 0) : null; })(),
+                analystRating: (function () { var a = state.analystRatings && state.analystRatings[ticker]; if (!a) return null; var r = Array.isArray(a) ? a[0] : a; return r ? { consensus: r.consensus || r.rating, target: r.price_target || r.avg_price_target } : null; })(),
+                institutionFlow: (function () { var i = state.institutionActivity && state.institutionActivity[ticker]; if (!i) return null; var arr = Array.isArray(i) ? i : [i]; var buys = arr.filter(function (x) { return (x.transaction_type || x.type || '').toUpperCase().includes('BUY'); }).length; return { buys: buys, sells: arr.length - buys, direction: buys > arr.length - buys ? 'ACCUMULATING' : 'DISTRIBUTING' }; })(),
+                fdaEvents: (state.fdaCalendar || []).filter(function (f) { return (f.ticker || f.symbol || '').toUpperCase() === ticker.toUpperCase(); }).slice(0, 3),
+                topStrikeMagnets: (function () { var m = state.flowPerStrikeIntraday && state.flowPerStrikeIntraday[ticker]; if (!m) return null; var arr = Array.isArray(m) ? m : (m.data || []); return arr.slice().sort(function (a, b) { return parseFloat(b.volume || 0) - parseFloat(a.volume || 0); }).slice(0, 3).map(function (s) { return { strike: s.strike, volume: s.volume || s.total_volume }; }); })()
             };
         }
     }

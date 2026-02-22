@@ -1,5 +1,6 @@
 {
-    "activeVersion": "v1.2",
+    "activeVersion": "v2.0",
+    "patternEngine": true,
     "versions": {
         "v1.0": {
             "label": "Baseline — Feb 19 winner",

@@ -1177,6 +1177,9 @@ class SignalEngine {
 
         const signalCount = signals.length;
 
+        // Shadow scores: what v1.0 (pure weighted-sum) would have said
+        const shadowV1 = { direction: weightedDir, confidence: weightedConf };
+
         return {
             ticker,
             direction,
@@ -1189,6 +1192,7 @@ class SignalEngine {
             session: sess,
             timestamp: new Date().toISOString(),
             matchedSetups: matchedSetups.map(s => s.setup),
+            shadowScores: { 'v1.0': shadowV1 },
             multiTFDetails: mtf ? mtf.confluence.details : [],
             features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote)
         };

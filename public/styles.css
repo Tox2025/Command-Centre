@@ -1176,6 +1176,7 @@ body {
 
 .modal-body {
   padding: 20px;
+  overflow: visible;
 }
 
 .modal-chart {

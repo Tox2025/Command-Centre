@@ -1,5 +1,5 @@
 ﻿// Trading Dashboard V2 Client
-var state = { tickers: [], quotes: {}, technicals: {}, optionsFlow: [], darkPool: {}, gex: {}, marketTide: null, congressTrades: [], tradeSetups: {}, alerts: [], morningBrief: {}, lastUpdate: null, session: 'LOADING' };
+var state = { tickers: [], quotes: {}, technicals: {}, optionsFlow: [], darkPool: {}, gex: {}, marketTide: null, congressTrades: [], tradeSetups: {}, alerts: [], morningBrief: {}, lastUpdate: null, session: 'LOADING', nope: {}, flowPerStrikeIntraday: {}, analystRatings: {}, institutionActivity: {}, fdaCalendar: [] };
 var ws = null, activeFilter = 'all', tvWidget = null;
 var $ = function (id) { return document.getElementById(id); };
 function fmt(n) { return n == null ? '--' : Number(n).toFixed(2); }
@@ -1902,6 +1902,203 @@ function openTickerView(ticker) {
             niEl.innerHTML = nih || '<div class="empty">No news or insider data for ' + ticker + '</div>';
         }
     } catch (e) { console.error('Modal News/Insider error:', e); if ($('modalNewsInsider')) $('modalNewsInsider').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // Phase 2: NOPE Gauge
+    try {
+        var nopeEl = $('modalNOPE');
+        if (nopeEl) {
+            var nopeData = state.nope && state.nope[ticker];
+            if (nopeData) {
+                var nVal = parseFloat(nopeData.nope || nopeData.value || nopeData.nope_value || 0);
+                var nColor = nVal > 5 ? '#10b981' : nVal < -5 ? '#ef4444' : '#f59e0b';
+                var nDir = nVal > 5 ? 'BULLISH' : nVal < -5 ? 'BEARISH' : 'NEUTRAL';
+                var nArrow = nVal > 5 ? '&#9650;' : nVal < -5 ? '&#9660;' : '&#9654;';
+                var nh = '<div style="text-align:center;padding:12px 0">';
+                nh += '<div style="font-size:32px;font-weight:800;color:' + nColor + '">' + nVal.toFixed(2) + '</div>';
+                nh += '<div style="font-size:14px;color:' + nColor + ';margin:4px 0">' + nArrow + ' ' + nDir + '</div>';
+                // gauge bar
+                var barPct = Math.min(100, Math.max(0, (nVal + 20) / 40 * 100));
+                nh += '<div style="width:100%;height:8px;background:#1e293b;border-radius:4px;margin-top:8px;position:relative">';
+                nh += '<div style="position:absolute;left:50%;top:-2px;width:2px;height:12px;background:#64748b"></div>';
+                nh += '<div style="width:' + barPct + '%;height:100%;border-radius:4px;background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981)"></div>';
+                nh += '</div>';
+                nh += '<div style="display:flex;justify-content:space-between;font-size:9px;color:#64748b;margin-top:2px"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>';
+                nh += '</div>';
+                nopeEl.innerHTML = nh;
+            } else {
+                nopeEl.innerHTML = '<div class="empty">No NOPE data for ' + ticker + '</div>';
+            }
+        }
+    } catch (e) { console.error('Modal NOPE error:', e); if ($('modalNOPE')) $('modalNOPE').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // Phase 2: Analyst Consensus
+    try {
+        var analystEl = $('modalAnalyst');
+        if (analystEl) {
+            var arData = state.analystRatings && state.analystRatings[ticker];
+            if (arData) {
+                var items = Array.isArray(arData) ? arData : (arData.data || [arData]);
+                var ah = '';
+                if (items.length > 0) {
+                    var latest = items[0];
+                    var rating = (latest.consensus || latest.rating || latest.recommendation || '--').toUpperCase();
+                    var target = parseFloat(latest.price_target || latest.target_price || latest.avg_price_target || 0);
+                    var curPrice = parseFloat((state.quotes[ticker] || {}).last || (state.quotes[ticker] || {}).price || 0);
+                    var rColor = rating.includes('BUY') || rating.includes('OUTPERFORM') ? '#10b981' : rating.includes('SELL') || rating.includes('UNDERPERFORM') ? '#ef4444' : '#f59e0b';
+                    ah += '<div style="text-align:center;padding:8px 0">';
+                    ah += '<span class="badge" style="background:' + rColor + ';font-size:14px;padding:4px 12px">' + rating + '</span>';
+                    ah += '</div>';
+                    if (target > 0) {
+                        var upside = curPrice > 0 ? ((target - curPrice) / curPrice * 100).toFixed(1) : null;
+                        ah += '<div class="modal-metric"><span>Target Price:</span> <strong>$' + fmt(target) + '</strong></div>';
+                        if (upside !== null) {
+                            var upColor = parseFloat(upside) >= 0 ? '#10b981' : '#ef4444';
+                            ah += '<div class="modal-metric"><span>Upside/Downside:</span> <strong style="color:' + upColor + '">' + (parseFloat(upside) >= 0 ? '+' : '') + upside + '%</strong></div>';
+                        }
+                    }
+                    var numAnalysts = latest.analyst_count || latest.num_analysts || items.length;
+                    if (numAnalysts) ah += '<div class="modal-metric"><span>Analysts:</span> <strong>' + numAnalysts + '</strong></div>';
+                    // Show recent individual ratings if available
+                    if (items.length > 1) {
+                        ah += '<div style="margin-top:8px;font-size:10px;color:#64748b;text-transform:uppercase">Recent Ratings</div>';
+                        items.slice(0, 5).forEach(function (r) {
+                            var rr = (r.rating || r.recommendation || '--').toUpperCase();
+                            var rc = rr.includes('BUY') ? 'text-bull' : rr.includes('SELL') ? 'text-bear' : '';
+                            ah += '<div style="font-size:11px;padding:2px 0;border-bottom:1px solid #1e293b">';
+                            ah += '<strong>' + (r.analyst || r.firm || '--') + '</strong> ';
+                            ah += '<span class="' + rc + '">' + rr + '</span> ';
+                            if (r.price_target) ah += '$' + fmt(parseFloat(r.price_target));
+                            ah += '</div>';
+                        });
+                    }
+                }
+                analystEl.innerHTML = ah || '<div class="empty">No analyst data</div>';
+            } else {
+                analystEl.innerHTML = '<div class="empty">No analyst data for ' + ticker + '</div>';
+            }
+        }
+    } catch (e) { console.error('Modal Analyst error:', e); if ($('modalAnalyst')) $('modalAnalyst').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // Phase 2: Institutional Flow
+    try {
+        var instEl = $('modalInstitution');
+        if (instEl) {
+            var instData = state.institutionActivity && state.institutionActivity[ticker];
+            if (instData) {
+                var items = Array.isArray(instData) ? instData : (instData.data || [instData]);
+                var buys = 0, sells = 0, ih = '';
+                if (items.length > 0) {
+                    items.slice(0, 8).forEach(function (tx) {
+                        var txType = (tx.transaction_type || tx.type || tx.action || '').toUpperCase();
+                        var isBuy = txType.includes('BUY') || txType.includes('ACQUIRE') || txType.includes('PURCHASE');
+                        if (isBuy) buys++; else sells++;
+                        ih += '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #1e293b">';
+                        ih += '<span class="' + (isBuy ? 'text-bull' : 'text-bear') + '">' + (isBuy ? 'BUY' : 'SELL') + '</span> ';
+                        ih += '<strong>' + (tx.institution || tx.name || tx.investor || '--') + '</strong> ';
+                        if (tx.shares || tx.amount) ih += fmtK(parseFloat(tx.shares || tx.amount || 0)) + ' shares ';
+                        if (tx.value || tx.total_value) ih += '($' + fmtK(parseFloat(tx.value || tx.total_value || 0)) + ') ';
+                        if (tx.date || tx.filing_date) ih += '<span style="color:#64748b">' + (tx.date || tx.filing_date) + '</span>';
+                        ih += '</div>';
+                    });
+                    var netDir = buys > sells ? 'ACCUMULATING' : sells > buys ? 'DISTRIBUTING' : 'BALANCED';
+                    var netColor = buys > sells ? '#10b981' : sells > buys ? '#ef4444' : '#f59e0b';
+                    ih = '<div style="margin-bottom:6px;font-weight:700">Net: <span style="color:' + netColor + '">' + netDir + '</span> <small>(' + buys + ' buys / ' + sells + ' sells)</small></div>' + ih;
+                }
+                instEl.innerHTML = ih || '<div class="empty">No institutional data</div>';
+            } else {
+                instEl.innerHTML = '<div class="empty">No institutional data for ' + ticker + '</div>';
+            }
+        }
+    } catch (e) { console.error('Modal Institution error:', e); if ($('modalInstitution')) $('modalInstitution').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // Phase 2: FDA Calendar
+    try {
+        var fdaEl = $('modalFDA');
+        if (fdaEl) {
+            var fdaAll = state.fdaCalendar || [];
+            var fdaTicker = fdaAll.filter(function (f) { return (f.ticker || f.symbol || '').toUpperCase() === ticker.toUpperCase(); });
+            if (fdaTicker.length > 0) {
+                var fh = '';
+                fdaTicker.forEach(function (f) {
+                    var evDate = f.event_date || f.date || f.catalyst_date || '--';
+                    var evType = f.event_type || f.type || f.catalyst_type || 'FDA Event';
+                    var drug = f.drug || f.drug_name || f.product || '';
+                    var daysUntil = null;
+                    if (evDate && evDate !== '--') {
+                        var d = new Date(evDate);
+                        daysUntil = Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
+                    }
+                    var urgColor = daysUntil !== null && daysUntil <= 7 ? '#ef4444' : daysUntil !== null && daysUntil <= 30 ? '#f59e0b' : '#64748b';
+                    fh += '<div style="padding:4px 0;border-bottom:1px solid #1e293b;border-left:3px solid ' + urgColor + ';padding-left:8px;margin:2px 0">';
+                    fh += '<div><strong>' + evType + '</strong>';
+                    if (drug) fh += ' — ' + drug;
+                    fh += '</div>';
+                    fh += '<div style="font-size:11px">';
+                    fh += '<span style="color:' + urgColor + '">' + evDate + '</span>';
+                    if (daysUntil !== null) {
+                        if (daysUntil <= 0) fh += ' <span class="badge badge-hot" style="font-size:9px">PAST DUE</span>';
+                        else if (daysUntil <= 7) fh += ' <span class="badge badge-hot" style="font-size:9px">&#9888; ' + daysUntil + ' DAYS</span>';
+                        else fh += ' (' + daysUntil + ' days)';
+                    }
+                    fh += '</div></div>';
+                });
+                fdaEl.innerHTML = fh;
+            } else {
+                fdaEl.innerHTML = '<div class="empty">No FDA events for ' + ticker + '</div>';
+            }
+        }
+    } catch (e) { console.error('Modal FDA error:', e); if ($('modalFDA')) $('modalFDA').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
+
+    // Phase 2: Intraday Strike Magnets
+    try {
+        var magEl = $('modalStrikeMagnets');
+        if (magEl) {
+            var magData = state.flowPerStrikeIntraday && state.flowPerStrikeIntraday[ticker];
+            if (magData) {
+                var strikes = Array.isArray(magData) ? magData : (magData.data || []);
+                var curPrice = parseFloat((state.quotes[ticker] || {}).last || (state.quotes[ticker] || {}).price || 0);
+                if (strikes.length > 0) {
+                    // Sort by volume/premium descending to find top magnets
+                    var sorted = strikes.slice().sort(function (a, b) {
+                        return (parseFloat(b.volume || b.total_volume || b.premium || 0)) - (parseFloat(a.volume || a.total_volume || a.premium || 0));
+                    });
+                    var top = sorted.slice(0, 10);
+                    top.sort(function (a, b) { return parseFloat(a.strike || 0) - parseFloat(b.strike || 0); });
+                    var mh = '';
+                    var maxVol = parseFloat(top[0] ? (top[0].volume || top[0].total_volume || top[0].premium || 1) : 1);
+                    // Re-sort for maxVol
+                    sorted.slice(0, 10).forEach(function (s) { var v = parseFloat(s.volume || s.total_volume || s.premium || 0); if (v > maxVol) maxVol = v; });
+                    top.forEach(function (s) {
+                        var strike = parseFloat(s.strike || 0);
+                        var vol = parseFloat(s.volume || s.total_volume || s.premium || 0);
+                        var isAbove = curPrice > 0 && strike >= curPrice;
+                        var barW = maxVol > 0 ? Math.round(vol / maxVol * 100) : 0;
+                        var barColor = isAbove ? '#10b981' : '#ef4444';
+                        mh += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:11px">';
+                        mh += '<span style="min-width:60px;text-align:right;font-weight:600;color:' + barColor + '">$' + strike + '</span>';
+                        mh += '<div style="flex:1;height:6px;background:#1e293b;border-radius:3px"><div style="width:' + barW + '%;height:100%;background:' + barColor + ';border-radius:3px"></div></div>';
+                        mh += '<span style="min-width:45px;color:#94a3b8">' + fmtK(vol) + '</span>';
+                        mh += '</div>';
+                    });
+                    if (curPrice > 0) {
+                        var aboveStrikes = top.filter(function (s) { return parseFloat(s.strike || 0) >= curPrice; });
+                        var belowStrikes = top.filter(function (s) { return parseFloat(s.strike || 0) < curPrice; });
+                        var nearAbove = aboveStrikes.length > 0 ? aboveStrikes[0] : null;
+                        var nearBelow = belowStrikes.length > 0 ? belowStrikes[belowStrikes.length - 1] : null;
+                        mh += '<div style="margin-top:6px;font-size:10px;color:#94a3b8">';
+                        if (nearAbove) mh += 'Resistance Magnet: <strong class="text-bull">$' + parseFloat(nearAbove.strike).toFixed(0) + '</strong> ';
+                        if (nearBelow) mh += 'Support Magnet: <strong class="text-bear">$' + parseFloat(nearBelow.strike).toFixed(0) + '</strong>';
+                        mh += '</div>';
+                    }
+                    magEl.innerHTML = mh;
+                } else {
+                    magEl.innerHTML = '<div class="empty">No intraday strike data</div>';
+                }
+            } else {
+                magEl.innerHTML = '<div class="empty">No intraday strike data for ' + ticker + '</div>';
+            }
+        }
+    } catch (e) { console.error('Modal Strike Magnets error:', e); if ($('modalStrikeMagnets')) $('modalStrikeMagnets').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
 }
 
 // Paper Trade from setup panel

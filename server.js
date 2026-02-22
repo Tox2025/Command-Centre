@@ -160,7 +160,16 @@ const state = {
     economicCalendar: [],
     etfFlows: {},
     chatHistory: new Map(),
-    tickData: {}  // Polygon real-time tick summaries
+    tickData: {},  // Polygon real-time tick summaries
+    // Phase 2 new data
+    nope: {},
+    flowPerStrikeIntraday: {},
+    analystRatings: {},
+    institutionHoldings: {},
+    institutionActivity: {},
+    shortVolumesByExchange: {},
+    fdaCalendar: [],
+    priceTargets: {}
 };
 
 // ── Express Setup ─────────────────────────────────────────
@@ -2345,7 +2354,15 @@ async function scoreTickerSignals(ticker) {
             polygonMinuteBars: polygonClient.getMinuteBars(ticker) || [],
             // Earnings gap trade data (signal #38)
             earningsEnriched: (state.earningsToday && state.earningsToday.enriched) ? state.earningsToday.enriched[ticker] || null : null,
-            earningsReaction: (state.earningsToday && state.earningsToday.reactions) ? state.earningsToday.reactions[ticker] || null : null
+            earningsReaction: (state.earningsToday && state.earningsToday.reactions) ? state.earningsToday.reactions[ticker] || null : null,
+            // Phase 2 data
+            nope: state.nope[ticker] || null,
+            flowPerStrikeIntraday: state.flowPerStrikeIntraday[ticker] || null,
+            analystRatings: state.analystRatings[ticker] || null,
+            institutionHoldings: state.institutionHoldings[ticker] || null,
+            institutionActivity: state.institutionActivity[ticker] || null,
+            shortVolumesByExchange: state.shortVolumesByExchange[ticker] || null,
+            fdaCalendar: state.fdaCalendar || []
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this
@@ -2633,6 +2650,27 @@ async function fetchTickerData(ticker, tier) {
                 if (fpe?.data) state.flowPerExpiry[ticker] = fpe.data;
                 callCount++;
             } catch (e) { /* optional */ }
+
+            // NOPE — Net Options Pricing Effect (directional predictor) — WARM
+            try {
+                const nope = await uw.getNOPE(ticker);
+                if (nope?.data) state.nope[ticker] = nope.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Intraday Strike Flow (real-time magnetic levels) — WARM
+            try {
+                const isf = await uw.getFlowPerStrikeIntraday(ticker);
+                if (isf?.data) state.flowPerStrikeIntraday[ticker] = isf.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Analyst Ratings — WARM
+            try {
+                const ar = await uw.getAnalystRatingsByTicker(ticker);
+                if (ar?.data) state.analystRatings[ticker] = ar.data;
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
         // ── COLD tier (every 15th cycle) ──
@@ -2692,6 +2730,27 @@ async function fetchTickerData(ticker, tier) {
             try {
                 const itf = await uw.getInsiderTickerFlow(ticker);
                 if (itf?.data) state.insiderFlow[ticker] = itf.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Institution Holdings (big money ownership) — COLD
+            try {
+                const ih = await uw.getInstitutionHoldings(ticker);
+                if (ih?.data) state.institutionHoldings[ticker] = ih.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Institution Activity (recent institutional buys/sells) — COLD
+            try {
+                const ia = await uw.getInstitutionActivity(ticker);
+                if (ia?.data) state.institutionActivity[ticker] = ia.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Short Volumes by Exchange — COLD
+            try {
+                const sve = await uw.getShortVolumesByExchange(ticker);
+                if (sve?.data) state.shortVolumesByExchange[ticker] = sve.data;
                 callCount++;
             } catch (e) { /* optional */ }
         }
@@ -2863,6 +2922,13 @@ async function fetchMarketData(tier) {
             try {
                 const econ = await uw.getEconomicCalendar();
                 if (econ?.data) state.economicCalendar = Array.isArray(econ.data) ? econ.data.slice(0, 30) : [];
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // FDA Calendar (biotech event risk) — COLD
+            try {
+                const fda = await uw.getFDACalendar();
+                if (fda?.data) state.fdaCalendar = Array.isArray(fda.data) ? fda.data.slice(0, 30) : [];
                 callCount++;
             } catch (e) { /* optional */ }
 

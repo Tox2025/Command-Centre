@@ -380,6 +380,43 @@ class UWClient {
     return this._fetch(`/etfs/${ticker}/in-outflow`);
   }
 
+  // == Phase 2: New Endpoints ==
+
+  // NOPE — Net Options Pricing Effect (UW proprietary directional predictor)
+  async getNOPE(ticker) {
+    return this._fetch(`/stock/${ticker}/nope`);
+  }
+
+  // Intraday strike flow (real-time magnetic price levels)
+  async getFlowPerStrikeIntraday(ticker) {
+    return this._fetch(`/stock/${ticker}/flow-per-strike-intraday`);
+  }
+
+  // FDA Calendar (biotech event risk)
+  async getFDACalendar() {
+    return this._fetch('/market/fda-calendar');
+  }
+
+  // Institution Holdings (who owns what)
+  async getInstitutionHoldings(ticker) {
+    return this._fetch(`/institution/${ticker}/holdings`);
+  }
+
+  // Institution Activity (recent buys/sells by institutions)
+  async getInstitutionActivity(ticker) {
+    return this._fetch(`/institution/${ticker}/activity`);
+  }
+
+  // Short Volumes by Exchange (where shorts are coming from)
+  async getShortVolumesByExchange(ticker) {
+    return this._fetch(`/shorts/${ticker}/volumes-by-exchange`);
+  }
+
+  // Analyst Ratings for a ticker (consensus targets)
+  async getAnalystRatingsByTicker(ticker) {
+    return this._fetch(`/analyst/${ticker}/ratings`);
+  }
+
   // == Alerts ==
   async getAlerts() {
     return this._fetch('/alerts');

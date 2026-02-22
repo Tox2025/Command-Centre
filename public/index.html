@@ -7,7 +7,7 @@
   <title>Trading Command Center</title>
   <meta name="description"
     content="Real-time trading dashboard with options flow, GEX, dark pool data, and AI-powered trade setups">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=15">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
@@ -721,6 +721,64 @@
                 you have strong conviction AND the move exceeds the expected move (straddle price).</p>
                 <div id="modalEarnings"></div>
           </div>
+          <div class="modal-panel">
+            <h3>🎯 NOPE Gauge <span class="info-tip"
+                data-tip="Net Options Pricing Effect — Unusual Whales' proprietary directional signal. NOPE measures how market maker delta hedging will mechanically push stock price. Positive NOPE = options market will push price UP (call hedging). Negative = push DOWN (put hedging). Strongest in last 1-2 hours before close.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">NOPE (Net Options Pricing Effect) is a causative signal — not reading past prices, but
+              predicting forced mechanical flows. When options volume is high relative to stock volume, market makers
+              must
+              delta hedge by buying/selling shares. NOPE > +5 = calls dominate, market maker hedging creates buying
+              pressure. NOPE < -5=puts dominate, hedging creates selling pressure. Signal strengthens into close as
+                gamma hedging accelerates. Best used for intraday scalps and power hour trades.</p>
+                <div id="modalNOPE"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>📊 Analyst Consensus <span class="info-tip"
+                data-tip="Wall Street analyst consensus rating and price target. Shows buy/hold/sell recommendation and average target price vs current price. Analyst targets provide upside/downside ceiling references for swing trades. More relevant for multi-day holds than scalps.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Analyst consensus aggregates ratings from Wall Street firms. While analysts are often
+              late to react, their price targets provide useful ceiling/floor references. Strong BUY consensus with
+              target
+              20%+ above current price = fundamental tailwind. SELL consensus below current = headwind. Compare with
+              technical direction — when both agree, confidence increases. Most useful for swing trades (1-5 day holds).
+            </p>
+            <div id="modalAnalyst"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>🏦 Institutional Flow <span class="info-tip"
+                data-tip="Recent institutional (hedge fund, mutual fund) buying and selling activity. Shows net accumulation or distribution by smart money. Institutional flow moves in multi-week cycles — their buying/selling defines the medium-term trend. When institutions accumulate, retail follows (usually 1-2 weeks later).">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Institutional flow tracks buying and selling by hedge funds, mutual funds, and large
+              asset managers. These entities move the market — when they accumulate a position over days/weeks, price
+              trends higher. When they distribute, price trends lower. Net institutional buying with positive technicals
+              is a very strong swing signal. Unlike insider trading, institutional volume is much larger and more
+              consistent in direction.</p>
+            <div id="modalInstitution"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>⚠️ FDA Calendar <span class="info-tip"
+                data-tip="Upcoming FDA dates for this ticker (PDUFA dates, advisory committee meetings, approvals). Binary events that can move biotech stocks 20-50%. NEVER hold a directional bet through an FDA date without defined risk. Reduce position size within 7 days of an FDA event.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">FDA events are the highest-risk binary catalysts in the market. PDUFA dates, advisory
+              committee votes, and approval decisions can move biotech stocks 20-50% in minutes. These events cannot be
+              predicted directionally — even strong technical setups are irrelevant. Strategy: reduce size or avoid
+              directional trades within 7 days. If you must trade, use defined-risk options strategies (spreads,
+              strangles)
+              instead of naked directional bets.</p>
+            <div id="modalFDA"></div>
+          </div>
+          <div class="modal-panel">
+            <h3>📍 Intraday Strike Magnets <span class="info-tip"
+                data-tip="Real-time option flow by strike price (updated throughout the day). Shows where institutional option volume is concentrated — these strikes act as 'magnets' pulling price toward them. The highest-volume strikes above and below current price define intraday support and resistance levels.">&#9432;</span>
+            </h3>
+            <p class="panel-desc">Intraday strike magnets show real-time option flow concentration by strike price. When
+              massive volume clusters at a specific strike, market makers must hedge — creating a self-fulfilling price
+              magnet. Strikes with highest volume ABOVE price = upside target. BELOW = downside support. These update
+              throughout the day as new flow comes in, making them more accurate than daily aggregate data. Use these
+              levels for intraday entry/exit targets and stop placement.</p>
+            <div id="modalStrikeMagnets"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -736,7 +794,7 @@
       type="audio/wav">
   </audio>
 
-  <script src="app.js?v=13"></script>
+  <script src="app.js?v=14"></script>
 </body>
 
 </html>

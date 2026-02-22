@@ -43,7 +43,15 @@ const DEFAULT_WEIGHTS = {
     spot_gamma_pin: 3,
     flow_horizon: 2,
     volume_direction: 3,
-    earnings_gap_trade: 6
+    earnings_gap_trade: 6,
+    // Phase 2 weights
+    nope_direction: 4,
+    intraday_strike_magnet: 4,
+    analyst_consensus: 3,
+    institutional_flow: 3,
+    fda_risk: 0,
+    exchange_short_imbalance: 2,
+    term_structure_signal: 2
 };
 
 // Load versioned weights
@@ -1142,9 +1150,151 @@ class SignalEngine {
             }
         }
 
+        // ── 39. NOPE — Net Options Pricing Effect (directional predictor) ──
+        var wNOPE = this._ew('nope_direction', sess, hw);
+        if (data.nope) {
+            var nopeData = Array.isArray(data.nope) ? data.nope : (data.nope.value !== undefined ? [data.nope] : []);
+            if (nopeData.length > 0) {
+                var latestNope = nopeData[nopeData.length - 1];
+                var nopeVal = parseFloat(latestNope.nope || latestNope.value || latestNope.nope_value || 0);
+                if (nopeVal > 5) {
+                    bull += wNOPE; signals.push({ name: '🎯 NOPE Bullish', dir: 'BULL', weight: wNOPE, detail: 'NOPE=' + nopeVal.toFixed(1) + ' (positive = call-driven upside)' });
+                } else if (nopeVal < -5) {
+                    bear += wNOPE; signals.push({ name: '🎯 NOPE Bearish', dir: 'BEAR', weight: wNOPE, detail: 'NOPE=' + nopeVal.toFixed(1) + ' (negative = put-driven downside)' });
+                } else {
+                    signals.push({ name: '🎯 NOPE Neutral', dir: 'NEUTRAL', weight: 0, detail: 'NOPE=' + nopeVal.toFixed(1) + ' (mixed flow)' });
+                }
+            }
+        }
+
+        // ── 40. Intraday Strike Magnets (real-time S/R from live flow) ──
+        var wISM = this._ew('intraday_strike_magnet', sess, hw);
+        if (data.flowPerStrikeIntraday && quote.price) {
+            var isfData = Array.isArray(data.flowPerStrikeIntraday) ? data.flowPerStrikeIntraday : [];
+            var curPx = parseFloat(quote.price || quote.last || 0);
+            if (isfData.length > 0 && curPx > 0) {
+                // Find highest-volume strike above and below
+                var strikesAbove = isfData.filter(function (s) { return parseFloat(s.strike) > curPx; })
+                    .sort(function (a, b) { return parseFloat(b.total_premium || b.volume || 0) - parseFloat(a.total_premium || a.volume || 0); });
+                var strikesBelow = isfData.filter(function (s) { return parseFloat(s.strike) < curPx; })
+                    .sort(function (a, b) { return parseFloat(b.total_premium || b.volume || 0) - parseFloat(a.total_premium || a.volume || 0); });
+                var topAbove = strikesAbove[0];
+                var topBelow = strikesBelow[0];
+                if (topAbove) {
+                    var distAbove = (parseFloat(topAbove.strike) - curPx) / curPx;
+                    if (distAbove > 0.002 && distAbove < 0.03) {
+                        bull += wISM * 0.6;
+                        signals.push({ name: '📍 RT Strike Magnet ↑', dir: 'BULL', weight: +(wISM * 0.6).toFixed(2), detail: 'Intraday flow magnet at $' + parseFloat(topAbove.strike).toFixed(0) + ' (' + (distAbove * 100).toFixed(1) + '% above)' });
+                    }
+                }
+                if (topBelow) {
+                    var distBelow = (curPx - parseFloat(topBelow.strike)) / curPx;
+                    if (distBelow > 0.002 && distBelow < 0.03) {
+                        bear += wISM * 0.6;
+                        signals.push({ name: '📍 RT Strike Magnet ↓', dir: 'BEAR', weight: +(wISM * 0.6).toFixed(2), detail: 'Intraday flow magnet at $' + parseFloat(topBelow.strike).toFixed(0) + ' (' + (distBelow * 100).toFixed(1) + '% below)' });
+                    }
+                }
+            }
+        }
+
+        // ── 41. Analyst Consensus ──
+        var wANL = this._ew('analyst_consensus', sess, hw);
+        if (data.analystRatings) {
+            var ar = data.analystRatings;
+            var consensus = (ar.consensus || ar.recommendation || ar.rating || '').toUpperCase();
+            var targetPrice = parseFloat(ar.target_price || ar.price_target || ar.avg_target || 0);
+            var curPrice = parseFloat(quote.price || quote.last || 0);
+            if (consensus && curPrice > 0) {
+                if ((consensus.includes('BUY') || consensus.includes('OUTPERFORM') || consensus.includes('OVERWEIGHT')) && targetPrice > curPrice * 1.05) {
+                    var upside = ((targetPrice - curPrice) / curPrice * 100);
+                    bull += wANL; signals.push({ name: '📊 Analyst Buy', dir: 'BULL', weight: wANL, detail: consensus + ' — target $' + targetPrice.toFixed(0) + ' (+' + upside.toFixed(0) + '%)' });
+                } else if ((consensus.includes('SELL') || consensus.includes('UNDERPERFORM') || consensus.includes('UNDERWEIGHT')) && targetPrice < curPrice * 0.95) {
+                    var downside = ((curPrice - targetPrice) / curPrice * 100);
+                    bear += wANL; signals.push({ name: '📊 Analyst Sell', dir: 'BEAR', weight: wANL, detail: consensus + ' — target $' + targetPrice.toFixed(0) + ' (-' + downside.toFixed(0) + '%)' });
+                }
+            }
+        }
+
+        // ── 42. Institutional Flow (big money accumulation/distribution) ──
+        var wINST = this._ew('institutional_flow', sess, hw);
+        if (data.institutionActivity) {
+            var instAct = Array.isArray(data.institutionActivity) ? data.institutionActivity : [];
+            if (instAct.length > 0) {
+                var instBuyVal = 0, instSellVal = 0;
+                instAct.forEach(function (ia) {
+                    var txType = (ia.transaction_type || ia.type || '').toLowerCase();
+                    var val = parseFloat(ia.value || ia.shares || ia.amount || 0);
+                    if (txType.includes('buy') || txType.includes('purchase') || txType.includes('acquire')) instBuyVal += val;
+                    else if (txType.includes('sell') || txType.includes('dispose') || txType.includes('reduce')) instSellVal += val;
+                });
+                if (instBuyVal > instSellVal * 2) {
+                    bull += wINST; signals.push({ name: '🏦 Inst. Accumulating', dir: 'BULL', weight: wINST, detail: 'Net inst. buying $' + ((instBuyVal - instSellVal) / 1e6).toFixed(1) + 'M' });
+                } else if (instSellVal > instBuyVal * 2) {
+                    bear += wINST; signals.push({ name: '🏦 Inst. Distributing', dir: 'BEAR', weight: wINST, detail: 'Net inst. selling $' + ((instSellVal - instBuyVal) / 1e6).toFixed(1) + 'M' });
+                }
+            }
+        }
+
+        // ── 43. FDA Calendar Risk Gate (biotech event avoidance) ──
+        if (data.fdaCalendar && data.fdaCalendar.length > 0) {
+            var now = new Date();
+            var tickerUpper = ticker.toUpperCase();
+            var fdaEvent = data.fdaCalendar.find(function (e) {
+                var eventTicker = (e.ticker || e.symbol || '').toUpperCase();
+                if (eventTicker !== tickerUpper) return false;
+                var eventDate = new Date(e.date || e.event_date || '');
+                var daysUntil = (eventDate - now) / (1000 * 60 * 60 * 24);
+                return daysUntil >= 0 && daysUntil <= 7;
+            });
+            if (fdaEvent) {
+                signals.push({ name: '⚠️ FDA Event', dir: 'NEUTRAL', weight: 0, detail: 'FDA date ' + (fdaEvent.date || fdaEvent.event_date) + ' — ' + (fdaEvent.drug || fdaEvent.description || 'catalyst') + ' (reduce size)' });
+            }
+        }
+
+        // ── 44. Exchange Short Imbalance ──
+        var wESI = this._ew('exchange_short_imbalance', sess, hw);
+        if (data.shortVolumesByExchange) {
+            var sveData = Array.isArray(data.shortVolumesByExchange) ? data.shortVolumesByExchange : [];
+            if (sveData.length > 0) {
+                var totalShort = 0, totalVol = 0;
+                sveData.forEach(function (ex) {
+                    totalShort += parseFloat(ex.short_volume || 0);
+                    totalVol += parseFloat(ex.total_volume || ex.volume || 0);
+                });
+                if (totalVol > 0) {
+                    var exRatio = totalShort / totalVol;
+                    if (exRatio > 0.55) {
+                        bull += wESI; signals.push({ name: '📈 Heavy Shorting', dir: 'BULL', weight: wESI, detail: 'Exchange short ratio ' + (exRatio * 100).toFixed(0) + '% — squeeze setup' });
+                    } else if (exRatio < 0.2) {
+                        signals.push({ name: '📉 Low Short Interest', dir: 'NEUTRAL', weight: 0, detail: 'Exchange short ratio ' + (exRatio * 100).toFixed(0) + '% — no squeeze' });
+                    }
+                }
+            }
+        }
+
+        // ── 45. Volatility Term Structure Signal ──
+        var wTSS = this._ew('term_structure_signal', sess, hw);
+        if (data.termStructure) {
+            var tsArr = Array.isArray(data.termStructure) ? data.termStructure : [];
+            if (tsArr.length >= 2) {
+                var frontIV = parseFloat(tsArr[0].iv || tsArr[0].implied_vol || 0);
+                var backIV = parseFloat(tsArr[tsArr.length - 1].iv || tsArr[tsArr.length - 1].implied_vol || 0);
+                if (frontIV > 0 && backIV > 0) {
+                    var tsRatio = frontIV / backIV;
+                    if (tsRatio > 1.15) {
+                        // Backwardation: front IV > back IV = event expected, caution
+                        signals.push({ name: '📈 IV Backwardation', dir: 'NEUTRAL', weight: 0, detail: 'Front/Back IV ratio ' + tsRatio.toFixed(2) + ' — event premium, use defined risk' });
+                    } else if (tsRatio < 0.85) {
+                        // Contango: front IV < back IV = normal, sell premium
+                        signals.push({ name: '📉 IV Contango', dir: 'NEUTRAL', weight: 0, detail: 'Front/Back IV ratio ' + tsRatio.toFixed(2) + ' — normal term structure' });
+                    }
+                }
+            }
+        }
+
         // Compute weighted-signal score (context layer)
         const spread = Math.abs(bull - bear);
-        const maxWeight = 46;
+        const maxWeight = 65;
         var bearThreshold = isRanging ? 5 : 2;
         let weightedDir = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
         let weightedConf = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
@@ -1177,11 +1327,30 @@ class SignalEngine {
 
         const signalCount = signals.length;
 
-        // Shadow scores: what v1.0/v1.2 (pure weighted-sum, no setup overlay) would have said
-        // v1.2 uses horizon-specific weights already applied above; v1.0 is same logic, similar weights
+        // Shadow scores: what older versions would have said
+        // v2.0 shadow: same weights but WITHOUT Phase 2 signals (39-45)
+        // We track Phase 2 contributions separately to subtract them
+        var p2Bull = 0, p2Bear = 0;
+        signals.forEach(function (s) {
+            if (s.name && (s.name.includes('NOPE') || s.name.includes('RT Strike Magnet') ||
+                s.name.includes('Analyst') || s.name.includes('Inst.') ||
+                s.name.includes('FDA') || s.name.includes('Heavy Shorting') ||
+                s.name.includes('IV Backwardation') || s.name.includes('IV Contango'))) {
+                if (s.dir === 'BULL') p2Bull += s.weight;
+                else if (s.dir === 'BEAR') p2Bear += s.weight;
+            }
+        });
+        var v20Bull = bull - p2Bull;
+        var v20Bear = bear - p2Bear;
+        var v20Spread = Math.abs(v20Bull - v20Bear);
+        var v20MaxWeight = 46; // v2.0's original maxWeight
+        var v20Dir = v20Bull > v20Bear + 2 ? 'BULLISH' : v20Bear > v20Bull + (isRanging ? 5 : 2) ? 'BEARISH' : 'NEUTRAL';
+        var v20Conf = Math.min(95, Math.round(50 + (v20Spread / v20MaxWeight) * 50));
+
         const shadowScores = {
             'v1.0': { direction: weightedDir, confidence: weightedConf },
-            'v1.2': { direction: weightedDir, confidence: weightedConf }
+            'v1.2': { direction: weightedDir, confidence: weightedConf },
+            'v2.0': { direction: v20Dir, confidence: v20Conf, bull: +v20Bull.toFixed(2), bear: +v20Bear.toFixed(2) }
         };
 
         return {

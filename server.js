@@ -2752,13 +2752,21 @@ async function fetchTickerData(ticker, tier) {
             };
             const setup = alertEngine.generateTradeSetup(ticker, analysis, currentPrice);
             if (setup) {
-                // F1: Snap alert engine targets to structural levels
-                var alertSnapped = snapToStructure(setup.entry, setup.target1, setup.stop, setup.direction, ticker);
-                setup.target1 = alertSnapped.target1;
-                setup.stop = alertSnapped.stop;
-                setup.riskReward = +(Math.abs(alertSnapped.target1 - setup.entry) / Math.max(0.01, Math.abs(setup.entry - alertSnapped.stop))).toFixed(2);
-                setup.structureSnap = alertSnapped.snapped ? { target: alertSnapped.targetSource, stop: alertSnapped.stopSource } : null;
-                state.tradeSetups[ticker] = setup;
+                // Only use alert engine setup if signal engine didn't already produce one
+                // Signal engine setups have real signals and accurate confidence — never overwrite them
+                if (!state.tradeSetups[ticker]) {
+                    // F1: Snap alert engine targets to structural levels
+                    var alertSnapped = snapToStructure(setup.entry, setup.target1, setup.stop, setup.direction, ticker);
+                    setup.target1 = alertSnapped.target1;
+                    setup.stop = alertSnapped.stop;
+                    setup.riskReward = +(Math.abs(alertSnapped.target1 - setup.entry) / Math.max(0.01, Math.abs(setup.entry - alertSnapped.stop))).toFixed(2);
+                    setup.structureSnap = alertSnapped.snapped ? { target: alertSnapped.targetSource, stop: alertSnapped.stopSource } : null;
+                    setup.source = 'alert_engine';  // Mark so we know it's a fallback
+                    state.tradeSetups[ticker] = setup;
+                } else {
+                    // Merge pivot data into existing signal-engine setup (enrich, don't replace)
+                    if (analysis.pivots) state.tradeSetups[ticker].pivots = analysis.pivots;
+                }
             }
             const techAlerts = alertEngine.evaluateTechnicals(ticker, analysis);
             if (techAlerts.length > 0) alertEngine.addAlerts(techAlerts);

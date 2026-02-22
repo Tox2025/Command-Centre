@@ -2719,7 +2719,15 @@ async function fetchTickerData(ticker, tier) {
                 volume: lastCandle.volume
             };
             const setup = alertEngine.generateTradeSetup(ticker, analysis, currentPrice);
-            if (setup) state.tradeSetups[ticker] = setup;
+            if (setup) {
+                // F1: Snap alert engine targets to structural levels
+                var alertSnapped = snapToStructure(setup.entry, setup.target1, setup.stop, setup.direction, ticker);
+                setup.target1 = alertSnapped.target1;
+                setup.stop = alertSnapped.stop;
+                setup.riskReward = +(Math.abs(alertSnapped.target1 - setup.entry) / Math.max(0.01, Math.abs(setup.entry - alertSnapped.stop))).toFixed(2);
+                setup.structureSnap = alertSnapped.snapped ? { target: alertSnapped.targetSource, stop: alertSnapped.stopSource } : null;
+                state.tradeSetups[ticker] = setup;
+            }
             const techAlerts = alertEngine.evaluateTechnicals(ticker, analysis);
             if (techAlerts.length > 0) alertEngine.addAlerts(techAlerts);
         }

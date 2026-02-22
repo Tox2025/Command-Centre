@@ -197,10 +197,14 @@ class MarketScanner {
         var ticker = candidate.ticker;
 
         // Fetch lightweight data — handle failures gracefully so partial data still scores
-        var quote, flow, gex;
+        var quote, flow, gex, shortVol, ftds, shortInt;
         try { quote = await uw.getStockQuote(ticker); } catch (e) { console.log('Scanner: Quote failed for ' + ticker + ': ' + e.message); }
         try { flow = await uw.getFlowByTicker(ticker); } catch (e) { console.log('Scanner: Flow failed for ' + ticker + ': ' + e.message); }
         try { gex = await uw.getGEXByStrike(ticker); } catch (e) { console.log('Scanner: GEX failed for ' + ticker + ': ' + e.message); }
+        // Squeeze data
+        try { shortVol = await uw.getShortVolume(ticker); } catch (e) { /* optional */ }
+        try { ftds = await uw.getFailsToDeliver(ticker); } catch (e) { /* optional */ }
+        try { shortInt = await uw.getShortInterest(ticker); } catch (e) { /* optional */ }
 
         var quoteData = quote?.data || {};
         var price = parseFloat(quoteData.last || quoteData.price || quoteData.close || 0);
@@ -314,6 +318,38 @@ class MarketScanner {
                 bear += 2;
                 signals.push({ name: 'GEX Magnet Below', dir: 'BEAR', detail: 'Negative gamma pull' });
             }
+        }
+
+        // ── Squeeze Composite Scoring (short vol + FTDs + utilization) ──
+        var sqScore = 0;
+        var sqDetail = [];
+        // Short Volume Ratio
+        var svData = (shortVol?.data) || [];
+        if (Array.isArray(svData) && svData.length > 0) {
+            var lastSV = svData[svData.length - 1];
+            var svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0);
+            if (svRatio > 0.5) { sqScore += 2; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
+            else if (svRatio > 0.4) { sqScore += 1; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
+        }
+        // Fails to Deliver
+        var ftdData = (ftds?.data) || [];
+        if (Array.isArray(ftdData) && ftdData.length > 0) {
+            var lastFTD = ftdData[ftdData.length - 1];
+            var ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0);
+            if (ftdQty > 1000000) { sqScore += 2; sqDetail.push('FTD=' + (ftdQty / 1e6).toFixed(1) + 'M'); }
+            else if (ftdQty > 500000) { sqScore += 1; sqDetail.push('FTD=' + (ftdQty / 1e3).toFixed(0) + 'K'); }
+        }
+        // Borrow Utilization
+        var siScanData = (shortInt?.data) || {};
+        if (!Array.isArray(siScanData)) siScanData = [siScanData];
+        if (siScanData.length > 0 && siScanData[0]) {
+            var utilPct = parseFloat(siScanData[0].utilization || siScanData[0].borrow_utilization || 0);
+            if (utilPct > 90) { sqScore += 2; sqDetail.push('Util=' + utilPct.toFixed(0) + '%'); }
+            else if (utilPct > 70) { sqScore += 1; sqDetail.push('Util=' + utilPct.toFixed(0) + '%'); }
+        }
+        if (sqScore >= 2) {
+            bull += sqScore; // Squeeze pressure is always bullish (forced covering)
+            signals.push({ name: '🔥 Squeeze Watch', dir: 'BULL', detail: 'Squeeze ' + sqScore + '/6 (' + sqDetail.join(', ') + ')' });
         }
 
         // Bonus for multi-source convergence from harvest

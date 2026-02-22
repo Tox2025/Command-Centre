@@ -847,30 +847,42 @@ class SignalEngine {
             }
         }
 
-        // ── 29. Squeeze Composite (short volume + FTDs) ──
+        // ── 29. Squeeze Composite (short volume + FTDs + utilization) ──
         var wSQ = this._ew('squeeze_composite', sess, hw);
-        if (data.shortVolume || data.failsToDeliver) {
+        if (data.shortVolume || data.failsToDeliver || data.shortInterest) {
             var sqScore = 0;
+            var sqDetail = [];
+            // Component 1: Short Volume Ratio (>50% = shorts dominating)
             if (data.shortVolume) {
                 var svArr = Array.isArray(data.shortVolume) ? data.shortVolume : [];
                 var lastSV = svArr[svArr.length - 1];
                 if (lastSV) {
                     var svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0);
-                    if (svRatio > 0.5) sqScore += 2;
-                    else if (svRatio > 0.4) sqScore += 1;
+                    if (svRatio > 0.5) { sqScore += 2; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
+                    else if (svRatio > 0.4) { sqScore += 1; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
                 }
             }
+            // Component 2: Fails to Deliver (forced buying pressure)
             if (data.failsToDeliver) {
                 var ftdArr = Array.isArray(data.failsToDeliver) ? data.failsToDeliver : [];
                 var lastFTD = ftdArr[ftdArr.length - 1];
                 if (lastFTD) {
                     var ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0);
-                    if (ftdQty > 1000000) sqScore += 2;
-                    else if (ftdQty > 500000) sqScore += 1;
+                    if (ftdQty > 1000000) { sqScore += 2; sqDetail.push('FTD=' + (ftdQty / 1e6).toFixed(1) + 'M'); }
+                    else if (ftdQty > 500000) { sqScore += 1; sqDetail.push('FTD=' + (ftdQty / 1e3).toFixed(0) + 'K'); }
+                }
+            }
+            // Component 3: Borrow Utilization (from short interest — high util = no shares to borrow)
+            if (data.shortInterest) {
+                var sqSiData = Array.isArray(data.shortInterest) ? data.shortInterest[0] : data.shortInterest;
+                if (sqSiData) {
+                    var utilization = parseFloat(sqSiData.utilization || sqSiData.borrow_utilization || sqSiData.utilization_pct || 0);
+                    if (utilization > 90) { sqScore += 2; sqDetail.push('Util=' + utilization.toFixed(0) + '%'); }
+                    else if (utilization > 70) { sqScore += 1; sqDetail.push('Util=' + utilization.toFixed(0) + '%'); }
                 }
             }
             if (sqScore >= 2) {
-                bull += wSQ * (sqScore / 4); signals.push({ name: '🔥 Squeeze Watch', dir: 'BULL', weight: +(wSQ * sqScore / 4).toFixed(2), detail: 'Squeeze score ' + sqScore + '/4' });
+                bull += wSQ * (sqScore / 6); signals.push({ name: '🔥 Squeeze Watch', dir: 'BULL', weight: +(wSQ * sqScore / 6).toFixed(2), detail: 'Squeeze ' + sqScore + '/6 (' + sqDetail.join(', ') + ')' });
             }
         }
 

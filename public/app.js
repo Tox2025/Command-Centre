@@ -24,8 +24,8 @@ function getSqueezeScore(ticker) {
 }
 function squeezeBadge(ticker) {
     var sq = getSqueezeScore(ticker);
-    if (sq >= 4) return ' <span class="badge" style="background:#ef4444;font-size:0.6rem;animation:pulse 2s infinite">🔥SQ ' + sq + '/6</span>';
-    if (sq >= 2) return ' <span class="badge" style="background:#f59e0b;font-size:0.6rem">🔥SQ ' + sq + '/6</span>';
+    if (sq >= 4) return ' <span class="badge" style="background:#ef4444;font-size:0.6rem;animation:pulse 2s infinite">SQUEEZE ' + sq + '/6</span>';
+    if (sq >= 2) return ' <span class="badge" style="background:#f59e0b;font-size:0.6rem">SQUEEZE ' + sq + '/6</span>';
     return '';
 }
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };

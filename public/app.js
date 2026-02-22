@@ -320,9 +320,9 @@ function renderSetups() {
     var tb = $('setupsBody'), h = '';
     // Color map for server-side horizons
     var horizonColors = {
-        'Scalp / Day Trade': '#6366f1', 'Day Trade': '#3b82f6', 'Day Trade (volatile)': '#3b82f6',
-        'Intraday': '#8b5cf6', 'Extended Hours': '#f59e0b',
-        'Day / Swing (1-2d)': '#f59e0b', 'Swing (2-5d)': '#10b981', 'Swing': '#10b981'
+        'Scalp / Day Trade': '#00d4ff', 'Day Trade': '#3b82f6', 'Day Trade (volatile)': '#3b82f6',
+        'Intraday': '#8b5cf6', 'Extended Hours': '#b45309',
+        'Day / Swing (1-2d)': '#b45309', 'Swing (2-5d)': '#059669', 'Swing': '#059669'
     };
     var allSetups = Object.keys(state.tradeSetups || {}).map(function (t) {
         var s = state.tradeSetups[t];
@@ -373,7 +373,7 @@ function renderSetups() {
         // ML model indicator
         var sigScore = (state.signalScores || {})[t];
         var mlTF = (sigScore && sigScore.ensemble && sigScore.ensemble.timeframe) ? sigScore.ensemble.timeframe : '';
-        var mlBadge = mlTF ? ' <span class="badge" style="background:#6366f1;font-size:0.6rem">' + (mlTF === 'swing' ? 'SW' : 'DT') + '</span>' : '';
+        var mlBadge = mlTF ? ' <span class="badge" style="background:#00d4ff;color:#050810;font-size:0.6rem">' + (mlTF === 'swing' ? 'SW' : 'DT') + '</span>' : '';
         // Kelly sizing badge
         var kelly = (state.kellySizing || {})[t];
         var kellyBadge = kelly ? ' <span class="badge" style="background:#7c3aed;font-size:0.6rem">' + kelly.pct + '%</span>' : '';
@@ -1385,10 +1385,10 @@ function openTickerView(ticker) {
             else if (movePctS > 0.8) horizonS = 'Day Trade';
         }
         var horizonColors = {
-            'Scalp / Day Trade': '#6366f1', 'Scalp/Open': '#6366f1',
+            'Scalp / Day Trade': '#00d4ff', 'Scalp/Open': '#00d4ff',
             'Day Trade': '#3b82f6', 'Intraday': '#3b82f6',
-            'Day / Swing (1-2d)': '#f59e0b', 'Swing (1-3d)': '#f59e0b',
-            'Swing (2-5d)': '#10b981', 'Swing (3-5d)': '#10b981', 'Swing': '#10b981'
+            'Day / Swing (1-2d)': '#b45309', 'Swing (1-3d)': '#b45309',
+            'Swing (2-5d)': '#059669', 'Swing (3-5d)': '#059669', 'Swing': '#059669'
         };
         var mlConfDisp = s.mlConfidence !== null && s.mlConfidence !== undefined ? s.mlConfidence + '%' : '--';
         var mlConfColor = s.mlConfidence >= 60 ? '#4ade80' : s.mlConfidence >= 45 ? '#fbbf24' : '#f87171';

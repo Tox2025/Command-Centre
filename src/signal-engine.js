@@ -1177,8 +1177,12 @@ class SignalEngine {
 
         const signalCount = signals.length;
 
-        // Shadow scores: what v1.0 (pure weighted-sum) would have said
-        const shadowV1 = { direction: weightedDir, confidence: weightedConf };
+        // Shadow scores: what v1.0/v1.2 (pure weighted-sum, no setup overlay) would have said
+        // v1.2 uses horizon-specific weights already applied above; v1.0 is same logic, similar weights
+        const shadowScores = {
+            'v1.0': { direction: weightedDir, confidence: weightedConf },
+            'v1.2': { direction: weightedDir, confidence: weightedConf }
+        };
 
         return {
             ticker,
@@ -1192,7 +1196,7 @@ class SignalEngine {
             session: sess,
             timestamp: new Date().toISOString(),
             matchedSetups: matchedSetups.map(s => s.setup),
-            shadowScores: { 'v1.0': shadowV1 },
+            shadowScores: shadowScores,
             multiTFDetails: mtf ? mtf.confluence.details : [],
             features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote)
         };

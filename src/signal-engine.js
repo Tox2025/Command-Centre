@@ -1,8 +1,10 @@
 // Signal Engine - Multi-source weighted scoring for trade predictions
+// v2.0: Conditional Pattern Engine — setups decide, signals inform
 // Versioned signal weights — loaded from data/signal-versions.json
 
 const path = require('path');
 const fs = require('fs');
+const SetupDetector = require('./setup-detector');
 
 // Default weights (fallback if signal-versions.json not found)
 const DEFAULT_WEIGHTS = {
@@ -178,6 +180,7 @@ class SignalEngine {
         this.weightsDay = SIGNAL_WEIGHTS_DAY;
         this.weightsSwing = SIGNAL_WEIGHTS_SWING;
         this.tickerOverrides = SIGNAL_TICKER_OVERRIDES;
+        this.setupDetector = new SetupDetector();
     }
 
     updateWeights(newWeights) {
@@ -1139,17 +1142,39 @@ class SignalEngine {
             }
         }
 
-        // Compute final score — CONVICTION SPREAD (not ratio)
-        // Old formula: max(bull,bear)/(bull+bear) — caps at ~60% with any opposing signals
-        // New formula: 50 + spread/maxWeight*50 — rewards directional AGREEMENT
+        // Compute weighted-signal score (context layer)
         const spread = Math.abs(bull - bear);
-        const maxWeight = 46;  // ↑ from 40 — accounts for earnings_gap_trade (w=6)
+        const maxWeight = 46;
+        var bearThreshold = isRanging ? 5 : 2;
+        let weightedDir = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
+        let weightedConf = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
 
-        // Regime-aware bear gating: in RANGING, require stronger bear spread to declare BEARISH
-        // Bear signals had 29% accuracy in ranging on 2/19 — too many false bearish calls
-        var bearThreshold = isRanging ? 5 : 2;  // Need 5pt bear lead in ranging vs 2pt normally
-        const direction = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
-        const confidence = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));
+        // ── SETUP OVERLAY — patterns decide, signals inform ──
+        const matchedSetups = this.setupDetector.detectAll(ta, quote, flow, regime);
+
+        let direction, confidence;
+        if (matchedSetups.length > 0) {
+            matchedSetups.sort((a, b) => b.strength - a.strength);
+            const best = matchedSetups[0];
+            direction = best.direction;
+            confidence = Math.min(90, Math.round(60 + best.strength * 30));
+            if (weightedDir === direction) {
+                confidence = Math.min(95, confidence + 5);
+            }
+            matchedSetups.forEach(s => {
+                signals.push({
+                    name: '🎯 ' + s.setup,
+                    dir: s.direction === 'BULLISH' ? 'BULL' : 'BEAR',
+                    weight: +(s.strength * 10).toFixed(1),
+                    detail: s.detail
+                });
+            });
+            console.log(`  🎯 ${ticker}: Setup ${best.setup} → ${direction} (${confidence}%)`);
+        } else {
+            direction = weightedDir;
+            confidence = Math.min(55, weightedConf);
+        }
+
         const signalCount = signals.length;
 
         return {
@@ -1163,8 +1188,8 @@ class SignalEngine {
             signals,
             session: sess,
             timestamp: new Date().toISOString(),
+            matchedSetups: matchedSetups.map(s => s.setup),
             multiTFDetails: mtf ? mtf.confluence.details : [],
-            // Feature vector for ML
             features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote)
         };
     }

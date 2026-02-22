@@ -1,11 +1,16 @@
+/* -- Google Fonts (Sen for headings like UW) ------ */
+@import url('https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap');
+
 /* -- Design Tokens ------------------------------- */
 :root {
   --bg-primary: #050810;
   --bg-secondary: #0a0e18;
-  --bg-panel: #0d1220;
+  --bg-panel: rgba(12, 18, 32, 0.75);
+  --bg-panel-solid: #0c1220;
   --bg-panel-hover: #131a2e;
   --bg-input: #080c16;
-  --border: #182040;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(0, 212, 255, 0.25);
   --border-glow: #00d4ff;
   --text-primary: #e8ecf4;
   --text-secondary: #8b95a8;
@@ -19,12 +24,15 @@
   --bear: #ff3b5c;
   --neutral: #5a6478;
   --font-sans: 'Inter', system-ui, sans-serif;
+  --font-heading: 'Sen', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --radius: 8px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
-  --glow-bull: 0 0 12px rgba(0, 220, 130, 0.15);
-  --glow-bear: 0 0 12px rgba(255, 59, 92, 0.15);
-  --glow-accent: 0 0 12px rgba(0, 212, 255, 0.15);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(0, 212, 255, 0.08);
+  --glow-bull: 0 0 15px rgba(0, 220, 130, 0.12);
+  --glow-bear: 0 0 15px rgba(255, 59, 92, 0.12);
+  --glow-accent: 0 0 15px rgba(0, 212, 255, 0.12);
 }
 
 * {
@@ -36,6 +44,9 @@
 body {
   font-family: var(--font-sans);
   background: var(--bg-primary);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0, 212, 255, 0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 60%, rgba(139, 92, 246, 0.03), transparent);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
@@ -48,12 +59,14 @@ body {
   justify-content: space-between;
   padding: 0 24px;
   height: 52px;
-  background: linear-gradient(180deg, #0e1320 0%, #0a0f1a 100%);
+  background: rgba(10, 15, 26, 0.85);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 100;
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow: 0 1px 0 rgba(0, 212, 255, 0.08);
 }
 
 .topbar-left,
@@ -80,10 +93,12 @@ body {
 }
 
 .logo-text {
-  font-weight: 700;
+  font-family: var(--font-heading);
+  font-weight: 800;
   font-size: 14px;
-  letter-spacing: 2px;
+  letter-spacing: 2.5px;
   color: var(--text-primary);
+  text-transform: uppercase;
 }
 
 .session-badge {
@@ -92,9 +107,10 @@ body {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(0, 212, 255, 0.1);
   color: var(--accent-blue);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  backdrop-filter: blur(8px);
 }
 
 .ticker-input-group {
@@ -196,13 +212,13 @@ body {
 
 .nav-link:hover {
   color: var(--text-primary);
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(0, 212, 255, 0.08);
 }
 
 .nav-link.active {
   color: var(--accent-blue);
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.18);
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid rgba(0, 212, 255, 0.18);
   position: relative;
 }
 
@@ -244,12 +260,15 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
   animation: fadeIn 0.4s ease;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
+  backdrop-filter: blur(12px) saturate(1.3);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
 }
 
 .panel:hover {
-  border-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow), var(--shadow-glow);
+  transform: translateY(-1px);
 }
 
 @keyframes fadeIn {
@@ -268,14 +287,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
 }
 
 .panel-header h2 {
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .panel-badge {
@@ -338,28 +361,32 @@ body {
 /* -- Data Tables ---------------------------------- */
 .data-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
 }
 
 .data-table th {
   text-align: left;
-  padding: 7px 8px;
+  padding: 8px 10px;
   color: var(--text-muted);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
-  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   font-weight: 600;
+  font-family: var(--font-heading);
 }
 
 .data-table td {
-  padding: 7px 8px;
-  border-bottom: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .data-table tbody tr {
-  transition: background 0.15s;
+  transition: background 0.15s ease;
 }
 
 .data-table tbody tr:nth-child(even) {
@@ -367,13 +394,13 @@ body {
 }
 
 .data-table tbody tr:hover {
-  background: var(--bg-panel-hover);
+  background: rgba(0, 212, 255, 0.04);
 }
 
 .data-table.compact td,
 .data-table.compact th {
-  padding: 5px 8px;
-  font-size: 11.5px;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
 /* -- Badges --------------------------------------- */
@@ -775,7 +802,7 @@ body {
 }
 
 .brief-card:hover {
-  border-color: rgba(99, 102, 241, 0.3);
+  border-color: rgba(0, 212, 255, 0.3);
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
@@ -2173,7 +2200,7 @@ body {
 }
 
 .info-tip:hover {
-  background: rgba(99, 102, 241, 0.5);
+  background: rgba(0, 212, 255, 0.5);
   color: #e2e8f0;
 }
 
@@ -2184,7 +2211,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(15, 23, 42, 0.96);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(0, 212, 255, 0.3);
   color: #cbd5e1;
   font-size: 11px;
   font-weight: 400;
@@ -2212,7 +2239,7 @@ body {
   color: #64748b;
   margin: 0 0 8px 0;
   padding: 4px 0 4px 8px;
-  border-left: 2px solid rgba(99, 102, 241, 0.3);
+  border-left: 2px solid rgba(0, 212, 255, 0.3);
   line-height: 1.4;
   font-style: italic;
   max-height: 0;
@@ -2241,7 +2268,7 @@ body {
   font-size: 12px;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #00d4ff 0%, #8b5cf6 100%);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -2251,7 +2278,7 @@ body {
 
 .btn-paper-trade:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
 }
 
 .btn-paper-trade:disabled {
@@ -2305,7 +2332,7 @@ body {
 
 .calc-field input:focus,
 .calc-field select:focus {
-  border-color: #6366f1;
+  border-color: #00d4ff;
   outline: none;
 }
 
@@ -2316,7 +2343,7 @@ body {
 }
 
 .btn-calc {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #00d4ff, #8b5cf6);
   color: white;
   border: none;
   padding: 8px 16px;
@@ -2329,7 +2356,7 @@ body {
 
 .btn-calc:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
 }
 
 .calc-results {
@@ -2378,11 +2405,11 @@ body {
 
   0%,
   100% {
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4), 0 0 0 0 rgba(167, 139, 250, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.4), 0 0 0 0 rgba(0, 212, 255, 0.3);
   }
 
   50% {
-    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.6), 0 0 0 8px rgba(167, 139, 250, 0);
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.6), 0 0 0 8px rgba(0, 212, 255, 0);
   }
 }
 
@@ -2405,7 +2432,7 @@ body {
   border-radius: 50%;
   background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #0f172a 100%);
   color: white;
-  border: 2px solid rgba(167, 139, 250, 0.3);
+  border: 2px solid rgba(0, 212, 255, 0.3);
   font-size: 24px;
   cursor: pointer;
   z-index: 9998;
@@ -2418,8 +2445,8 @@ body {
 
 .chat-fab:hover {
   transform: scale(1.15) rotate(15deg);
-  border-color: rgba(167, 139, 250, 0.7);
-  box-shadow: 0 6px 28px rgba(99, 102, 241, 0.7), 0 0 0 4px rgba(167, 139, 250, 0.15);
+  border-color: rgba(0, 212, 255, 0.7);
+  box-shadow: 0 6px 28px rgba(0, 212, 255, 0.7), 0 0 0 4px rgba(0, 212, 255, 0.15);
 }
 
 .chat-fab:hover svg {
@@ -2433,7 +2460,7 @@ body {
   width: 380px;
   height: 520px;
   background: var(--bg-panel);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(0, 212, 255, 0.3);
   border-radius: 16px;
   display: none;
   flex-direction: column;
@@ -2448,7 +2475,7 @@ body {
 
 .chat-header {
   padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(139, 92, 246, 0.15));
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -2481,7 +2508,7 @@ body {
 
 .chat-msg.user {
   align-self: flex-end;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #00d4ff, #8b5cf6);
   color: white;
   border-bottom-right-radius: 4px;
 }
@@ -2520,12 +2547,12 @@ body {
 }
 
 .chat-input-area input:focus {
-  border-color: #6366f1;
+  border-color: #00d4ff;
   outline: none;
 }
 
 .chat-input-area button {
-  background: #6366f1;
+  background: #00d4ff;
   color: white;
   border: none;
   padding: 8px 14px;

@@ -6,6 +6,28 @@ function fmt(n) { return n == null ? '--' : Number(n).toFixed(2); }
 function fmtK(n) { return n == null ? '--' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'K' : String(n); }
 function timeAgo(iso) { if (!iso) return ''; return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); }
 var sColors = { PRE_MARKET: '#f59e0b', OPEN: '#10b981', MIDDAY: '#3b82f6', POWER_HOUR: '#8b5cf6', POST_MARKET: '#f59e0b', CLOSED: '#64748b', LOADING: '#64748b' };
+// Compute squeeze score for a ticker from state data (0-6)
+function getSqueezeScore(ticker) {
+    var score = 0;
+    var svRaw = state.shortVolume && state.shortVolume[ticker];
+    var svArr = Array.isArray(svRaw) ? svRaw : [];
+    var lastSV = svArr.length > 0 ? svArr[svArr.length - 1] : null;
+    if (lastSV) { var r = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0); if (r > 0.5) score += 2; else if (r > 0.4) score += 1; }
+    var ftdRaw = state.failsToDeliver && state.failsToDeliver[ticker];
+    var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
+    var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
+    if (lastFTD) { var q = parseFloat(lastFTD.quantity || lastFTD.fails || 0); if (q > 1000000) score += 2; else if (q > 500000) score += 1; }
+    var siRaw = state.shortInterest && state.shortInterest[ticker];
+    var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+    if (siObj) { var u = parseFloat(siObj.utilization || siObj.borrow_utilization || 0); if (u > 90) score += 2; else if (u > 70) score += 1; }
+    return score;
+}
+function squeezeBadge(ticker) {
+    var sq = getSqueezeScore(ticker);
+    if (sq >= 4) return ' <span class="badge" style="background:#ef4444;font-size:0.6rem;animation:pulse 2s infinite">🔥SQ ' + sq + '/6</span>';
+    if (sq >= 2) return ' <span class="badge" style="background:#f59e0b;font-size:0.6rem">🔥SQ ' + sq + '/6</span>';
+    return '';
+}
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };
 
 function connect() {
@@ -333,7 +355,7 @@ function renderSetups() {
         var hColor = horizonColors[s._horizon] || '#64748b';
         var sigCount = (s.signals || []).length;
         h += '<tr onclick="openTickerView(\'' + t + '\')" style="cursor:pointer">';
-        h += '<td><strong>' + t + '</strong></td>';
+        h += '<td><strong>' + t + '</strong>' + squeezeBadge(t) + '</td>';
         h += '<td class="' + dc + '">' + s.direction + '</td>';
         h += '<td>$' + fmt(s.entry) + '</td>';
         h += '<td>$' + fmt(s.target1) + '</td>';
@@ -935,7 +957,7 @@ function renderScanner() {
         }).join(' ');
         var signalNames = (r.signals || []).map(function (s) { return s.name; }).slice(0, 3).join(', ');
         h += '<tr class="scanner-row" onclick="openTickerView(\'' + r.ticker + '\')" style="cursor:pointer">';
-        h += '<td><strong class="scanner-ticker">' + r.ticker + '</strong></td>';
+        h += '<td><strong class="scanner-ticker">' + r.ticker + '</strong>' + squeezeBadge(r.ticker) + '</td>';
         h += '<td><span class="badge ' + (r.direction === 'BULLISH' ? 'badge-bull' : r.direction === 'BEARISH' ? 'badge-bear' : 'badge-neutral') + '">' + r.direction + '</span></td>';
         h += '<td><div class="conf-bar-wrap"><div class="conf-bar ' + confClass + '" style="width:' + r.confidence + '%"></div><span class="conf-text">' + r.confidence + '%</span></div></td>';
         h += '<td>$' + fmt(r.price) + '</td>';
@@ -985,7 +1007,7 @@ function renderDiscoveries() {
 
         h += '<div class="discovery-card" onclick="openTickerView(\'' + d.ticker + '\')"> ';
         h += '<div class="discovery-card-header">';
-        h += '<span class="discovery-ticker">' + d.ticker + '</span>';
+        h += '<span class="discovery-ticker">' + d.ticker + '</span>' + squeezeBadge(d.ticker);
         h += '<span class="discovery-source-badge discovery-source-' + sourceClass + '">' + sourceLabel + '</span>';
         h += '</div>';
 

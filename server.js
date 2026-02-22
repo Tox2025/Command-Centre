@@ -2617,6 +2617,38 @@ async function scoreTickerSignals(ticker) {
                 state.tradeSetups[ticker] = setup;
                 tradeJournal.logSetup(setup, signalResult);
 
+                // ── Squeeze Alert: notify on high-probability squeeze detections ──
+                try {
+                    var sqData = { svRatio: 0, ftdQty: 0, utilPct: 0, score: 0 };
+                    var svArr = Array.isArray(state.shortVolume[ticker]) ? state.shortVolume[ticker] : [];
+                    var lastSV = svArr.length > 0 ? svArr[svArr.length - 1] : null;
+                    if (lastSV) { sqData.svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0); if (sqData.svRatio > 0.5) sqData.score += 2; else if (sqData.svRatio > 0.4) sqData.score += 1; }
+                    var ftdArr = Array.isArray(state.failsToDeliver[ticker]) ? state.failsToDeliver[ticker] : [];
+                    var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
+                    if (lastFTD) { sqData.ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0); if (sqData.ftdQty > 1000000) sqData.score += 2; else if (sqData.ftdQty > 500000) sqData.score += 1; }
+                    var siObj = Array.isArray(state.shortInterest[ticker]) ? state.shortInterest[ticker][0] : state.shortInterest[ticker];
+                    if (siObj) { sqData.utilPct = parseFloat(siObj.utilization || siObj.borrow_utilization || 0); if (sqData.utilPct > 90) sqData.score += 2; else if (sqData.utilPct > 70) sqData.score += 1; }
+
+                    state.squeezeScores = state.squeezeScores || {};
+                    state.squeezeScores[ticker] = sqData;
+
+                    // Alert on high squeeze scores (4+/6) — with 2h cooldown per ticker
+                    if (sqData.score >= 4) {
+                        state.squeezeCooldown = state.squeezeCooldown || {};
+                        var lastAlert = state.squeezeCooldown[ticker] || 0;
+                        if (Date.now() - lastAlert > 2 * 60 * 60 * 1000) {
+                            state.squeezeCooldown[ticker] = Date.now();
+                            var sqMsg = '🔥 *SQUEEZE ALERT: ' + ticker + '* (Score: ' + sqData.score + '/6)\n'
+                                + '• Short Volume: ' + (sqData.svRatio * 100).toFixed(0) + '%' + (sqData.svRatio > 0.5 ? ' ✅' : '') + '\n'
+                                + '• FTDs: ' + (sqData.ftdQty > 1e6 ? (sqData.ftdQty / 1e6).toFixed(1) + 'M' : (sqData.ftdQty / 1e3).toFixed(0) + 'K') + ' shares' + (sqData.ftdQty > 1e6 ? ' ✅' : '') + '\n'
+                                + '• Borrow Util: ' + sqData.utilPct.toFixed(0) + '%' + (sqData.utilPct > 90 ? ' ✅' : '') + '\n'
+                                + '• Price: $' + price.toFixed(2) + ' | Dir: ' + dir + ' | Conf: ' + signalResult.confidence + '%';
+                            console.log('🔥 SQUEEZE ALERT: ' + ticker + ' score=' + sqData.score + '/6');
+                            try { notifier.alert({ ticker: ticker, confidence: signalResult.confidence, direction: dir }, { customMessage: sqMsg }); } catch (ne) { /* optional */ }
+                        }
+                    }
+                } catch (sqErr) { /* squeeze alert is optional */ }
+
                 // ── Auto Paper Trade: mirror every unique setup ─────────────────────
                 // logSetup above already deduplicates (30min cooldown, any status)
                 // Only additional guard: don't re-enter after 3+ consecutive losses

@@ -26,16 +26,20 @@ class Notifier {
     // ── Trade Alert ─────────────────────────────────────────
     async alert(setup, extra) {
         if (!this.enabled) return;
-        if (!setup || (setup.confidence || 0) < this.minConfidence) return;
+        extra = extra || {};
+
+        // Custom message alerts (e.g. squeeze alerts) bypass confidence threshold
+        if (!extra.customMessage && (!setup || (setup.confidence || 0) < this.minConfidence)) return;
 
         var ticker = setup.ticker || 'UNKNOWN';
 
-        // Cooldown check
-        if (this.cooldown[ticker] && Date.now() - this.cooldown[ticker] < this.cooldownMs) return;
-        this.cooldown[ticker] = Date.now();
+        // Cooldown check (skip cooldown for custom alerts — they manage their own)
+        if (!extra.customMessage) {
+            if (this.cooldown[ticker] && Date.now() - this.cooldown[ticker] < this.cooldownMs) return;
+            this.cooldown[ticker] = Date.now();
+        }
 
-        extra = extra || {};
-        var msg = this._formatMessage(setup, extra);
+        var msg = extra.customMessage ? { text: extra.customMessage, setup: setup } : this._formatMessage(setup, extra);
 
         if (this.discordUrl) {
             await this._sendDiscord(this.discordUrl, msg, setup);

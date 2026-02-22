@@ -1,7 +1,7 @@
 {
-  "lastUpdated": "2026-02-22T19:30:32.641Z",
+  "lastUpdated": "2026-02-22T21:00:32.684Z",
   "stats": {
-    "total": 89,
+    "total": 107,
     "performance1h": {
       "count": 0,
       "hitRate": 0,
@@ -19,13 +19,13 @@
     },
     "bySource": {
       "Scanner": {
-        "total": 54,
+        "total": 63,
         "checked": 0,
         "hitRate": 0,
         "avgReturn": 0
       },
       "VolatilityRunner": {
-        "total": 35,
+        "total": 44,
         "checked": 0,
         "hitRate": 0,
         "avgReturn": 0
@@ -39,83 +39,6 @@
     }
   },
   "history": [
-    {
-      "ticker": "SLV",
-      "source": "Scanner",
-      "discoveredAt": 1771745631862,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "SPX",
-      "source": "Scanner",
-      "discoveredAt": 1771745632035,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "NVDA",
-      "source": "Scanner",
-      "discoveredAt": 1771745632192,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "SLV",
-      "source": "Scanner",
-      "discoveredAt": 1771749239693,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "SPX",
-      "source": "Scanner",
-      "discoveredAt": 1771749239881,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "NVDA",
-      "source": "Scanner",
-      "discoveredAt": 1771749240038,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
-    {
-      "ticker": "SPXW",
-      "source": "VolatilityRunner",
-      "discoveredAt": 1771752780839,
-      "priceAtDiscovery": 0,
-      "direction": "NEUTRAL",
-      "confidence": 50,
-      "checked1h": false,
-      "checked4h": false,
-      "checkedEOD": false
-    },
     {
       "ticker": "SLV",
       "source": "Scanner",
@@ -1011,6 +934,204 @@
       "ticker": "NVDA",
       "source": "Scanner",
       "discoveredAt": 1771788166183,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771788706366,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771789313011,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771789919905,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SLV",
+      "source": "Scanner",
+      "discoveredAt": 1771789986480,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPX",
+      "source": "Scanner",
+      "discoveredAt": 1771789989879,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "NVDA",
+      "source": "Scanner",
+      "discoveredAt": 1771789990112,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771790527101,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771791199758,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771791812822,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SLV",
+      "source": "Scanner",
+      "discoveredAt": 1771791879101,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPX",
+      "source": "Scanner",
+      "discoveredAt": 1771791879333,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "NVDA",
+      "source": "Scanner",
+      "discoveredAt": 1771791879577,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771792485494,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771793098692,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPXW",
+      "source": "VolatilityRunner",
+      "discoveredAt": 1771793712146,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SLV",
+      "source": "Scanner",
+      "discoveredAt": 1771793778230,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "SPX",
+      "source": "Scanner",
+      "discoveredAt": 1771793778463,
+      "priceAtDiscovery": 0,
+      "direction": "NEUTRAL",
+      "confidence": 50,
+      "checked1h": false,
+      "checked4h": false,
+      "checkedEOD": false
+    },
+    {
+      "ticker": "NVDA",
+      "source": "Scanner",
+      "discoveredAt": 1771793778694,
       "priceAtDiscovery": 0,
       "direction": "NEUTRAL",
       "confidence": 50,

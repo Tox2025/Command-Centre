@@ -2774,12 +2774,6 @@ async function fetchTickerData(ticker, tier) {
                 // Only use alert engine setup if signal engine didn't already produce one
                 // Signal engine setups have real signals and accurate confidence — never overwrite them
                 if (!state.tradeSetups[ticker]) {
-                    // F1: Snap alert engine targets to structural levels
-                    var alertSnapped = snapToStructure(setup.entry, setup.target1, setup.stop, setup.direction, ticker);
-                    setup.target1 = alertSnapped.target1;
-                    setup.stop = alertSnapped.stop;
-                    setup.riskReward = +(Math.abs(alertSnapped.target1 - setup.entry) / Math.max(0.01, Math.abs(setup.entry - alertSnapped.stop))).toFixed(2);
-                    setup.structureSnap = alertSnapped.snapped ? { target: alertSnapped.targetSource, stop: alertSnapped.stopSource } : null;
                     setup.source = 'alert_engine';  // Mark so we know it's a fallback
                     state.tradeSetups[ticker] = setup;
                 } else {
@@ -2873,12 +2867,7 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
-            // Analyst Ratings — WARM
-            try {
-                const ar = await uw.getAnalystRatingsByTicker(ticker);
-                if (ar?.data) state.analystRatings[ticker] = ar.data;
-                callCount++;
-            } catch (e) { /* optional */ }
+
         }
 
         // ── COLD tier (every 15th cycle) ──

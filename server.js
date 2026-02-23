@@ -2438,12 +2438,12 @@ function trackDiscovery(ticker, source, signalResult, meta) {
 
             // ── Auto Paper Trade for Discovery Setups ──
             // Same logic as watchlist: cooldown + consecutive loss guard
-            tradeJournal.logSetup(setup, signalResult);
+            tradeJournal.logSetup(setup, signalResult, scheduler);
             var maxConsecLosses = 3;
             var consecLosses = tradeJournal.getConsecutiveLosses(t, dir);
             if (consecLosses < maxConsecLosses) {
                 var cooldownMs = 30 * 60 * 1000;
-                var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs);
+                var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
                 if (autoTrade) {
                     console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
                         ' (conf: ' + signalResult.confidence + '%, source: ' + source + ')');
@@ -2798,7 +2798,7 @@ async function scoreTickerSignals(ticker) {
                 state.kellySizing[ticker] = kelly;
 
                 state.tradeSetups[ticker] = setup;
-                tradeJournal.logSetup(setup, signalResult);
+                tradeJournal.logSetup(setup, signalResult, scheduler);
 
                 // ── Squeeze Alert: notify on high-probability squeeze detections ──
                 try {
@@ -2840,7 +2840,7 @@ async function scoreTickerSignals(ticker) {
 
                 if (consecLosses < maxConsecLosses) {
                     var cooldownMs = 30 * 60 * 1000;
-                    var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs);
+                    var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
                     if (autoTrade) {
                         console.log('📝 Auto paper trade: ' + dir + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (conf: ' + signalResult.confidence + '%, signals: ' + (signalResult.signals || []).length + ', ' + horizon + ')');
                         try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }

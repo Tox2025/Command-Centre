@@ -82,6 +82,23 @@ class SessionScheduler {
         return this.getCurrentSession().name;
     }
 
+    // Check if today is a market day (Mon-Fri, not a holiday)
+    isMarketDay() {
+        var now = new Date();
+        var estStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+        var est = new Date(estStr);
+        var day = est.getDay(); // 0=Sun, 6=Sat
+        return day >= 1 && day <= 5;
+    }
+
+    // Check if market is open for trading (not overnight/weekend)
+    isTradingSession() {
+        if (!this.isMarketDay()) return false;
+        var session = this.getSessionName();
+        // Only trade during active sessions, NOT overnight
+        return ['PRE_MARKET', 'OPEN_RUSH', 'POWER_OPEN', 'MIDDAY', 'POWER_HOUR', 'AFTER_HOURS'].indexOf(session) >= 0;
+    }
+
     // ── Data Tiering ──────────────────────────────────────
     getDataTier() {
         this.cycleCount++;

@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
+const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
 const EXPIRY_DAYS = 5; // Max days to track a trade before marking expired
+const ACCOUNT_BALANCE = 100000; // Paper trading account size
+const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
 
 class TradeJournal {
     constructor() {
@@ -37,9 +40,43 @@ class TradeJournal {
         }
     }
 
+    // Get active signal version from signal-versions.json
+    _getSignalVersion() {
+        try {
+            if (fs.existsSync(VERSIONS_PATH)) {
+                var data = JSON.parse(fs.readFileSync(VERSIONS_PATH, 'utf8'));
+                return data.activeVersion || 'unknown';
+            }
+        } catch (e) { /* ignore */ }
+        return 'unknown';
+    }
+
+    // Get total open position notional exposure
+    _getOpenExposure() {
+        var total = 0;
+        var byTicker = {};
+        this.trades.forEach(function (t) {
+            if (t.status !== 'PENDING') return;
+            var price = t.paperEntry || t.entry || 0;
+            var shares = t.shares || 1;
+            var notional = price * shares;
+            total += notional;
+            byTicker[t.ticker] = (byTicker[t.ticker] || 0) + 1;
+        });
+        return { total: total, byTicker: byTicker };
+    }
+
     // Log a new trade setup
-    logSetup(setup, signalResult) {
+    logSetup(setup, signalResult, scheduler) {
         if (!setup || !setup.ticker) return;
+
+        // ── Market hours gate ──
+        if (scheduler && typeof scheduler.isTradingSession === 'function') {
+            if (!scheduler.isTradingSession()) {
+                return; // Don't log setups outside market hours
+            }
+        }
+
         // Check for duplicate (same ticker + direction within last 30 min, ANY status)
         const now = Date.now();
         const cooldownMs = 30 * 60 * 1000;
@@ -70,7 +107,8 @@ class TradeJournal {
             status: 'PENDING', // PENDING, WIN_T1, WIN_T2, LOSS_STOP, EXPIRED
             outcome: null, // actual exit price
             pnlPct: null,
-            session: setup.session || 'UNKNOWN'
+            session: setup.session || 'UNKNOWN',
+            signalVersion: this._getSignalVersion()
         };
         this.trades.push(trade);
         this.stats.totalTrades++;
@@ -330,18 +368,55 @@ class TradeJournal {
     }
 
     // Paper Trading - simulate entries at current price
-    paperTrade(setup, currentPrice, cooldownMs) {
+    paperTrade(setup, currentPrice, cooldownMs, scheduler) {
         if (!setup || !setup.ticker) return null;
+
+        // ── Market hours gate — no trading on weekends or outside session ──
+        if (scheduler && typeof scheduler.isTradingSession === 'function') {
+            if (!scheduler.isTradingSession()) {
+                return null; // Market is closed
+            }
+        }
+
         cooldownMs = cooldownMs || 2 * 60 * 60 * 1000; // default 2 hours
         var nowMs = Date.now();
 
-        // Check for duplicate: ANY trade (open OR closed) for same ticker+direction within cooldown
+        // ── Duplicate check: ANY trade (open OR closed) for same ticker+direction within cooldown ──
         var dup = this.trades.find(function (t) {
             if (!t.paper || t.ticker !== setup.ticker || t.direction !== setup.direction) return false;
             var tradeTime = new Date(t.openTime || t.entryTime).getTime();
             return (nowMs - tradeTime) < cooldownMs;
         });
         if (dup) return null; // Cooldown period hasn't expired
+
+        // ── Per-ticker limit — max concurrent positions per ticker ──
+        var exposure = this._getOpenExposure();
+        var tickerOpenCount = exposure.byTicker[setup.ticker] || 0;
+        if (tickerOpenCount >= MAX_PER_TICKER) {
+            return null; // Too many open positions for this ticker
+        }
+
+        var entryPrice = currentPrice || setup.entry;
+
+        // Tentatively calculate shares for exposure check
+        var tentativeShares = 0;
+        if (setup.kellySizing && setup.kellySizing.size > 0) {
+            tentativeShares = Math.floor(setup.kellySizing.size / entryPrice);
+        } else {
+            var riskPerShare = Math.abs(entryPrice - setup.stop);
+            tentativeShares = riskPerShare > 0 ? Math.floor(2000 / riskPerShare) : 10;
+        }
+        if (tentativeShares < 1) tentativeShares = 1;
+
+        // ── Portfolio exposure cap — total open notional ≤ account balance ──
+        var newNotional = entryPrice * tentativeShares;
+        if (exposure.total + newNotional > ACCOUNT_BALANCE) {
+            // Scale down shares to fit within remaining budget
+            var remaining = ACCOUNT_BALANCE - exposure.total;
+            if (remaining < entryPrice) return null; // Not enough capital
+            tentativeShares = Math.floor(remaining / entryPrice);
+            if (tentativeShares < 1) return null;
+        }
 
         var trade = {
             id: 'PT-' + nowMs + '-' + Math.random().toString(36).substr(2, 5),
@@ -367,20 +442,11 @@ class TradeJournal {
             unrealizedPnl: 0,
             session: setup.session || 'UNKNOWN',
             horizon: setup.horizon || 'Swing',
-            horizon: setup.horizon || 'Swing',
             paper: true,
-            paperEntry: currentPrice || setup.entry,
-            shares: 0
+            paperEntry: entryPrice,
+            shares: tentativeShares,
+            signalVersion: this._getSignalVersion()
         };
-
-        // Calculate Shares
-        if (setup.kellySizing && setup.kellySizing.size > 0) {
-            trade.shares = Math.floor(setup.kellySizing.size / trade.paperEntry);
-        } else {
-            // Fallback: $2000 risk
-            const riskPerShare = Math.abs(trade.paperEntry - setup.stop);
-            trade.shares = riskPerShare > 0 ? Math.floor(2000 / riskPerShare) : 10;
-        }
 
         this.trades.push(trade);
         this._save();

@@ -61,7 +61,15 @@ const DEFAULT_WEIGHTS = {
     etf_flow_tailwind: 3,
     // Phase B weights — new UW endpoints
     iv_surface_skew: 3,
-    risk_reversal_signal: 3
+    risk_reversal_signal: 3,
+    // Phase E-F weights — new signal dimensions
+    oi_strike_concentration: 3,
+    volume_profile_sr: 3,
+    expiry_activity_focus: 2,
+    granular_gex: 2,
+    institutional_ownership: 2,
+    congress_conviction: 2,
+    seasonality_granular: 2
 };
 
 // Load versioned weights
@@ -111,7 +119,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 1.4, flow_horizon: 0.8, volume_direction: 1.5,
         earnings_gap_trade: 1.5,
         max_pain_gravity: 1.0, oi_change_direction: 1.0, aggregate_greek_exposure: 1.2,
-        uw_state_confirmation: 0.8, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.6
+        uw_state_confirmation: 0.8, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.6,
+        oi_strike_concentration: 1.4, volume_profile_sr: 1.2, expiry_activity_focus: 0.8,
+        granular_gex: 1.4, institutional_ownership: 0.3, congress_conviction: 0.2, seasonality_granular: 0.3
     },
     POWER_OPEN: {  // 9:21-10:00 AM — momentum + flow
         ema_alignment: 0.8, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.8,
@@ -126,7 +136,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 1.3, flow_horizon: 0.9, volume_direction: 1.3,
         earnings_gap_trade: 1.5,
         max_pain_gravity: 1.0, oi_change_direction: 1.2, aggregate_greek_exposure: 1.2,
-        uw_state_confirmation: 1.0, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.8
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.8,
+        oi_strike_concentration: 1.3, volume_profile_sr: 1.2, expiry_activity_focus: 1.0,
+        granular_gex: 1.3, institutional_ownership: 0.4, congress_conviction: 0.3, seasonality_granular: 0.4
     },
     PRE_MARKET: {  // 8:30-9:00 AM — news + gap driven
         ema_alignment: 0.5, rsi_position: 0.6, macd_histogram: 0.5, bollinger_position: 0.4,
@@ -141,7 +153,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 0.5, flow_horizon: 0.5, volume_direction: 0.5,
         earnings_gap_trade: 1.8,
         max_pain_gravity: 0.5, oi_change_direction: 0.8, aggregate_greek_exposure: 0.8,
-        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.0
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.0,
+        oi_strike_concentration: 0.5, volume_profile_sr: 0.5, expiry_activity_focus: 0.5,
+        granular_gex: 0.5, institutional_ownership: 0.8, congress_conviction: 0.8, seasonality_granular: 0.8
     },
     MIDDAY: {      // 10:01 AM-3:00 PM — balanced day trading
         ema_alignment: 1.0, rsi_position: 1.1, macd_histogram: 0.9, bollinger_position: 1.3,
@@ -156,7 +170,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 1.0, flow_horizon: 1.0, volume_direction: 1.0,
         earnings_gap_trade: 0.4,
         max_pain_gravity: 1.4, oi_change_direction: 1.0, aggregate_greek_exposure: 1.0,
-        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0,
+        oi_strike_concentration: 1.2, volume_profile_sr: 1.2, expiry_activity_focus: 1.2,
+        granular_gex: 1.0, institutional_ownership: 0.8, congress_conviction: 0.5, seasonality_granular: 1.0
     },
     POWER_HOUR: {  // 3:01-4:15 PM — closing momentum
         ema_alignment: 1.0, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.9,
@@ -171,7 +187,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 1.2, flow_horizon: 1.0, volume_direction: 1.2,
         earnings_gap_trade: 0.3,
         max_pain_gravity: 1.5, oi_change_direction: 1.0, aggregate_greek_exposure: 1.0,
-        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0,
+        oi_strike_concentration: 1.3, volume_profile_sr: 1.0, expiry_activity_focus: 1.0,
+        granular_gex: 1.2, institutional_ownership: 0.5, congress_conviction: 0.5, seasonality_granular: 0.8
     },
     AFTER_HOURS: { // 4:16-5:00 PM — reduced signals
         ema_alignment: 1.2, rsi_position: 1.0, macd_histogram: 0.8, bollinger_position: 0.7,
@@ -186,7 +204,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 0.3, flow_horizon: 0.5, volume_direction: 0.4,
         earnings_gap_trade: 1.2,
         max_pain_gravity: 0.5, oi_change_direction: 0.8, aggregate_greek_exposure: 0.8,
-        uw_state_confirmation: 1.2, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.2
+        uw_state_confirmation: 1.2, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.2,
+        oi_strike_concentration: 0.5, volume_profile_sr: 0.8, expiry_activity_focus: 0.5,
+        granular_gex: 0.3, institutional_ownership: 1.2, congress_conviction: 1.2, seasonality_granular: 1.2
     },
     OVERNIGHT: {   // 5:01 PM-8:29 AM — swing analysis
         ema_alignment: 1.4, rsi_position: 1.2, macd_histogram: 1.1, bollinger_position: 1.0,
@@ -201,7 +221,9 @@ const SESSION_MULTIPLIERS = {
         spot_gamma_pin: 0.2, flow_horizon: 0.3, volume_direction: 0.3,
         earnings_gap_trade: 1.6,
         max_pain_gravity: 0.3, oi_change_direction: 1.0, aggregate_greek_exposure: 0.8,
-        uw_state_confirmation: 1.4, earnings_proximity_guard: 1.8, etf_flow_tailwind: 1.5
+        uw_state_confirmation: 1.4, earnings_proximity_guard: 1.8, etf_flow_tailwind: 1.5,
+        oi_strike_concentration: 0.3, volume_profile_sr: 1.0, expiry_activity_focus: 0.3,
+        granular_gex: 0.2, institutional_ownership: 1.4, congress_conviction: 1.5, seasonality_granular: 1.4
     }
 };
 
@@ -1547,9 +1569,179 @@ class SignalEngine {
             }
         }
 
+        // ── Signal #54: OI Strike Concentration (S/R from directional OI) ──
+        if (data.oiPerStrike && Array.isArray(data.oiPerStrike) && data.oiPerStrike.length > 0) {
+            var wOIS = this._ew('oi_strike_concentration', sess, hw);
+            var price = parseFloat((data.quote || {}).price || (data.quote || {}).last || 0);
+            if (price > 0) {
+                var maxCallOI = 0, maxPutOI = 0, maxCallStrike = 0, maxPutStrike = 0;
+                data.oiPerStrike.forEach(function (s) {
+                    var callOI = parseFloat(s.call_oi || s.call_open_interest || 0);
+                    var putOI = parseFloat(s.put_oi || s.put_open_interest || 0);
+                    var strike = parseFloat(s.strike || s.strike_price || 0);
+                    if (callOI > maxCallOI) { maxCallOI = callOI; maxCallStrike = strike; }
+                    if (putOI > maxPutOI) { maxPutOI = putOI; maxPutStrike = strike; }
+                });
+                if (maxCallStrike > 0 && maxPutStrike > 0) {
+                    // Price below max call OI = resistance above, price above max put OI = support below
+                    if (price < maxCallStrike && price > maxPutStrike) {
+                        // Price between call wall and put floor — range-bound
+                        signals.push({ name: '📊 OI Range', dir: 'NEUTRAL', weight: 0, detail: 'Put floor $' + maxPutStrike + ' — Call ceiling $' + maxCallStrike });
+                    } else if (price > maxCallStrike) {
+                        bull += wOIS; signals.push({ name: '📊 OI Breakout', dir: 'BULL', weight: wOIS, detail: 'Price above call wall $' + maxCallStrike + ' — forced dealer hedging' });
+                    } else if (price < maxPutStrike) {
+                        bear += wOIS; signals.push({ name: '📊 OI Breakdown', dir: 'BEAR', weight: wOIS, detail: 'Price below put wall $' + maxPutStrike + ' — downside acceleration' });
+                    }
+                }
+            }
+        }
+
+        // ── Signal #55: Volume Profile S/R (support/resistance from volume at price) ──
+        if (data.stockPriceLevels && Array.isArray(data.stockPriceLevels) && data.stockPriceLevels.length > 0) {
+            var wVPS = this._ew('volume_profile_sr', sess, hw);
+            var curPrice = parseFloat((data.quote || {}).price || (data.quote || {}).last || 0);
+            if (curPrice > 0) {
+                // Find highest volume node (HVN = high volume node = strong S/R)
+                var hvn = data.stockPriceLevels.reduce(function (best, lvl) {
+                    var vol = parseFloat(lvl.volume || lvl.total_volume || 0);
+                    return vol > (best.volume || 0) ? { price: parseFloat(lvl.price || lvl.level || 0), volume: vol } : best;
+                }, { price: 0, volume: 0 });
+                if (hvn.price > 0) {
+                    var distPct = ((curPrice - hvn.price) / hvn.price) * 100;
+                    if (distPct > 2 && distPct < 10) {
+                        bull += wVPS; signals.push({ name: '📈 Above HVN Support', dir: 'BULL', weight: wVPS, detail: 'Trading ' + distPct.toFixed(1) + '% above high-volume node $' + hvn.price.toFixed(2) + ' — volume support below' });
+                    } else if (distPct < -2 && distPct > -10) {
+                        bear += wVPS; signals.push({ name: '📉 Below HVN Resistance', dir: 'BEAR', weight: wVPS, detail: 'Trading ' + Math.abs(distPct).toFixed(1) + '% below high-volume node $' + hvn.price.toFixed(2) + ' — volume resistance above' });
+                    }
+                }
+            }
+        }
+
+        // ── Signal #56: Expiry Activity Focus (where options activity is concentrated) ──
+        if (data.expiryBreakdown && Array.isArray(data.expiryBreakdown) && data.expiryBreakdown.length > 0) {
+            var wEAF = this._ew('expiry_activity_focus', sess, hw);
+            // Sort by total volume descending to find the hottest expiry
+            var sortedExp = data.expiryBreakdown.sort(function (a, b) {
+                return parseFloat(b.total_volume || b.volume || 0) - parseFloat(a.total_volume || a.volume || 0);
+            });
+            var hotExp = sortedExp[0];
+            var hotDate = hotExp.expiry || hotExp.expiration_date || '';
+            var daysToExp = hotDate ? Math.round((new Date(hotDate).getTime() - Date.now()) / (86400000)) : 999;
+            var callVol = parseFloat(hotExp.call_volume || 0);
+            var putVol = parseFloat(hotExp.put_volume || 0);
+            if (callVol > 0 || putVol > 0) {
+                var cpRatio = callVol / Math.max(putVol, 1);
+                if (daysToExp <= 5 && cpRatio > 1.5) {
+                    bull += wEAF; signals.push({ name: '📅 Near-Term Call Heavy', dir: 'BULL', weight: wEAF, detail: daysToExp + 'DTE expiry — call/put ratio ' + cpRatio.toFixed(1) + ':1' });
+                } else if (daysToExp <= 5 && cpRatio < 0.67) {
+                    bear += wEAF; signals.push({ name: '📅 Near-Term Put Heavy', dir: 'BEAR', weight: wEAF, detail: daysToExp + 'DTE expiry — put/call ratio ' + (1 / cpRatio).toFixed(1) + ':1' });
+                }
+            }
+        }
+
+        // ── Signal #57: Granular GEX (expiry+strike pinning/acceleration) ──
+        if (data.spotGEXByExpiryStrike && Array.isArray(data.spotGEXByExpiryStrike) && data.spotGEXByExpiryStrike.length > 0) {
+            var wGG = this._ew('granular_gex', sess, hw);
+            var gexPrice = parseFloat((data.quote || {}).price || (data.quote || {}).last || 0);
+            if (gexPrice > 0) {
+                var totalGEX = 0;
+                var nearGEX = 0;
+                data.spotGEXByExpiryStrike.forEach(function (g) {
+                    var gex = parseFloat(g.gex || g.gamma_exposure || 0);
+                    var strike = parseFloat(g.strike || g.strike_price || 0);
+                    totalGEX += gex;
+                    // Near-money: within 3% of current price
+                    if (strike > 0 && Math.abs((strike - gexPrice) / gexPrice) < 0.03) {
+                        nearGEX += gex;
+                    }
+                });
+                if (nearGEX > 0 && totalGEX > 0) {
+                    var nearPct = (nearGEX / totalGEX) * 100;
+                    if (nearPct > 40) {
+                        // High near-money gamma = pinning expected
+                        signals.push({ name: '📌 GEX Pin Zone', dir: 'NEUTRAL', weight: 0, detail: nearPct.toFixed(0) + '% of GEX within 3% — expect pinning action' });
+                    }
+                } else if (totalGEX < 0) {
+                    // Negative GEX = dealers short gamma = acceleration expected
+                    bull += wGG; signals.push({ name: '🚀 Negative GEX', dir: 'BULL', weight: wGG, detail: 'Negative aggregate GEX — dealers amplify moves, acceleration likely' });
+                }
+            }
+        }
+
+        // ── Signal #58: Institutional Ownership Weight ──
+        if (data.tickerOwnership && Array.isArray(data.tickerOwnership) && data.tickerOwnership.length > 0) {
+            var wIO = this._ew('institutional_ownership', sess, hw);
+            var topHolders = data.tickerOwnership.slice(0, 10);
+            var totalShares = 0;
+            var recentBuyers = 0;
+            var recentSellers = 0;
+            topHolders.forEach(function (h) {
+                totalShares += parseFloat(h.shares || h.current_shares || 0);
+                var change = parseFloat(h.change || h.shares_change || 0);
+                if (change > 0) recentBuyers++;
+                if (change < 0) recentSellers++;
+            });
+            if (recentBuyers > recentSellers + 3) {
+                bull += wIO; signals.push({ name: '🏛️ Institution Buying', dir: 'BULL', weight: wIO, detail: recentBuyers + ' of top 10 holders increasing — institutional accumulation' });
+            } else if (recentSellers > recentBuyers + 3) {
+                bear += wIO; signals.push({ name: '🏛️ Institution Selling', dir: 'BEAR', weight: wIO, detail: recentSellers + ' of top 10 holders decreasing — institutional distribution' });
+            }
+        }
+
+        // ── Signal #59: Congress Politician Conviction (boost Signal #27) ──
+        if (data.politicianHolders && Array.isArray(data.politicianHolders) && data.politicianHolders.length > 0) {
+            var wCC = this._ew('congress_conviction', sess, hw);
+            // Known high-performing congress traders
+            var topTraders = ['pelosi', 'tuberville', 'hagerty', 'ossoff', 'bost'];
+            var matchedTraders = [];
+            data.politicianHolders.forEach(function (p) {
+                var name = (p.name || p.politician || '').toLowerCase();
+                for (var i = 0; i < topTraders.length; i++) {
+                    if (name.indexOf(topTraders[i]) !== -1) {
+                        matchedTraders.push(p);
+                        break;
+                    }
+                }
+            });
+            if (matchedTraders.length > 0) {
+                bull += wCC; signals.push({ name: '🏛️ Top Trader Holds', dir: 'BULL', weight: wCC, detail: matchedTraders.length + ' top congress trader(s) hold this ticker — conviction boost' });
+            }
+        }
+
+        // ── Signal #59b: Congress Late Reports (suspicious late filings) ──
+        if (data.congressLateReports && Array.isArray(data.congressLateReports) && data.congressLateReports.length > 0) {
+            var lateForTicker = data.congressLateReports.filter(function (r) {
+                return (r.ticker || r.symbol || '').toUpperCase() === ticker;
+            });
+            if (lateForTicker.length > 0) {
+                var lateBuys = lateForTicker.filter(function (r) { return (r.type || r.transaction_type || '').toLowerCase().indexOf('purchase') !== -1; });
+                if (lateBuys.length > 0) {
+                    bull += 1; signals.push({ name: '🕵️ Late Congress Buy', dir: 'BULL', weight: 1, detail: lateBuys.length + ' late-filed congress purchase(s) — often most profitable' });
+                }
+            }
+        }
+
+        // ── Signal #60: Enhanced Seasonality (year-month granularity) ──
+        if (data.seasonalityYearMonth && (Array.isArray(data.seasonalityYearMonth) || typeof data.seasonalityYearMonth === 'object')) {
+            var wSG = this._ew('seasonality_granular', sess, hw);
+            var currentMonth = new Date().getMonth() + 1; // 1-12
+            var monthData = Array.isArray(data.seasonalityYearMonth) ?
+                data.seasonalityYearMonth.find(function (m) { return parseInt(m.month) === currentMonth; }) :
+                data.seasonalityYearMonth;
+            if (monthData) {
+                var avgReturn = parseFloat(monthData.avg_return || monthData.mean_return || monthData.average_return || 0);
+                var winRate = parseFloat(monthData.win_rate || monthData.pct_positive || 0);
+                if (avgReturn > 2 && winRate > 60) {
+                    bull += wSG; signals.push({ name: '📊 Strong Season Month', dir: 'BULL', weight: wSG, detail: 'Month ' + currentMonth + ': avg +' + avgReturn.toFixed(1) + '%, win ' + winRate.toFixed(0) + '% — historical tailwind' });
+                } else if (avgReturn < -2 && winRate < 40) {
+                    bear += wSG; signals.push({ name: '📊 Weak Season Month', dir: 'BEAR', weight: wSG, detail: 'Month ' + currentMonth + ': avg ' + avgReturn.toFixed(1) + '%, win ' + winRate.toFixed(0) + '% — historical headwind' });
+                }
+            }
+        }
+
         // Compute weighted-signal score (context layer)
         const spread = Math.abs(bull - bear);
-        const maxWeight = 85;
+        const maxWeight = 100;
         var bearThreshold = isRanging ? 5 : 2;
         let weightedDir = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
         let weightedConf = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));

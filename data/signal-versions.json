@@ -376,7 +376,14 @@
                 "earnings_proximity_guard": 2,
                 "etf_flow_tailwind": 1,
                 "iv_surface_skew": 2,
-                "risk_reversal_signal": 2
+                "risk_reversal_signal": 2,
+                "oi_strike_concentration": 2,
+                "volume_profile_sr": 2,
+                "expiry_activity_focus": 1,
+                "granular_gex": 2,
+                "institutional_ownership": 1,
+                "congress_conviction": 1,
+                "seasonality_granular": 1
             },
             "weights_day": {
                 "ema_alignment": 2,
@@ -429,7 +436,14 @@
                 "earnings_proximity_guard": 4,
                 "etf_flow_tailwind": 3,
                 "iv_surface_skew": 3,
-                "risk_reversal_signal": 3
+                "risk_reversal_signal": 3,
+                "oi_strike_concentration": 3,
+                "volume_profile_sr": 3,
+                "expiry_activity_focus": 2,
+                "granular_gex": 2,
+                "institutional_ownership": 2,
+                "congress_conviction": 2,
+                "seasonality_granular": 2
             },
             "weights_swing": {
                 "ema_alignment": 5,
@@ -482,7 +496,14 @@
                 "earnings_proximity_guard": 5,
                 "etf_flow_tailwind": 4,
                 "iv_surface_skew": 4,
-                "risk_reversal_signal": 4
+                "risk_reversal_signal": 4,
+                "oi_strike_concentration": 3,
+                "volume_profile_sr": 3,
+                "expiry_activity_focus": 2,
+                "granular_gex": 2,
+                "institutional_ownership": 3,
+                "congress_conviction": 3,
+                "seasonality_granular": 3
             },
             "weights": {
                 "ema_alignment": 5,
@@ -535,7 +556,14 @@
                 "earnings_proximity_guard": 4,
                 "etf_flow_tailwind": 3,
                 "iv_surface_skew": 3,
-                "risk_reversal_signal": 3
+                "risk_reversal_signal": 3,
+                "oi_strike_concentration": 3,
+                "volume_profile_sr": 3,
+                "expiry_activity_focus": 2,
+                "granular_gex": 2,
+                "institutional_ownership": 2,
+                "congress_conviction": 2,
+                "seasonality_granular": 2
             },
             "ticker_overrides": {
                 "APP": {

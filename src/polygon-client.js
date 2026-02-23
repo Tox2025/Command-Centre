@@ -166,6 +166,15 @@ class PolygonTickClient {
         td.lastSide = side;
         td.prevPrice = price;
 
+        // D3: Filter low-quality trades (odd lots, avg price, contingent, prior ref)
+        var conditions = msg.c || msg.conditions || [];
+        if (Array.isArray(conditions) && conditions.length > 0) {
+            var excludeConditions = [15, 16, 37, 52];
+            for (var ci = 0; ci < conditions.length; ci++) {
+                if (excludeConditions.indexOf(conditions[ci]) !== -1) return;
+            }
+        }
+
         var trade = { price: price, size: size, side: side, timestamp: timestamp, notional: price * size };
         td.trades.push(trade);
 

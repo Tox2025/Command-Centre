@@ -64,6 +64,18 @@ function renderSqueeze() {
     });
     // Sort: highest squeeze score first, then by SI%
     rows.sort(function (a, b) { return b.score - a.score || b.siPct - a.siPct; });
+    // Also merge shortScreener auto-discovered tickers
+    if (state.shortScreener && Array.isArray(state.shortScreener)) {
+        state.shortScreener.forEach(function (ss) {
+            var t = ss.ticker || ss.symbol;
+            if (!t) return;
+            var exists = rows.find(function (r) { return r.ticker === t; });
+            if (!exists) {
+                rows.push({ ticker: t, score: 3, siPct: parseFloat(ss.short_interest || 0), svRatio: parseFloat(ss.short_volume_ratio || 0), ftdQty: 0, utilization: parseFloat(ss.utilization || 0), dtc: parseFloat(ss.days_to_cover || 0), price: parseFloat(ss.price || 0), chg: parseFloat(ss.change_percent || 0), discovered: true });
+            }
+        });
+        rows.sort(function (a, b) { return b.score - a.score || b.siPct - a.siPct; });
+    }
     // Only show tickers with score >= 1 (skip totally clean tickers)
     var filtered = rows.filter(function (r) { return r.score >= 1 || r.siPct > 5; });
     var countEl = $('squeezeCount');
@@ -88,6 +100,105 @@ function renderSqueeze() {
         h += '</tr>';
     });
     tb.innerHTML = h || '<tr><td colspan="9" class="empty">No squeeze candidates detected</td></tr>';
+}
+function renderEcon() {
+    var tb = $('econBody'); if (!tb) return;
+    var data = state.economicCalendar || [];
+    var cnt = $('econCount'); if (cnt) cnt.textContent = data.length;
+    var h = '';
+    data.forEach(function (e) {
+        var impact = (e.impact || e.importance || '').toUpperCase();
+        var impColor = impact === 'HIGH' ? '#ef4444' : impact === 'MEDIUM' ? '#f59e0b' : '#64748b';
+        h += '<tr>';
+        h += '<td>' + (e.date || e.event_date || '--') + '</td>';
+        h += '<td><strong>' + (e.name || e.event || e.title || '--') + '</strong></td>';
+        h += '<td><span class="badge" style="background:' + impColor + '">' + (impact || 'LOW') + '</span></td>';
+        h += '<td>' + (e.previous || e.prior || '--') + '</td>';
+        h += '<td>' + (e.forecast || e.consensus || '--') + '</td>';
+        h += '<td>' + (e.actual || '--') + '</td>';
+        h += '</tr>';
+    });
+    tb.innerHTML = h || '<tr><td colspan="6" class="empty">No upcoming events</td></tr>';
+}
+function renderImpact() {
+    var tb = $('impactBody'); if (!tb) return;
+    var data = state.topNetImpact || [];
+    var cnt = $('impactCount'); if (cnt) cnt.textContent = data.length;
+    var h = '';
+    data.forEach(function (e) {
+        var net = parseFloat(e.net_premium || e.premium || 0);
+        var cls = net >= 0 ? 'text-bull' : 'text-bear';
+        var side = (e.side || e.sentiment || (net >= 0 ? 'BULLISH' : 'BEARISH'));
+        var sideColor = side === 'BULLISH' || side === 'BUY' ? '#22c55e' : '#ef4444';
+        h += '<tr onclick="openTickerView(\'' + (e.ticker || e.symbol || '') + '\')" style="cursor:pointer">';
+        h += '<td><strong>' + (e.ticker || e.symbol || '--') + '</strong></td>';
+        h += '<td>' + (e.option_type || e.type || '--') + '</td>';
+        h += '<td>$' + fmt(e.strike || 0) + '</td>';
+        h += '<td>' + (e.expiry || e.expiration || '--') + '</td>';
+        h += '<td class="' + cls + '">$' + fmtK(Math.abs(net)) + '</td>';
+        h += '<td>' + fmtK(e.volume || 0) + '</td>';
+        h += '<td><span class="badge" style="background:' + sideColor + '">' + side + '</span></td>';
+        h += '</tr>';
+    });
+    tb.innerHTML = h || '<tr><td colspan="7" class="empty">No data</td></tr>';
+}
+function renderSectorTide() {
+    var el = $('sectorTideContent'); if (!el) return;
+    var data = state.sectorTide || {};
+    var sectors = Object.keys(data);
+    if (sectors.length === 0) { el.innerHTML = '<span style="color:#64748b;font-size:11px">No sector data</span>'; return; }
+    var h = '';
+    sectors.forEach(function (s) {
+        var d = data[s];
+        var sentiment = 0;
+        if (d) {
+            var calls = parseFloat(d.call_premium || d.calls || 0);
+            var puts = parseFloat(d.put_premium || d.puts || 0);
+            sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
+        }
+        var bg = sentiment > 0.2 ? '#22c55e' : sentiment < -0.2 ? '#ef4444' : '#64748b';
+        var pct = (sentiment * 100).toFixed(0);
+        h += '<div style="background:' + bg + '22;border:1px solid ' + bg + ';border-radius:8px;padding:8px 12px;min-width:100px;text-align:center">';
+        h += '<div style="font-size:11px;font-weight:600;color:#e2e8f0">' + s + '</div>';
+        h += '<div style="font-size:16px;font-weight:700;color:' + bg + '">' + (sentiment >= 0 ? '+' : '') + pct + '%</div>';
+        h += '</div>';
+    });
+    el.innerHTML = h;
+}
+function renderETFFlows() {
+    var tb = $('etfFlowBody'); if (!tb) return;
+    var data = state.etfFlows || {};
+    var etfs = Object.keys(data);
+    var h = '';
+    etfs.forEach(function (e) {
+        var d = data[e];
+        if (!d) return;
+        var flow = parseFloat(d.flow || d.net_flow || d.inflow || 0);
+        var cls = flow >= 0 ? 'text-bull' : 'text-bear';
+        h += '<tr>';
+        h += '<td><strong>' + e + '</strong></td>';
+        h += '<td class="' + cls + '">$' + fmtK(flow) + '</td>';
+        h += '<td>' + (d.one_week_change ? fmt(d.one_week_change) + '%' : d.change_1w ? fmt(d.change_1w) + '%' : '--') + '</td>';
+        h += '<td>' + (d.total_assets ? '$' + fmtK(d.total_assets) : d.aum ? '$' + fmtK(d.aum) : '--') + '</td>';
+        h += '</tr>';
+    });
+    tb.innerHTML = h || '<tr><td colspan="4" class="empty">No ETF flow data</td></tr>';
+}
+function renderFDA() {
+    var tb = $('fdaBody'); if (!tb) return;
+    var data = state.fdaCalendar || [];
+    var cnt = $('fdaCount'); if (cnt) cnt.textContent = data.length;
+    var h = '';
+    data.forEach(function (e) {
+        h += '<tr>';
+        h += '<td>' + (e.date || e.pdufa_date || '--') + '</td>';
+        h += '<td><strong>' + (e.company || e.ticker || '--') + '</strong></td>';
+        h += '<td>' + (e.drug || e.drug_name || e.catalyst || '--') + '</td>';
+        h += '<td>' + (e.action_type || e.type || '--') + '</td>';
+        h += '<td>' + (e.status || '--') + '</td>';
+        h += '</tr>';
+    });
+    tb.innerHTML = h || '<tr><td colspan="5" class="empty">No upcoming FDA events</td></tr>';
 }
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };
 
@@ -156,6 +267,11 @@ function renderAll() {
     try { renderGaps(); } catch (e) { console.error('renderGaps', e); }
     try { renderHalts(); } catch (e) { console.error('renderHalts', e); }
     try { renderSqueeze(); } catch (e) { console.error('renderSqueeze', e); }
+    try { renderEcon(); } catch (e) { console.error('renderEcon', e); }
+    try { renderImpact(); } catch (e) { console.error('renderImpact', e); }
+    try { renderSectorTide(); } catch (e) { console.error('renderSectorTide', e); }
+    try { renderETFFlows(); } catch (e) { console.error('renderETFFlows', e); }
+    try { renderFDA(); } catch (e) { console.error('renderFDA', e); }
     try { renderNews(); } catch (e) { console.error('renderNews', e); }
     try { renderCongress(); } catch (e) { console.error('renderCongress', e); }
     try { renderInsider(); } catch (e) { console.error('renderInsider', e); }

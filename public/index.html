@@ -364,6 +364,115 @@
       </div>
     </section>
 
+    <!-- Economic Calendar -->
+    <section class="panel panel-econ" id="panelEcon">
+      <div class="panel-header">
+        <h2>&#128197; Economic Calendar <span class="info-tip"
+            data-tip="Upcoming macro events: CPI, FOMC, NFP, GDP reports. High-impact events can cause sector-wide moves and volatility spikes. Plan entries/exits around these dates.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="econCount">0</span>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="econTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Event</th>
+              <th>Impact</th>
+              <th>Previous</th>
+              <th>Forecast</th>
+              <th>Actual</th>
+            </tr>
+          </thead>
+          <tbody id="econBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Top Net Impact -->
+    <section class="panel panel-impact" id="panelImpact">
+      <div class="panel-header">
+        <h2>&#128293; Top Net Impact <span class="info-tip"
+            data-tip="Options contracts with the largest net premium impact on the market. Shows where the biggest money is flowing right now. Positive = bullish pressure, negative = bearish.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="impactCount">0</span>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="impactTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Type</th>
+              <th>Strike</th>
+              <th>Expiry</th>
+              <th>Net Premium</th>
+              <th>Volume</th>
+              <th>Side</th>
+            </tr>
+          </thead>
+          <tbody id="impactBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Sector Tide -->
+    <section class="panel panel-sectors" id="panelSectors">
+      <div class="panel-header">
+        <h2>&#127758; Sector Tide <span class="info-tip"
+            data-tip="Options flow sentiment by sector. Green = bullish call/put ratio, red = bearish. Helps identify sector rotation and where smart money is positioning.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <div id="sectorTideContent" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </section>
+
+    <!-- ETF Flows -->
+    <section class="panel panel-etfflows" id="panelETFFlows">
+      <div class="panel-header">
+        <h2>&#128200; ETF Flows <span class="info-tip"
+            data-tip="Institutional money flowing in/out of major ETFs. Large inflows = institutional buying pressure. SPY/QQQ/IWM show broad market, sector ETFs show rotation.">&#9432;</span>
+        </h2>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="etfFlowTable">
+          <thead>
+            <tr>
+              <th>ETF</th>
+              <th>Flow</th>
+              <th>1W Change</th>
+              <th>Assets</th>
+            </tr>
+          </thead>
+          <tbody id="etfFlowBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- FDA Calendar -->
+    <section class="panel panel-fda" id="panelFDA">
+      <div class="panel-header">
+        <h2>&#128138; FDA Calendar <span class="info-tip"
+            data-tip="Upcoming FDA approval dates for biotech/pharma stocks. PDUFA dates are binary catalysts — stocks can gap 30-50%. Use for event-driven options plays.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="fdaCount">0</span>
+      </div>
+      <div class="panel-body">
+        <table class="data-table" id="fdaTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Company</th>
+              <th>Drug</th>
+              <th>Action</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="fdaBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Alerts (history/log) -->
     <section class="panel panel-alerts" id="panelAlerts">
       <div class="panel-header">

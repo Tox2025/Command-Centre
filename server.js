@@ -170,7 +170,13 @@ const state = {
     institutionActivity: {},
     shortVolumesByExchange: {},
     fdaCalendar: [],
-    priceTargets: {}
+    priceTargets: {},
+    // Tier 2 new integrations
+    ivSkew: {},
+    volStats: {},
+    litFlow: {},
+    marketCorrelations: null,
+    unusualOptions: []
 };
 
 // ── Express Setup ─────────────────────────────────────────
@@ -2125,7 +2131,12 @@ async function scoreDiscoveredTicker(ticker, source) {
             spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[t] || null,
             tickerOwnership: (state.tickerOwnership || {})[t] || null,
             politicianHolders: (state.politicianHolders || {})[t] || null,
-            seasonalityYearMonth: (state.seasonalityYearMonth || {})[t] || null
+            seasonalityYearMonth: (state.seasonalityYearMonth || {})[t] || null,
+            // Tier 2 data
+            ivSkew: (state.ivSkew || {})[t] || null,
+            volStats: (state.volStats || {})[t] || null,
+            litFlow: (state.litFlow || {})[t] || null,
+            marketCorrelations: state.marketCorrelations || null
         };
 
         // Fetch Polygon TA indicators
@@ -2664,7 +2675,12 @@ async function scoreTickerSignals(ticker) {
             spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[ticker] || null,
             tickerOwnership: (state.tickerOwnership || {})[ticker] || null,
             politicianHolders: (state.politicianHolders || {})[ticker] || null,
-            seasonalityYearMonth: (state.seasonalityYearMonth || {})[ticker] || null
+            seasonalityYearMonth: (state.seasonalityYearMonth || {})[ticker] || null,
+            // Tier 2 data
+            ivSkew: (state.ivSkew || {})[ticker] || null,
+            volStats: (state.volStats || {})[ticker] || null,
+            litFlow: (state.litFlow || {})[ticker] || null,
+            marketCorrelations: state.marketCorrelations || null
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this
@@ -3067,12 +3083,27 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
-            // Phase E: ATM Chains — DISABLED: requires expirations[] param we don't have
-            // try {
-            //     const atm = await uw.getATMChains(ticker);
-            //     if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
-            //     callCount++;
-            // } catch (e) { /* optional */ }
+            // Tier 2: Lit Flow (lit vs dark routing split) — WARM
+            try {
+                const litf = await uw.getLitFlow(ticker);
+                if (litf?.data) { state.litFlow = state.litFlow || {}; state.litFlow[ticker] = litf.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase E: ATM Chains — Uses nearest expiry from OI data
+            try {
+                var oiExpData = (state.oiPerExpiry || {})[ticker];
+                if (oiExpData && Array.isArray(oiExpData) && oiExpData.length > 0) {
+                    // Sort by volume descending to get the most active expiry
+                    var sortedExp = oiExpData.slice().sort(function (a, b) { return (b.volume || 0) - (a.volume || 0); });
+                    var nearestExpiry = sortedExp[0].expiry || sortedExp[0].expiration_date;
+                    if (nearestExpiry) {
+                        const atm = await uw.getATMChains(ticker + '?expiration=' + nearestExpiry);
+                        if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
+                        callCount++;
+                    }
+                }
+            } catch (e) { /* optional — ATM chains may still 422 on some tickers */ }
 
             // Phase E: Stock Price Levels — DISABLED: endpoint returns 404 (not in UW API spec)
             // try {
@@ -3248,6 +3279,20 @@ async function fetchTickerData(ticker, tier) {
             try {
                 const sznYM = await uw.getSeasonalityYearMonth(ticker);
                 if (sznYM?.data) { state.seasonalityYearMonth = state.seasonalityYearMonth || {}; state.seasonalityYearMonth[ticker] = sznYM.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Tier 2: IV Skew (put/call skew = institutional sentiment) — COLD
+            try {
+                const ivs = await uw.getIVSkew(ticker);
+                if (ivs?.data) { state.ivSkew = state.ivSkew || {}; state.ivSkew[ticker] = ivs.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Tier 2: Vol Stats (realized vs implied comparison) — COLD
+            try {
+                const vs = await uw.getVolStats(ticker);
+                if (vs?.data) { state.volStats = state.volStats || {}; state.volStats[ticker] = vs.data; }
                 callCount++;
             } catch (e) { /* optional */ }
         }
@@ -3461,6 +3506,20 @@ async function fetchMarketData(tier) {
                     if (isf?.data) state.insiderSectorFlow[sectorFlowSectors[isfi]] = isf.data;
                     callCount++;
                 }
+            } catch (e) { /* optional */ }
+
+            // Tier 2: Market Correlations (cross-asset hedging) — COLD
+            try {
+                const mc = await uw.getMarketCorrelations();
+                if (mc?.data) state.marketCorrelations = mc.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Tier 3: Screen Option Contracts (auto-discover unusual options) — COLD
+            try {
+                const soc = await uw.screenOptionContracts({ min_premium: 100000, limit: 20 });
+                if (soc?.data) state.unusualOptions = Array.isArray(soc.data) ? soc.data : [];
+                callCount++;
             } catch (e) { /* optional */ }
         }
 

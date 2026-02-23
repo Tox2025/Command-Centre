@@ -42,7 +42,7 @@ class EarningsCalendar {
 
         try {
             // Try UW API endpoint for earnings
-            var data = await this.uw._fetch('/stock/' + ticker + '/earnings');
+            var data = await this.uw._fetch('/earnings/' + ticker);
             var earnings = Array.isArray(data) ? data : (data && data.data ? data.data : []);
 
             var now = new Date();

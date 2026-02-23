@@ -293,6 +293,36 @@
       </div>
     </section>
 
+    <!-- 7c. Squeeze Scanner -->
+    <section class="panel panel-squeeze" id="panelSqueeze">
+      <div class="panel-header">
+        <h2>🔥 Squeeze Scanner <span class="info-tip"
+            data-tip="Identifies short squeeze candidates by scoring 3 independent data sources: Short Volume Ratio (>50% = shorts dominate daily volume), Fails-to-Deliver (forced buying pressure from unsettled trades), and Borrow Utilization (>90% = almost no shares left to short). Score 4+/6 = high squeeze probability. Combines with SI% and Days-to-Cover for a complete squeeze thesis.">&#9432;</span>
+        </h2>
+        <span class="panel-badge" id="squeezeCount" style="background:#ef4444">0</span>
+      </div>
+      <div class="panel-body">
+        <div style="font-size:10px;color:#64748b;margin-bottom:8px">Scans watchlist + discovered tickers for short
+          squeeze setups. Score ≥4/6 = high probability squeeze candidate.</div>
+        <table class="data-table" id="squeezeTable">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Squeeze Score</th>
+              <th>SI %</th>
+              <th>Short Vol Ratio</th>
+              <th>FTDs</th>
+              <th>Utilization</th>
+              <th>Days to Cover</th>
+              <th>Price</th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody id="squeezeBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- 8. News Headlines -->
     <section class="panel panel-news" id="panelNews">
       <div class="panel-header">

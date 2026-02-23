@@ -28,6 +28,67 @@ function squeezeBadge(ticker) {
     if (sq >= 2) return ' <span class="badge" style="background:#f59e0b;font-size:0.6rem">SQUEEZE ' + sq + '/6</span>';
     return '';
 }
+function renderSqueeze() {
+    var tb = $('squeezeBody');
+    if (!tb) return;
+    // Collect all tickers: watchlist + discoveries
+    var allTickers = (state.tickers || []).slice();
+    (state.liveDiscoveries || []).forEach(function (d) {
+        if (d.ticker && allTickers.indexOf(d.ticker) < 0) allTickers.push(d.ticker);
+    });
+    // Build squeeze data for each ticker
+    var rows = [];
+    allTickers.forEach(function (t) {
+        var sq = getSqueezeScore(t);
+        // Get SI data
+        var siRaw = state.shortInterest && state.shortInterest[t];
+        var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+        var siPct = siObj ? parseFloat(siObj.short_interest || siObj.si_pct_float || siObj.short_percent_of_float || 0) : 0;
+        var utilization = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || 0) : 0;
+        var dtc = siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || 0) : 0;
+        // Short volume ratio
+        var svRaw = state.shortVolume && state.shortVolume[t];
+        var svArr = Array.isArray(svRaw) ? svRaw : [];
+        var lastSV = svArr.length > 0 ? svArr[svArr.length - 1] : null;
+        var svRatio = lastSV ? parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0) : 0;
+        // FTDs
+        var ftdRaw = state.failsToDeliver && state.failsToDeliver[t];
+        var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
+        var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
+        var ftdQty = lastFTD ? parseFloat(lastFTD.quantity || lastFTD.fails || 0) : 0;
+        // Price
+        var q = state.quotes[t] || {};
+        var price = q.last || q.price || q.close || 0;
+        var chg = q.changePercent || q.change_percent || 0;
+        rows.push({ ticker: t, score: sq, siPct: siPct, svRatio: svRatio, ftdQty: ftdQty, utilization: utilization, dtc: dtc, price: price, chg: chg });
+    });
+    // Sort: highest squeeze score first, then by SI%
+    rows.sort(function (a, b) { return b.score - a.score || b.siPct - a.siPct; });
+    // Only show tickers with score >= 1 (skip totally clean tickers)
+    var filtered = rows.filter(function (r) { return r.score >= 1 || r.siPct > 5; });
+    var countEl = $('squeezeCount');
+    var hotCount = rows.filter(function (r) { return r.score >= 4; }).length;
+    if (countEl) countEl.textContent = hotCount;
+    var h = '';
+    filtered.forEach(function (r) {
+        var scoreColor = r.score >= 5 ? '#ef4444' : r.score >= 4 ? '#f97316' : r.score >= 3 ? '#f59e0b' : r.score >= 2 ? '#eab308' : '#64748b';
+        var scoreLabel = r.score >= 5 ? 'EXTREME' : r.score >= 4 ? 'HIGH' : r.score >= 3 ? 'ELEVATED' : r.score >= 2 ? 'MODERATE' : 'LOW';
+        var chgClass = r.chg >= 0 ? 'text-bull' : 'text-bear';
+        var pulseStyle = r.score >= 4 ? 'animation:pulse 2s infinite;' : '';
+        h += '<tr onclick="openTickerView(\'' + r.ticker + '\')" style="cursor:pointer">';
+        h += '<td><strong>' + r.ticker + '</strong></td>';
+        h += '<td><span class="badge" style="background:' + scoreColor + ';' + pulseStyle + '">' + r.score + '/6 ' + scoreLabel + '</span></td>';
+        h += '<td' + (r.siPct > 15 ? ' style="color:#ef4444;font-weight:600"' : '') + '>' + (r.siPct > 0 ? r.siPct.toFixed(1) + '%' : '--') + '</td>';
+        h += '<td' + (r.svRatio > 0.5 ? ' style="color:#f59e0b;font-weight:600"' : '') + '>' + (r.svRatio > 0 ? (r.svRatio * 100).toFixed(0) + '%' : '--') + '</td>';
+        h += '<td>' + (r.ftdQty > 0 ? fmtK(r.ftdQty) : '--') + '</td>';
+        h += '<td' + (r.utilization > 90 ? ' style="color:#ef4444;font-weight:600"' : r.utilization > 70 ? ' style="color:#f59e0b"' : '') + '>' + (r.utilization > 0 ? r.utilization.toFixed(0) + '%' : '--') + '</td>';
+        h += '<td' + (r.dtc > 5 ? ' style="color:#f59e0b;font-weight:600"' : '') + '>' + (r.dtc > 0 ? r.dtc.toFixed(1) + 'd' : '--') + '</td>';
+        h += '<td>$' + fmt(r.price) + '</td>';
+        h += '<td class="' + chgClass + '">' + (r.chg >= 0 ? '+' : '') + fmt(r.chg) + '%</td>';
+        h += '</tr>';
+    });
+    tb.innerHTML = h || '<tr><td colspan="9" class="empty">No squeeze candidates detected</td></tr>';
+}
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };
 
 function connect() {
@@ -94,6 +155,7 @@ function renderAll() {
     try { renderTide(); } catch (e) { console.error('renderTide', e); }
     try { renderGaps(); } catch (e) { console.error('renderGaps', e); }
     try { renderHalts(); } catch (e) { console.error('renderHalts', e); }
+    try { renderSqueeze(); } catch (e) { console.error('renderSqueeze', e); }
     try { renderNews(); } catch (e) { console.error('renderNews', e); }
     try { renderCongress(); } catch (e) { console.error('renderCongress', e); }
     try { renderInsider(); } catch (e) { console.error('renderInsider', e); }

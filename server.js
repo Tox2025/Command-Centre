@@ -2211,7 +2211,7 @@ function trackDiscovery(ticker, source, signalResult, meta) {
         return (now - d.discoveredAt) < 4 * 60 * 60 * 1000;
     });
 
-    // ── F1: Smart Price Target Helper (ATR + Fib + Strike Magnets) ──
+    // ── F1: Smart Price Target Helper (ATR + Fib + Strike Magnets) ── Module-scoped for use in both scoring paths
     function snapToStructure(price, atrTarget, atrStop, dir, ticker) {
         // Collect structural levels from Fib + flow-per-strike
         var levels = [];
@@ -3017,26 +3017,26 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
-            // Phase E: ATM Chains (near-money options chain) — WARM
-            try {
-                const atm = await uw.getATMChains(ticker);
-                if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
-                callCount++;
-            } catch (e) { /* optional */ }
+            // Phase E: ATM Chains — DISABLED: requires expirations[] param we don't have
+            // try {
+            //     const atm = await uw.getATMChains(ticker);
+            //     if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
+            //     callCount++;
+            // } catch (e) { /* optional */ }
 
-            // Phase E: Stock Price Levels (volume profile S/R) — WARM
-            try {
-                const spl = await uw.getStockPriceLevels(ticker);
-                if (spl?.data) { state.stockPriceLevels = state.stockPriceLevels || {}; state.stockPriceLevels[ticker] = spl.data; }
-                callCount++;
-            } catch (e) { /* optional */ }
+            // Phase E: Stock Price Levels — DISABLED: endpoint returns 404 (not in UW API spec)
+            // try {
+            //     const spl = await uw.getStockPriceLevels(ticker);
+            //     if (spl?.data) { state.stockPriceLevels = state.stockPriceLevels || {}; state.stockPriceLevels[ticker] = spl.data; }
+            //     callCount++;
+            // } catch (e) { /* optional */ }
 
-            // Phase E: Stock Volume Price Levels (volume at price) — WARM
-            try {
-                const svpl = await uw.getStockVolumePriceLevels(ticker);
-                if (svpl?.data) { state.stockVolumePriceLevels = state.stockVolumePriceLevels || {}; state.stockVolumePriceLevels[ticker] = svpl.data; }
-                callCount++;
-            } catch (e) { /* optional */ }
+            // Phase E: Stock Volume Price Levels — DISABLED: endpoint returns 404 (not in UW API spec)
+            // try {
+            //     const svpl = await uw.getStockVolumePriceLevels(ticker);
+            //     if (svpl?.data) { state.stockVolumePriceLevels = state.stockVolumePriceLevels || {}; state.stockVolumePriceLevels[ticker] = svpl.data; }
+            //     callCount++;
+            // } catch (e) { /* optional */ }
 
         }
 
@@ -3187,12 +3187,12 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
-            // Phase F: Politician Holdings (politicians holding this ticker) — COLD
-            try {
-                const phold = await uw.getPoliticianHolders(ticker);
-                if (phold?.data) { state.politicianHolders = state.politicianHolders || {}; state.politicianHolders[ticker] = phold.data; }
-                callCount++;
-            } catch (e) { /* optional */ }
+            // Phase F: Politician Holdings — DISABLED: enterprise-only endpoint (422)
+            // try {
+            //     const phold = await uw.getPoliticianHolders(ticker);
+            //     if (phold?.data) { state.politicianHolders = state.politicianHolders || {}; state.politicianHolders[ticker] = phold.data; }
+            //     callCount++;
+            // } catch (e) { /* optional */ }
 
             // Phase F: Seasonality Year-Month (granular seasonality) — COLD
             try {

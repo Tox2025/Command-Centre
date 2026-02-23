@@ -623,12 +623,18 @@ class UWWebSocketClient {
 
       this.ws.on('close', function () {
         self.connected = false;
-        console.log('🐋 UW WebSocket disconnected, reconnecting...');
+        if (!self._wsCloseLogged || (Date.now() - self._wsCloseLogged > 300000)) {
+          console.log('🐋 UW WebSocket disconnected, reconnecting (backoff: ' + Math.round(self.reconnectDelay / 1000) + 's)...');
+          self._wsCloseLogged = Date.now();
+        }
         self._reconnect();
       });
 
       this.ws.on('error', function (err) {
-        console.error('🐋 UW WebSocket error:', err.message);
+        if (!self._wsErrorLogged || (Date.now() - self._wsErrorLogged > 300000)) {
+          console.error('🐋 UW WebSocket error:', err.message, '(suppressing repeat errors for 5min)');
+          self._wsErrorLogged = Date.now();
+        }
       });
     } catch (e) {
       console.error('🐋 UW WebSocket connection failed:', e.message);
@@ -682,10 +688,11 @@ class UWWebSocketClient {
 
   _reconnect() {
     var self = this;
+    var delay = this.reconnectDelay;
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 300000); // max 5 minutes
     setTimeout(function () {
-      self.reconnectDelay = Math.min(self.reconnectDelay * 2, self.maxReconnectDelay);
       self.connect(self.subscribedTickers);
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   updateSubscriptions(newTickers) {

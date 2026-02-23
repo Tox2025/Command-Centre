@@ -2107,7 +2107,9 @@ function openTickerView(ticker) {
     try {
         var nopeEl = $('modalNOPE');
         if (nopeEl) {
-            var nopeData = state.nope && state.nope[ticker];
+            var nopeRaw = state.nope && state.nope[ticker];
+            // Handle array response (UW may return array of intraday readings)
+            var nopeData = Array.isArray(nopeRaw) ? nopeRaw[nopeRaw.length - 1] : nopeRaw;
             if (nopeData) {
                 var nVal = parseFloat(nopeData.nope || nopeData.value || nopeData.nope_value || 0);
                 var nColor = nVal > 5 ? '#10b981' : nVal < -5 ? '#ef4444' : '#f59e0b';
@@ -2123,10 +2125,15 @@ function openTickerView(ticker) {
                 nh += '<div style="width:' + barPct + '%;height:100%;border-radius:4px;background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981)"></div>';
                 nh += '</div>';
                 nh += '<div style="display:flex;justify-content:space-between;font-size:9px;color:#64748b;margin-top:2px"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>';
+                // After-hours note if NOPE is 0
+                var sess = state.session || '';
+                if (nVal === 0 && (sess === 'CLOSED' || sess === 'POST_MARKET' || sess === 'AFTER_HOURS')) {
+                    nh += '<div style="font-size:10px;color:#64748b;margin-top:8px;font-style:italic">NOPE is an intraday metric — neutral after market close</div>';
+                }
                 nh += '</div>';
                 nopeEl.innerHTML = nh;
             } else {
-                nopeEl.innerHTML = '<div class="empty">No NOPE data for ' + ticker + '</div>';
+                nopeEl.innerHTML = '<div class="empty">No NOPE data — ' + ticker + ' may have low options activity</div>';
             }
         }
     } catch (e) { console.error('Modal NOPE error:', e); if ($('modalNOPE')) $('modalNOPE').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }

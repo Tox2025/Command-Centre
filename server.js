@@ -5,7 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const path = require('path');
-const UWClient = require('./src/uw-client');
+const { UWClient, UWWebSocketClient } = require('./src/uw-client');
 const TechnicalAnalysis = require('./src/technical');
 const AlertEngine = require('./src/alerts');
 const { enrichCongressTrades } = require('./src/congress-data');
@@ -56,6 +56,7 @@ function saveWatchlist() {
 
 // ── State ─────────────────────────────────────────────────
 const uw = new UWClient(process.env.UW_API_KEY);
+const uwWS = new UWWebSocketClient(process.env.UW_API_KEY);  // D1/D2: Lit + Off-Lit trade streams
 const alertEngine = new AlertEngine();
 const signalEngine = new SignalEngine();
 const tradeJournal = new TradeJournal();
@@ -294,11 +295,55 @@ app.get('/api/ticker/:ticker/deep', (req, res) => {
         insider: state.insiderData[t],
         earnings: state.earnings[t],
         setup: state.tradeSetups[t],
-        stockState: state.stockState[t]
+        stockState: state.stockState[t],
+        // Phase E data
+        oiPerStrike: (state.oiPerStrike || {})[t] || null,
+        oiPerExpiry: (state.oiPerExpiry || {})[t] || null,
+        atmChains: (state.atmChains || {})[t] || null,
+        stockPriceLevels: (state.stockPriceLevels || {})[t] || null,
+        stockVolumePriceLevels: (state.stockVolumePriceLevels || {})[t] || null,
+        // Phase F data
+        expiryBreakdown: (state.expiryBreakdown || {})[t] || null,
+        spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[t] || null,
+        tickerOwnership: (state.tickerOwnership || {})[t] || null,
+        politicianHolders: (state.politicianHolders || {})[t] || null,
+        seasonalityYearMonth: (state.seasonalityYearMonth || {})[t] || null
     });
 });
 app.get('/api/darkpool/recent', (req, res) => res.json(state.darkPoolRecent));
 app.get('/api/market/spike', (req, res) => res.json(state.marketSpike));
+
+// Phase E: On-demand Option Contract Data (fetched when user opens detail view)
+app.get('/api/option-contract/:id/flow', async (req, res) => {
+    try {
+        const data = await uw.getOptionContractFlow(req.params.id);
+        res.json(data?.data || null);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/option-contract/:id/historic', async (req, res) => {
+    try {
+        const data = await uw.getOptionContractHistoric(req.params.id);
+        res.json(data?.data || null);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/option-contract/:id/intraday', async (req, res) => {
+    try {
+        const data = await uw.getOptionContractIntraday(req.params.id);
+        res.json(data?.data || null);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/option-contract/:id/volume-profile', async (req, res) => {
+    try {
+        const data = await uw.getOptionContractVolumeProfile(req.params.id);
+        res.json(data?.data || null);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/options-tape/:date', async (req, res) => {
+    try {
+        const data = await uw.getFullOptionsTape(req.params.date);
+        res.json(data?.data || null);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // Journal & ML endpoints
 app.get('/api/journal/stats', (req, res) => res.json(tradeJournal.getStats()));
@@ -1769,6 +1814,12 @@ const server = app.listen(PORT, () => {
     } else {
         console.log('⚠️ POLYGON_API_KEY not set — tick data disabled');
     }
+
+    // D1/D2: Connect UW WebSocket for lit/off-lit trade streams
+    if (process.env.UW_API_KEY) {
+        uwWS.connect(TICKERS);
+        console.log('🐋 UW WebSocket: connecting for lit/off-lit trades');
+    }
 });
 
 const wss = new WebSocketServer({ server });
@@ -1985,6 +2036,8 @@ async function scoreDiscoveredTicker(ticker, source) {
             shortInterest: uwSI,
             insider: [],
             congress: [],
+            congressTrader: state.congressTrader || null,
+            congressLateReports: state.congressLateReports || null,
             quote: { price: price, last: price, volume: volume, ...(uwQuote || {}) },
             regime: state.marketRegime,
             sentiment: null,
@@ -1993,7 +2046,38 @@ async function scoreDiscoveredTicker(ticker, source) {
             tickData: polygonClient.getTickSummary(t) || null,
             polygonTA: null,
             polygonSnapshot: polygonClient.getSnapshotData(t) || null,
-            polygonMinuteBars: polygonClient.getMinuteBars(t) || []
+            polygonMinuteBars: polygonClient.getMinuteBars(t) || [],
+            // Phase 3 GAP data — ensure discovered tickers get full signal treatment
+            maxPain: state.maxPain[t] || null,
+            oiChange: state.oiChange[t] || null,
+            greeks: state.greeks[t] || null,
+            stockState: state.stockState[t] || null,
+            earnings: state.earnings[t] || null,
+            etfFlows: state.etfFlows || {},
+            // Phase 2 data available from state
+            nope: state.nope[t] || null,
+            sectorTide: state.sectorTide || {},
+            etfTide: state.etfTide || {},
+            economicCalendar: state.economicCalendar || [],
+            fdaCalendar: state.fdaCalendar || [],
+            // Phase C data
+            financials: state.financials ? state.financials[t] : null,
+            relatedCompanies: state.relatedCompanies ? state.relatedCompanies[t] : null,
+            splits: state.splits ? state.splits[t] : null,
+            dividends: state.dividends ? state.dividends[t] : null,
+            marketHolidays: state.marketHolidays || [],
+            // Phase E data
+            oiPerStrike: (state.oiPerStrike || {})[t] || null,
+            oiPerExpiry: (state.oiPerExpiry || {})[t] || null,
+            atmChains: (state.atmChains || {})[t] || null,
+            stockPriceLevels: (state.stockPriceLevels || {})[t] || null,
+            stockVolumePriceLevels: (state.stockVolumePriceLevels || {})[t] || null,
+            // Phase F data
+            expiryBreakdown: (state.expiryBreakdown || {})[t] || null,
+            spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[t] || null,
+            tickerOwnership: (state.tickerOwnership || {})[t] || null,
+            politicianHolders: (state.politicianHolders || {})[t] || null,
+            seasonalityYearMonth: (state.seasonalityYearMonth || {})[t] || null
         };
 
         // Fetch Polygon TA indicators
@@ -2464,6 +2548,8 @@ async function scoreTickerSignals(ticker) {
             shortInterest: state.shortInterest[ticker],
             insider: state.insiderData[ticker] || [],
             congress: (state.congressTrades || []).filter(c => (c.ticker || c.symbol) === ticker),
+            congressTrader: state.congressTrader || null,
+            congressLateReports: state.congressLateReports || null,
             quote: state.quotes[ticker] || {},
             regime: state.marketRegime,
             sentiment: state.sentiment[ticker] || null,
@@ -2505,7 +2591,30 @@ async function scoreTickerSignals(ticker) {
             greeks: state.greeks[ticker] || null,
             stockState: state.stockState[ticker] || null,
             earnings: state.earnings[ticker] || null,
-            etfFlows: state.etfFlows || {}
+            etfFlows: state.etfFlows || {},
+            // Phase B — New UW endpoints
+            shortInterestV2: state.shortInterestV2 ? state.shortInterestV2[ticker] : null,
+            interpolatedIV: state.interpolatedIV ? state.interpolatedIV[ticker] : null,
+            riskReversalSkew: state.riskReversalSkew ? state.riskReversalSkew[ticker] : null,
+            insiderSectorFlow: state.insiderSectorFlow || {},
+            // Phase C — Polygon expansion
+            financials: state.financials ? state.financials[ticker] : null,
+            relatedCompanies: state.relatedCompanies ? state.relatedCompanies[ticker] : null,
+            splits: state.splits ? state.splits[ticker] : null,
+            dividends: state.dividends ? state.dividends[ticker] : null,
+            marketHolidays: state.marketHolidays || [],
+            // Phase E data
+            oiPerStrike: (state.oiPerStrike || {})[ticker] || null,
+            oiPerExpiry: (state.oiPerExpiry || {})[ticker] || null,
+            atmChains: (state.atmChains || {})[ticker] || null,
+            stockPriceLevels: (state.stockPriceLevels || {})[ticker] || null,
+            stockVolumePriceLevels: (state.stockVolumePriceLevels || {})[ticker] || null,
+            // Phase F data
+            expiryBreakdown: (state.expiryBreakdown || {})[ticker] || null,
+            spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[ticker] || null,
+            tickerOwnership: (state.tickerOwnership || {})[ticker] || null,
+            politicianHolders: (state.politicianHolders || {})[ticker] || null,
+            seasonalityYearMonth: (state.seasonalityYearMonth || {})[ticker] || null
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this
@@ -2702,10 +2811,22 @@ async function fetchTickerData(ticker, tier) {
     var callCount = 0;
     try {
         // ── HOT tier (every cycle) ──
-        // Quote (company info — NOT price data)
-        const quote = await uw.getStockQuote(ticker);
-        var quoteInfo = quote?.data || {};
-        callCount++;
+        // A8: Company metadata — prefer Polygon (free), fall back to UW
+        var quoteInfo = {};
+        var pDetails = polygonClient.getDetails(ticker);  // cached from getTickerDetails
+        if (pDetails) {
+            quoteInfo = { ticker: pDetails.ticker, name: pDetails.name, market_cap: pDetails.market_cap, exchange: pDetails.exchange, sic_description: pDetails.sic_description };
+        } else {
+            try {
+                pDetails = await polygonClient.getTickerDetails(ticker);
+                if (pDetails) quoteInfo = { ticker: pDetails.ticker, name: pDetails.name, market_cap: pDetails.market_cap, exchange: pDetails.exchange, sic_description: pDetails.sic_description };
+            } catch (e) { /* Polygon failed, try UW */ }
+            if (!quoteInfo.ticker) {
+                const quote = await uw.getStockQuote(ticker);
+                quoteInfo = quote?.data || {};
+                callCount++;
+            }
+        }
 
         // Options volume levels
         const optVol = await uw.getOptionVolumeLevels(ticker);
@@ -2722,17 +2843,32 @@ async function fetchTickerData(ticker, tier) {
         if (gex?.data) state.gex[ticker] = Array.isArray(gex.data) ? gex.data : [gex.data];
         callCount++;
 
-        // Historical for technicals
-        const hist = await uw.getHistoricalPrice(ticker);
-        if (hist?.data && Array.isArray(hist.data) && hist.data.length > 0) {
-            const candles = hist.data.map(d => ({
-                date: d.date || d.timestamp,
-                open: parseFloat(d.open),
-                high: parseFloat(d.high),
-                low: parseFloat(d.low),
-                close: parseFloat(d.close),
-                volume: parseFloat(d.volume || 0)
-            }));
+        // A9: Historical candles — prefer Polygon getAggregates (free), fall back to UW
+        var histCandles = [];
+        try {
+            var toDate = new Date().toISOString().split('T')[0];
+            var fromDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            histCandles = await polygonClient.getAggregates(ticker, 1, 'day', fromDate, toDate);
+        } catch (e) { /* Polygon failed */ }
+        if (histCandles.length < 30) {
+            // Fallback to UW historical if Polygon returned insufficient data
+            try {
+                const hist = await uw.getHistoricalPrice(ticker);
+                if (hist?.data && Array.isArray(hist.data) && hist.data.length > 0) {
+                    histCandles = hist.data.map(d => ({
+                        date: d.date || d.timestamp,
+                        open: parseFloat(d.open),
+                        high: parseFloat(d.high),
+                        low: parseFloat(d.low),
+                        close: parseFloat(d.close),
+                        volume: parseFloat(d.volume || 0)
+                    }));
+                }
+                callCount++;
+            } catch (e) { /* both failed */ }
+        }
+        if (histCandles.length > 0) {
+            const candles = histCandles;
             const analysis = TechnicalAnalysis.analyze(candles);
             state.technicals[ticker] = analysis;
             const lastCandle = candles[candles.length - 1];
@@ -2867,6 +3003,40 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
+            // Phase E: OI Per Strike (S/R from open interest) — WARM
+            try {
+                const oiStrike = await uw.getOIPerStrike(ticker);
+                if (oiStrike?.data) { state.oiPerStrike = state.oiPerStrike || {}; state.oiPerStrike[ticker] = oiStrike.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase E: OI Per Expiry (activity concentration by expiry) — WARM
+            try {
+                const oiExp = await uw.getOIPerExpiry(ticker);
+                if (oiExp?.data) { state.oiPerExpiry = state.oiPerExpiry || {}; state.oiPerExpiry[ticker] = oiExp.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase E: ATM Chains (near-money options chain) — WARM
+            try {
+                const atm = await uw.getATMChains(ticker);
+                if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase E: Stock Price Levels (volume profile S/R) — WARM
+            try {
+                const spl = await uw.getStockPriceLevels(ticker);
+                if (spl?.data) { state.stockPriceLevels = state.stockPriceLevels || {}; state.stockPriceLevels[ticker] = spl.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase E: Stock Volume Price Levels (volume at price) — WARM
+            try {
+                const svpl = await uw.getStockVolumePriceLevels(ticker);
+                if (svpl?.data) { state.stockVolumePriceLevels = state.stockVolumePriceLevels || {}; state.stockVolumePriceLevels[ticker] = svpl.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
 
         }
 
@@ -2971,6 +3141,65 @@ async function fetchTickerData(ticker, tier) {
                 if (rrs?.data) state.riskReversalSkew = state.riskReversalSkew || {}, state.riskReversalSkew[ticker] = rrs.data;
                 callCount++;
             } catch (e) { /* optional */ }
+
+            // Phase C: Polygon Financials (quarterly data)
+            try {
+                const fins = await polygonClient.getFinancials(ticker, 4);
+                if (fins.length > 0) { state.financials = state.financials || {}; state.financials[ticker] = fins; }
+            } catch (e) { /* optional */ }
+
+            // Phase C: Related Companies (sympathy play detection)
+            try {
+                const rels = await polygonClient.getRelatedCompanies(ticker);
+                if (rels.length > 0) { state.relatedCompanies = state.relatedCompanies || {}; state.relatedCompanies[ticker] = rels; }
+            } catch (e) { /* optional */ }
+
+            // Phase C: Splits (prevent false signals)
+            try {
+                const spl = await polygonClient.getSplits(ticker, 3);
+                if (spl.length > 0) { state.splits = state.splits || {}; state.splits[ticker] = spl; }
+            } catch (e) { /* optional */ }
+
+            // Phase C: Dividends (prevent false signals)
+            try {
+                const divs = await polygonClient.getDividends(ticker, 3);
+                if (divs.length > 0) { state.dividends = state.dividends || {}; state.dividends[ticker] = divs; }
+            } catch (e) { /* optional */ }
+
+            // Phase F: Expiry Breakdown (where options activity is concentrated) — COLD
+            try {
+                const eb = await uw.getExpiryBreakdown(ticker);
+                if (eb?.data) { state.expiryBreakdown = state.expiryBreakdown || {}; state.expiryBreakdown[ticker] = eb.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase F: Spot GEX by Expiry+Strike (granular GEX) — COLD
+            try {
+                const sgex = await uw.getSpotGEXByExpiryStrike(ticker);
+                if (sgex?.data) { state.spotGEXByExpiryStrike = state.spotGEXByExpiryStrike || {}; state.spotGEXByExpiryStrike[ticker] = sgex.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase F: Ticker Ownership (who holds this stock) — COLD
+            try {
+                const own = await uw.getTickerOwnership(ticker);
+                if (own?.data) { state.tickerOwnership = state.tickerOwnership || {}; state.tickerOwnership[ticker] = own.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase F: Politician Holdings (politicians holding this ticker) — COLD
+            try {
+                const phold = await uw.getPoliticianHolders(ticker);
+                if (phold?.data) { state.politicianHolders = state.politicianHolders || {}; state.politicianHolders[ticker] = phold.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
+
+            // Phase F: Seasonality Year-Month (granular seasonality) — COLD
+            try {
+                const sznYM = await uw.getSeasonalityYearMonth(ticker);
+                if (sznYM?.data) { state.seasonalityYearMonth = state.seasonalityYearMonth || {}; state.seasonalityYearMonth[ticker] = sznYM.data; }
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
     } catch (err) {
@@ -3044,6 +3273,12 @@ async function fetchMarketData(tier) {
 
         // ── COLD tier (every 15th cycle) ──
         if (tier === 'COLD') {
+            // Phase C: Market Holidays (auto-disable scheduler on closures)
+            try {
+                const holidays = await polygonClient.getMarketHolidays();
+                if (holidays.length > 0) state.marketHolidays = holidays;
+            } catch (e) { /* optional */ }
+
             const congress = await uw.getCongressTrades();
             if (congress?.data) {
                 const raw = Array.isArray(congress.data) ? congress.data.slice(0, 30) : [];
@@ -3192,6 +3427,33 @@ async function refreshAll() {
         return;
     }
 
+    // I1: Holiday auto-disable — skip cycles on market holidays
+    try {
+        var holidays = state.marketHolidays || [];
+        if (holidays.length > 0) {
+            var todayStr = new Date().toISOString().slice(0, 10);
+            var todayHoliday = holidays.find(function (h) {
+                return h.date === todayStr && h.status === 'closed';
+            });
+            if (todayHoliday) {
+                console.log('🏖️  Market holiday: ' + (todayHoliday.name || todayHoliday.exchange) + ' — skipping fetch cycle');
+                return;
+            }
+            // Check for early close
+            var earlyClose = holidays.find(function (h) {
+                return h.date === todayStr && h.status === 'early-close';
+            });
+            if (earlyClose) {
+                var nowET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+                var etHour = new Date(nowET).getHours();
+                if (etHour >= 13) { // Markets close at 1pm ET on early close days
+                    console.log('🏖️  Early close day: ' + (earlyClose.name || '') + ' — market closed at 1pm ET, skipping');
+                    return;
+                }
+            }
+        }
+    } catch (e) { /* holiday check non-critical */ }
+
     var tier = scheduler.getDataTier();
     var totalCalls = 0;
     console.log(`\n🔄 Refreshing [${tier}] — ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} EST`);
@@ -3274,22 +3536,21 @@ async function refreshAll() {
             if (!state.tickers.includes(rt)) {
                 // Fetch minimal data for the runner (quote + flow)
                 try {
-                    var rQuote = await uw.getStockQuote(rt);
-                    if (rQuote?.data) state.quotes[rt] = rQuote.data;
-                    scheduler.trackCalls(1);
+                    // A8: Use Polygon snapshot for runner quotes (free), UW fallback
+                    var rSnap = await polygonClient.getTickerSnapshot(rt);
+                    if (rSnap && (rSnap.day || rSnap.lastTrade)) {
+                        state.quotes[rt] = state.quotes[rt] || {};
+                        state.quotes[rt].price = rSnap.lastTrade?.p || rSnap.day?.c || 0;
+                        state.quotes[rt].last = state.quotes[rt].price;
+                        state.quotes[rt].volume = rSnap.day?.v || 0;
+                        state.quotes[rt].changePercent = rSnap.todaysChangePerc || 0;
+                    } else {
+                        var rQuote = await uw.getStockQuote(rt);
+                        if (rQuote?.data) state.quotes[rt] = rQuote.data;
+                        scheduler.trackCalls(1);
+                    }
 
-                    // Fetch Polygon snapshot for real-time price
-                    try {
-                        var pSnap = await polygonClient.getTickerSnapshot(rt);
-                        if (pSnap && pSnap.day) {
-                            if (!state.quotes[rt]) state.quotes[rt] = {};
-                            state.quotes[rt].last = pSnap.lastTrade ? pSnap.lastTrade.p : (pSnap.day.c || state.quotes[rt].last);
-                            state.quotes[rt].price = state.quotes[rt].last;
-                            state.quotes[rt].volume = pSnap.day.v || state.quotes[rt].volume;
-                            state.quotes[rt].priceSource = 'polygon-rest';
-                        }
-                    } catch (pe) { /* optional */ }
-
+                    // (Polygon snapshot already fetched above in A8 migration)
                     await scoreTickerSignals(rt);
                 } catch (re) {
                     console.error('Runner scoring error for ' + rt + ':', re.message);

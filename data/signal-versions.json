@@ -368,7 +368,15 @@
                 "institutional_flow": 1,
                 "fda_risk": 0,
                 "exchange_short_imbalance": 2,
-                "term_structure_signal": 1
+                "term_structure_signal": 1,
+                "max_pain_gravity": 4,
+                "oi_change_direction": 3,
+                "aggregate_greek_exposure": 2,
+                "uw_state_confirmation": 1,
+                "earnings_proximity_guard": 2,
+                "etf_flow_tailwind": 1,
+                "iv_surface_skew": 2,
+                "risk_reversal_signal": 2
             },
             "weights_day": {
                 "ema_alignment": 2,
@@ -413,7 +421,15 @@
                 "institutional_flow": 1,
                 "fda_risk": 0,
                 "exchange_short_imbalance": 2,
-                "term_structure_signal": 1
+                "term_structure_signal": 1,
+                "max_pain_gravity": 3,
+                "oi_change_direction": 3,
+                "aggregate_greek_exposure": 2,
+                "uw_state_confirmation": 2,
+                "earnings_proximity_guard": 4,
+                "etf_flow_tailwind": 3,
+                "iv_surface_skew": 3,
+                "risk_reversal_signal": 3
             },
             "weights_swing": {
                 "ema_alignment": 5,
@@ -458,7 +474,15 @@
                 "institutional_flow": 4,
                 "fda_risk": 0,
                 "exchange_short_imbalance": 3,
-                "term_structure_signal": 3
+                "term_structure_signal": 3,
+                "max_pain_gravity": 2,
+                "oi_change_direction": 4,
+                "aggregate_greek_exposure": 3,
+                "uw_state_confirmation": 3,
+                "earnings_proximity_guard": 5,
+                "etf_flow_tailwind": 4,
+                "iv_surface_skew": 4,
+                "risk_reversal_signal": 4
             },
             "weights": {
                 "ema_alignment": 5,
@@ -503,7 +527,15 @@
                 "institutional_flow": 3,
                 "fda_risk": 0,
                 "exchange_short_imbalance": 2,
-                "term_structure_signal": 2
+                "term_structure_signal": 2,
+                "max_pain_gravity": 3,
+                "oi_change_direction": 3,
+                "aggregate_greek_exposure": 2,
+                "uw_state_confirmation": 2,
+                "earnings_proximity_guard": 4,
+                "etf_flow_tailwind": 3,
+                "iv_surface_skew": 3,
+                "risk_reversal_signal": 3
             },
             "ticker_overrides": {
                 "APP": {

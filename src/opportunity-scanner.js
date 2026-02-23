@@ -47,6 +47,35 @@ class OpportunityScanner {
             return marketSet[b] - marketSet[a];
         });
 
+        // I5: Stock screener + short screener as additional discovery sources
+        if (state.shortScreener && Array.isArray(state.shortScreener)) {
+            state.shortScreener.forEach(function (s) {
+                var t = (s.ticker || s.symbol || '').toUpperCase();
+                if (t && t.length <= 5 && /^[A-Z]{1,5}$/.test(t) && !watchSet[t] && !marketSet[t]) {
+                    marketSet[t] = 4; // Short screener is high-priority
+                    sorted.push(t);
+                }
+            });
+        }
+
+        // I2: Sympathy play discovery — check related companies of high-scoring watchlist tickers
+        if (state.relatedCompanies) {
+            Object.keys(state.relatedCompanies).forEach(function (watchTicker) {
+                // Only add sympathy tickers if the parent scored well
+                var parentSetup = state.tradeSetups && state.tradeSetups[watchTicker];
+                if (parentSetup && parentSetup.confidence >= 75) {
+                    var related = state.relatedCompanies[watchTicker] || [];
+                    related.forEach(function (r) {
+                        var t = (r.ticker || '').toUpperCase();
+                        if (t && t.length <= 5 && /^[A-Z]{1,5}$/.test(t) && !watchSet[t] && !marketSet[t]) {
+                            marketSet[t] = 2; // Sympathy plays
+                            sorted.push(t);
+                        }
+                    });
+                }
+            });
+        }
+
         return sorted.slice(0, 20);
     }
 
@@ -61,7 +90,7 @@ class OpportunityScanner {
             var ticker = marketTickers[i];
 
             try {
-                // Build scoring data from available state
+                // Build scoring data from available state — FULL data set (matches scoreTickerSignals)
                 var data = {
                     technicals: state.technicals[ticker] || {},
                     flow: (state.optionsFlow || []).filter(function (f) { return (f.ticker || f.symbol) === ticker; }),
@@ -71,10 +100,66 @@ class OpportunityScanner {
                     shortInterest: state.shortInterest ? state.shortInterest[ticker] : null,
                     insider: [],
                     congress: [],
+                    // I3: Congress trader filter — pass congress data with trader performance
+                    congressTrader: state.congressTrader || null,
+                    congressLateReports: state.congressLateReports || null,
                     quote: state.quotes[ticker] || {},
                     regime: state.marketRegime,
                     sentiment: null,
-                    multiTF: state.multiTF ? state.multiTF[ticker] : null
+                    multiTF: state.multiTF ? state.multiTF[ticker] : null,
+                    // Phase 1 API data
+                    netPremium: state.netPremium ? state.netPremium[ticker] : null,
+                    flowPerStrike: state.flowPerStrike ? state.flowPerStrike[ticker] : null,
+                    flowPerExpiry: state.flowPerExpiry ? state.flowPerExpiry[ticker] : null,
+                    greekFlow: state.greekFlow ? state.greekFlow[ticker] : null,
+                    spotExposures: state.spotExposures ? state.spotExposures[ticker] : null,
+                    shortVolume: state.shortVolume ? state.shortVolume[ticker] : null,
+                    failsToDeliver: state.failsToDeliver ? state.failsToDeliver[ticker] : null,
+                    seasonality: state.seasonality ? state.seasonality[ticker] : null,
+                    realizedVol: state.realizedVol ? state.realizedVol[ticker] : null,
+                    termStructure: state.termStructure ? state.termStructure[ticker] : null,
+                    insiderFlow: state.insiderFlow ? state.insiderFlow[ticker] : null,
+                    sectorTide: state.sectorTide || {},
+                    etfTide: state.etfTide || {},
+                    economicCalendar: state.economicCalendar || [],
+                    // Phase 2 data
+                    nope: state.nope ? state.nope[ticker] : null,
+                    flowPerStrikeIntraday: state.flowPerStrikeIntraday ? state.flowPerStrikeIntraday[ticker] : null,
+                    analystRatings: state.analystRatings ? state.analystRatings[ticker] : null,
+                    institutionHoldings: state.institutionHoldings ? state.institutionHoldings[ticker] : null,
+                    institutionActivity: state.institutionActivity ? state.institutionActivity[ticker] : null,
+                    shortVolumesByExchange: state.shortVolumesByExchange ? state.shortVolumesByExchange[ticker] : null,
+                    fdaCalendar: state.fdaCalendar || [],
+                    // Phase 3 GAP data
+                    maxPain: state.maxPain ? state.maxPain[ticker] : null,
+                    oiChange: state.oiChange ? state.oiChange[ticker] : null,
+                    greeks: state.greeks ? state.greeks[ticker] : null,
+                    stockState: state.stockState ? state.stockState[ticker] : null,
+                    earnings: state.earnings ? state.earnings[ticker] : null,
+                    etfFlows: state.etfFlows || {},
+                    // Phase B — New UW endpoints
+                    shortInterestV2: state.shortInterestV2 ? state.shortInterestV2[ticker] : null,
+                    interpolatedIV: state.interpolatedIV ? state.interpolatedIV[ticker] : null,
+                    riskReversalSkew: state.riskReversalSkew ? state.riskReversalSkew[ticker] : null,
+                    insiderSectorFlow: state.insiderSectorFlow || {},
+                    // Phase C — Polygon expansion
+                    financials: state.financials ? state.financials[ticker] : null,
+                    relatedCompanies: state.relatedCompanies ? state.relatedCompanies[ticker] : null,
+                    splits: state.splits ? state.splits[ticker] : null,
+                    dividends: state.dividends ? state.dividends[ticker] : null,
+                    marketHolidays: state.marketHolidays || [],
+                    // Phase E data
+                    oiPerStrike: (state.oiPerStrike || {})[ticker] || null,
+                    oiPerExpiry: (state.oiPerExpiry || {})[ticker] || null,
+                    atmChains: (state.atmChains || {})[ticker] || null,
+                    stockPriceLevels: (state.stockPriceLevels || {})[ticker] || null,
+                    stockVolumePriceLevels: (state.stockVolumePriceLevels || {})[ticker] || null,
+                    // Phase F data
+                    expiryBreakdown: (state.expiryBreakdown || {})[ticker] || null,
+                    spotGEXByExpiryStrike: (state.spotGEXByExpiryStrike || {})[ticker] || null,
+                    tickerOwnership: (state.tickerOwnership || {})[ticker] || null,
+                    politicianHolders: (state.politicianHolders || {})[ticker] || null,
+                    seasonalityYearMonth: (state.seasonalityYearMonth || {})[ticker] || null
                 };
 
                 var result = this.signalEngine.score(ticker, data, session);

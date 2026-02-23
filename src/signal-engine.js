@@ -51,7 +51,17 @@ const DEFAULT_WEIGHTS = {
     institutional_flow: 3,
     fda_risk: 0,
     exchange_short_imbalance: 2,
-    term_structure_signal: 2
+    term_structure_signal: 2,
+    // Phase 3 weights — GAP signals (previously fetched but never consumed)
+    max_pain_gravity: 3,
+    oi_change_direction: 3,
+    aggregate_greek_exposure: 2,
+    uw_state_confirmation: 2,
+    earnings_proximity_guard: 4,
+    etf_flow_tailwind: 3,
+    // Phase B weights — new UW endpoints
+    iv_surface_skew: 3,
+    risk_reversal_signal: 3
 };
 
 // Load versioned weights
@@ -99,7 +109,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 0.6, etf_tide_macro: 0.6, squeeze_composite: 1.0,
         seasonality_alignment: 0.3, vol_regime: 0.5, insider_conviction: 0.2,
         spot_gamma_pin: 1.4, flow_horizon: 0.8, volume_direction: 1.5,
-        earnings_gap_trade: 1.5
+        earnings_gap_trade: 1.5,
+        max_pain_gravity: 1.0, oi_change_direction: 1.0, aggregate_greek_exposure: 1.2,
+        uw_state_confirmation: 0.8, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.6
     },
     POWER_OPEN: {  // 9:21-10:00 AM — momentum + flow
         ema_alignment: 0.8, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.8,
@@ -112,7 +124,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 0.8, etf_tide_macro: 0.8, squeeze_composite: 1.0,
         seasonality_alignment: 0.4, vol_regime: 0.6, insider_conviction: 0.3,
         spot_gamma_pin: 1.3, flow_horizon: 0.9, volume_direction: 1.3,
-        earnings_gap_trade: 1.5
+        earnings_gap_trade: 1.5,
+        max_pain_gravity: 1.0, oi_change_direction: 1.2, aggregate_greek_exposure: 1.2,
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 0.5, etf_flow_tailwind: 0.8
     },
     PRE_MARKET: {  // 8:30-9:00 AM — news + gap driven
         ema_alignment: 0.5, rsi_position: 0.6, macd_histogram: 0.5, bollinger_position: 0.4,
@@ -125,7 +139,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 0.5, etf_tide_macro: 0.5, squeeze_composite: 0.8,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 1.0,
         spot_gamma_pin: 0.5, flow_horizon: 0.5, volume_direction: 0.5,
-        earnings_gap_trade: 1.8
+        earnings_gap_trade: 1.8,
+        max_pain_gravity: 0.5, oi_change_direction: 0.8, aggregate_greek_exposure: 0.8,
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.0
     },
     MIDDAY: {      // 10:01 AM-3:00 PM — balanced day trading
         ema_alignment: 1.0, rsi_position: 1.1, macd_histogram: 0.9, bollinger_position: 1.3,
@@ -138,7 +154,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.2,
         seasonality_alignment: 1.0, vol_regime: 1.0, insider_conviction: 0.8,
         spot_gamma_pin: 1.0, flow_horizon: 1.0, volume_direction: 1.0,
-        earnings_gap_trade: 0.4
+        earnings_gap_trade: 0.4,
+        max_pain_gravity: 1.4, oi_change_direction: 1.0, aggregate_greek_exposure: 1.0,
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0
     },
     POWER_HOUR: {  // 3:01-4:15 PM — closing momentum
         ema_alignment: 1.0, rsi_position: 1.0, macd_histogram: 1.0, bollinger_position: 0.9,
@@ -151,7 +169,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 1.0,
         seasonality_alignment: 0.8, vol_regime: 0.8, insider_conviction: 0.5,
         spot_gamma_pin: 1.2, flow_horizon: 1.0, volume_direction: 1.2,
-        earnings_gap_trade: 0.3
+        earnings_gap_trade: 0.3,
+        max_pain_gravity: 1.5, oi_change_direction: 1.0, aggregate_greek_exposure: 1.0,
+        uw_state_confirmation: 1.0, earnings_proximity_guard: 1.0, etf_flow_tailwind: 1.0
     },
     AFTER_HOURS: { // 4:16-5:00 PM — reduced signals
         ema_alignment: 1.2, rsi_position: 1.0, macd_histogram: 0.8, bollinger_position: 0.7,
@@ -164,7 +184,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 1.0, etf_tide_macro: 1.0, squeeze_composite: 0.8,
         seasonality_alignment: 1.2, vol_regime: 1.0, insider_conviction: 1.2,
         spot_gamma_pin: 0.3, flow_horizon: 0.5, volume_direction: 0.4,
-        earnings_gap_trade: 1.2
+        earnings_gap_trade: 1.2,
+        max_pain_gravity: 0.5, oi_change_direction: 0.8, aggregate_greek_exposure: 0.8,
+        uw_state_confirmation: 1.2, earnings_proximity_guard: 1.5, etf_flow_tailwind: 1.2
     },
     OVERNIGHT: {   // 5:01 PM-8:29 AM — swing analysis
         ema_alignment: 1.4, rsi_position: 1.2, macd_histogram: 1.1, bollinger_position: 1.0,
@@ -177,7 +199,9 @@ const SESSION_MULTIPLIERS = {
         sector_tide_alignment: 1.2, etf_tide_macro: 1.2, squeeze_composite: 1.4,
         seasonality_alignment: 1.4, vol_regime: 1.2, insider_conviction: 1.5,
         spot_gamma_pin: 0.2, flow_horizon: 0.3, volume_direction: 0.3,
-        earnings_gap_trade: 1.6
+        earnings_gap_trade: 1.6,
+        max_pain_gravity: 0.3, oi_change_direction: 1.0, aggregate_greek_exposure: 0.8,
+        uw_state_confirmation: 1.4, earnings_proximity_guard: 1.8, etf_flow_tailwind: 1.5
     }
 };
 
@@ -1304,9 +1328,228 @@ class SignalEngine {
             }
         }
 
+        // ── 46. Max Pain Gravity Signal ── (GAP-1: data fetched but never consumed)
+        var wMPG = this._ew('max_pain_gravity', sess, hw);
+        if (data.maxPain && quote.price) {
+            var mpArr = Array.isArray(data.maxPain) ? data.maxPain : [data.maxPain];
+            var mpStrike = parseFloat(mpArr[0].strike || mpArr[0].max_pain || mpArr[0].price || 0);
+            var curPrice = parseFloat(quote.price || quote.last || 0);
+            if (mpStrike > 0 && curPrice > 0) {
+                var mpDist = (curPrice - mpStrike) / curPrice; // positive = above max pain
+                if (mpDist > 0.03) {
+                    bear += wMPG; signals.push({ name: '🧲 Above Max Pain', dir: 'BEAR', weight: wMPG, detail: 'Price $' + curPrice.toFixed(2) + ' vs MP $' + mpStrike.toFixed(2) + ' — pin risk into expiry' });
+                } else if (mpDist < -0.03) {
+                    bull += wMPG; signals.push({ name: '🧲 Below Max Pain', dir: 'BULL', weight: wMPG, detail: 'Price $' + curPrice.toFixed(2) + ' vs MP $' + mpStrike.toFixed(2) + ' — magnet pull up' });
+                } else {
+                    signals.push({ name: '🧲 At Max Pain', dir: 'NEUTRAL', weight: 0, detail: 'Price near MP $' + mpStrike.toFixed(2) + ' — expect chop near expiry' });
+                }
+            }
+        }
+
+        // ── 47. OI Change Direction Signal ── (GAP-2: data fetched but never consumed)
+        var wOIC = this._ew('oi_change_direction', sess, hw);
+        if (data.oiChange) {
+            var oiArr = Array.isArray(data.oiChange) ? data.oiChange : [];
+            if (oiArr.length > 0) {
+                var callOI = 0, putOI = 0;
+                oiArr.forEach(function (oi) {
+                    var change = parseFloat(oi.oi_change || oi.change || oi.open_interest_change || 0);
+                    var type = (oi.option_type || oi.type || '').toLowerCase();
+                    if (type === 'call' || type === 'c') callOI += change;
+                    else if (type === 'put' || type === 'p') putOI += change;
+                });
+                var netOI = callOI - putOI;
+                if (netOI > 1000) {
+                    bull += wOIC; signals.push({ name: '📊 OI Build Calls', dir: 'BULL', weight: wOIC, detail: 'Net call OI +' + netOI.toFixed(0) + ' — new bullish positions' });
+                } else if (netOI < -1000) {
+                    bear += wOIC; signals.push({ name: '📊 OI Build Puts', dir: 'BEAR', weight: wOIC, detail: 'Net put OI ' + netOI.toFixed(0) + ' — new bearish positions' });
+                }
+            }
+        }
+
+        // ── 48. Aggregate Greek Exposure Signal ── (GAP-3: data fetched but never consumed)
+        var wAGE = this._ew('aggregate_greek_exposure', sess, hw);
+        if (data.greeks) {
+            var gkData = Array.isArray(data.greeks) ? data.greeks[0] : data.greeks;
+            var netDelta = parseFloat(gkData.net_delta || gkData.delta || 0);
+            var netGamma = parseFloat(gkData.net_gamma || gkData.gamma || 0);
+            if (Math.abs(netDelta) > 0) {
+                if (netDelta < -0.1) {
+                    // Dealers net short delta = forced buying on rally
+                    bull += wAGE; signals.push({ name: '⚡ Dealer Short Delta', dir: 'BULL', weight: wAGE, detail: 'Net delta ' + netDelta.toFixed(3) + ' — forced hedge buying on rally' });
+                } else if (netDelta > 0.1) {
+                    bear += wAGE; signals.push({ name: '⚡ Dealer Long Delta', dir: 'BEAR', weight: wAGE, detail: 'Net delta +' + netDelta.toFixed(3) + ' — forced hedge selling on drop' });
+                }
+            }
+        }
+
+        // ── 49. UW Stock State Confirmation ── (GAP-4: data fetched but never consumed)
+        var wUSC = this._ew('uw_state_confirmation', sess, hw);
+        if (data.stockState) {
+            var ssData = Array.isArray(data.stockState) ? data.stockState[0] : data.stockState;
+            var uwState = (ssData.state || ssData.stock_state || ssData.classification || '').toUpperCase();
+            if (uwState.includes('BULL')) {
+                bull += wUSC; signals.push({ name: '🏷️ UW State Bullish', dir: 'BULL', weight: wUSC, detail: 'UW classifies as ' + uwState });
+            } else if (uwState.includes('BEAR')) {
+                bear += wUSC; signals.push({ name: '🏷️ UW State Bearish', dir: 'BEAR', weight: wUSC, detail: 'UW classifies as ' + uwState });
+            }
+        }
+
+        // ── 50. Earnings Proximity Guard ── (GAP-5: data fetched but never consumed)
+        var wEPG = this._ew('earnings_proximity_guard', sess, hw);
+        if (data.earnings) {
+            var erData = Array.isArray(data.earnings) ? data.earnings[0] : data.earnings;
+            var erDate = erData.date || erData.earnings_date || erData.report_date || '';
+            if (erDate) {
+                var erTime = new Date(erDate).getTime();
+                var nowTime = Date.now();
+                var daysToER = (erTime - nowTime) / (1000 * 60 * 60 * 24);
+                if (daysToER >= 0 && daysToER <= 1) {
+                    // Earnings tomorrow or today — day-trade only, high IV crush risk
+                    signals.push({ name: '📅 Earnings Imminent', dir: 'NEUTRAL', weight: 0, detail: 'ER in ' + daysToER.toFixed(1) + 'd — DAY TRADE ONLY, IV crush risk' });
+                } else if (daysToER > 1 && daysToER <= 3) {
+                    // Earnings within 3 days — suppress swing confidence
+                    signals.push({ name: '📅 Earnings Nearby', dir: 'NEUTRAL', weight: 0, detail: 'ER in ' + daysToER.toFixed(0) + 'd — reduce swing exposure' });
+                } else if (daysToER > -1 && daysToER < 0) {
+                    // Post-earnings day — gap trade opportunity
+                    bull += wEPG * 0.5; signals.push({ name: '📅 Post-Earnings', dir: 'BULL', weight: +(wEPG * 0.5).toFixed(2), detail: 'ER just reported — gap trade window' });
+                }
+            }
+        }
+
+        // ── 51. ETF Flow Tailwind/Headwind ── (GAP-6: data fetched but never consumed)
+        var wEFT = this._ew('etf_flow_tailwind', sess, hw);
+        if (data.etfFlows && typeof data.etfFlows === 'object') {
+            // Map common tickers to their sector ETFs
+            var sectorMap = {
+                'AAPL': 'XLK', 'MSFT': 'XLK', 'NVDA': 'XLK', 'AMD': 'XLK', 'GOOGL': 'XLC', 'META': 'XLC', 'AMZN': 'XLY',
+                'TSLA': 'XLY', 'JPM': 'XLF', 'GS': 'XLF', 'BAC': 'XLF', 'XOM': 'XLE', 'CVX': 'XLE',
+                'JNJ': 'XLV', 'UNH': 'XLV', 'PFE': 'XLV', 'LLY': 'XLV', 'ABBV': 'XLV'
+            };
+            var sectorETF = sectorMap[ticker] || null;
+            if (sectorETF && data.etfFlows[sectorETF]) {
+                var etfData = data.etfFlows[sectorETF];
+                var netFlow = parseFloat(etfData.net_flow || etfData.flow || etfData.net || 0);
+                if (netFlow > 50000000) { // $50M+ inflow
+                    bull += wEFT; signals.push({ name: '🌊 Sector Inflow', dir: 'BULL', weight: wEFT, detail: sectorETF + ' +$' + (netFlow / 1e6).toFixed(0) + 'M — sector tailwind' });
+                } else if (netFlow < -50000000) { // $50M+ outflow
+                    bear += wEFT; signals.push({ name: '🌊 Sector Outflow', dir: 'BEAR', weight: wEFT, detail: sectorETF + ' -$' + (Math.abs(netFlow) / 1e6).toFixed(0) + 'M — sector headwind' });
+                }
+            }
+            // Also check broad market ETFs (SPY/QQQ)
+            var spyFlow = data.etfFlows['SPY'];
+            if (spyFlow) {
+                var spyNet = parseFloat(spyFlow.net_flow || spyFlow.flow || spyFlow.net || 0);
+                if (spyNet > 200000000) {
+                    bull += wEFT * 0.5; signals.push({ name: '🌊 SPY Inflow', dir: 'BULL', weight: +(wEFT * 0.5).toFixed(2), detail: 'SPY +$' + (spyNet / 1e6).toFixed(0) + 'M — broad market tailwind' });
+                } else if (spyNet < -200000000) {
+                    bear += wEFT * 0.5; signals.push({ name: '🌊 SPY Outflow', dir: 'BEAR', weight: +(wEFT * 0.5).toFixed(2), detail: 'SPY -$' + (Math.abs(spyNet) / 1e6).toFixed(0) + 'M — broad market headwind' });
+                }
+            }
+        }
+
+        // ── 52. IV Surface Skew Signal ── (Phase B: interpolated IV data)
+        var wIVS = this._ew('iv_surface_skew', sess, hw);
+        if (data.interpolatedIV) {
+            var ivArr = Array.isArray(data.interpolatedIV) ? data.interpolatedIV : [data.interpolatedIV];
+            if (ivArr.length >= 1) {
+                var skewVal = parseFloat(ivArr[0].skew || ivArr[0].put_call_skew || ivArr[0].iv_skew || 0);
+                if (skewVal > 0.05) {
+                    bear += wIVS; signals.push({ name: '📐 IV Put Skew', dir: 'BEAR', weight: wIVS, detail: 'Put/call skew ' + skewVal.toFixed(3) + ' — hedging demand' });
+                } else if (skewVal < -0.05) {
+                    bull += wIVS; signals.push({ name: '📐 IV Call Skew', dir: 'BULL', weight: wIVS, detail: 'Put/call skew ' + skewVal.toFixed(3) + ' — upside demand' });
+                }
+            }
+        }
+
+        // ── 53. Risk Reversal Skew Signal ── (Phase B: historical risk reversal)
+        var wRRS = this._ew('risk_reversal_signal', sess, hw);
+        if (data.riskReversalSkew) {
+            var rrArr = Array.isArray(data.riskReversalSkew) ? data.riskReversalSkew : [data.riskReversalSkew];
+            if (rrArr.length > 0) {
+                var rrLatest = rrArr[rrArr.length - 1] || rrArr[0];
+                var rrVal = parseFloat(rrLatest.risk_reversal || rrLatest.rr || rrLatest.skew || 0);
+                if (rrVal > 0.02) {
+                    bull += wRRS; signals.push({ name: '⚖️ Risk Reversal Bull', dir: 'BULL', weight: wRRS, detail: 'RR +' + rrVal.toFixed(3) + ' — call premium dominant' });
+                } else if (rrVal < -0.02) {
+                    bear += wRRS; signals.push({ name: '⚖️ Risk Reversal Bear', dir: 'BEAR', weight: wRRS, detail: 'RR ' + rrVal.toFixed(3) + ' — put premium dominant' });
+                }
+            }
+        }
+
+        // ── Enhanced Short Interest (B1): V2 float data for squeeze detection ──
+        if (data.shortInterestV2) {
+            var si2 = Array.isArray(data.shortInterestV2) ? data.shortInterestV2[0] : data.shortInterestV2;
+            var floatPct = parseFloat(si2.short_interest_pct || si2.si_pct_float || si2.percent_float || 0);
+            var dtc = parseFloat(si2.days_to_cover || si2.dtc || 0);
+            if (floatPct > 20 && dtc > 3) {
+                bull += 2; signals.push({ name: '🔥 Squeeze Setup (V2)', dir: 'BULL', weight: 2, detail: 'SI ' + floatPct.toFixed(1) + '% float, DTC ' + dtc.toFixed(1) + 'd — squeeze candidate' });
+            }
+        }
+
+        // ── Enhanced Insider Signal (B5): Sector-level insider flow ──
+        if (data.insiderSectorFlow && typeof data.insiderSectorFlow === 'object') {
+            var tickerSectorMap = {
+                'AAPL': 'Technology', 'MSFT': 'Technology', 'NVDA': 'Technology', 'AMD': 'Technology',
+                'JPM': 'Financial Services', 'GS': 'Financial Services', 'BAC': 'Financial Services',
+                'XOM': 'Energy', 'CVX': 'Energy', 'JNJ': 'Healthcare', 'UNH': 'Healthcare', 'LLY': 'Healthcare',
+                'AMZN': 'Consumer Cyclical', 'TSLA': 'Consumer Cyclical'
+            };
+            var tSector = tickerSectorMap[ticker];
+            if (tSector && data.insiderSectorFlow[tSector]) {
+                var sFlow = data.insiderSectorFlow[tSector];
+                var netBuys = parseFloat(sFlow.net_buys || sFlow.net || 0);
+                if (netBuys > 5) {
+                    bull += 1; signals.push({ name: '🏢 Sector Insider Buy', dir: 'BULL', weight: 1, detail: tSector + ' net insider buys: ' + netBuys.toFixed(0) });
+                } else if (netBuys < -5) {
+                    bear += 1; signals.push({ name: '🏢 Sector Insider Sell', dir: 'BEAR', weight: 1, detail: tSector + ' net insider sells: ' + Math.abs(netBuys).toFixed(0) });
+                }
+            }
+        }
+
+        // ── Phase C: Corporate Action Guard (splits/dividends within 7 days) ──
+        if (data.splits && Array.isArray(data.splits) && data.splits.length > 0) {
+            var nextSplit = data.splits[0];
+            var splitDate = nextSplit.execution_date || nextSplit.ex_date || '';
+            if (splitDate) {
+                var splitDays = (new Date(splitDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+                if (splitDays >= -1 && splitDays <= 7) {
+                    signals.push({ name: '⚠️ Split Nearby', dir: 'NEUTRAL', weight: 0, detail: 'Stock split in ' + splitDays.toFixed(0) + 'd — price levels unreliable, reduce position size' });
+                }
+            }
+        }
+        if (data.dividends && Array.isArray(data.dividends) && data.dividends.length > 0) {
+            var nextDiv = data.dividends[0];
+            var exDate = nextDiv.ex_dividend_date || nextDiv.ex_date || '';
+            if (exDate) {
+                var divDays = (new Date(exDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+                if (divDays >= 0 && divDays <= 3) {
+                    signals.push({ name: '💰 Ex-Div Nearby', dir: 'NEUTRAL', weight: 0, detail: 'Ex-div in ' + divDays.toFixed(0) + 'd — expect price drop by $' + (parseFloat(nextDiv.cash_amount || nextDiv.amount || 0)).toFixed(2) });
+                }
+            }
+        }
+
+        // ── Phase C: Fundamental Quality Filter (Polygon Financials) ──
+        if (data.financials && Array.isArray(data.financials) && data.financials.length >= 2) {
+            var q1 = data.financials[0]; // most recent quarter
+            var q2 = data.financials[1]; // previous quarter
+            var rev1 = parseFloat(q1?.financials?.income_statement?.revenues?.value || 0);
+            var rev2 = parseFloat(q2?.financials?.income_statement?.revenues?.value || 0);
+            var eps1 = parseFloat(q1?.financials?.income_statement?.basic_earnings_per_share?.value || 0);
+            var eps2 = parseFloat(q2?.financials?.income_statement?.basic_earnings_per_share?.value || 0);
+            if (rev1 > 0 && rev2 > 0) {
+                var revGrowth = (rev1 - rev2) / rev2;
+                if (revGrowth > 0.1 && eps1 > eps2) {
+                    bull += 2; signals.push({ name: '📈 Revenue Growth', dir: 'BULL', weight: 2, detail: 'Rev +' + (revGrowth * 100).toFixed(1) + '% QoQ, EPS improving — fundamental tailwind' });
+                } else if (revGrowth < -0.1 && eps1 < eps2) {
+                    bear += 2; signals.push({ name: '📉 Revenue Decline', dir: 'BEAR', weight: 2, detail: 'Rev ' + (revGrowth * 100).toFixed(1) + '% QoQ, EPS declining — fundamental headwind' });
+                }
+            }
+        }
+
         // Compute weighted-signal score (context layer)
         const spread = Math.abs(bull - bear);
-        const maxWeight = 65;
+        const maxWeight = 85;
         var bearThreshold = isRanging ? 5 : 2;
         let weightedDir = bull > bear + 2 ? 'BULLISH' : bear > bull + bearThreshold ? 'BEARISH' : 'NEUTRAL';
         let weightedConf = Math.min(95, Math.round(50 + (spread / maxWeight) * 50));

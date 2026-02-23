@@ -697,6 +697,106 @@ class PolygonTickClient {
 
     isConnected() { return this.connected; }
     getSubscribedCount() { return this.subscribedTickers.length; }
+    // ── Phase C: Financials (quarterly earnings history) ────
+    async getFinancials(ticker, limit = 4) {
+        try {
+            var data = await this._restGet(`/vX/reference/financials?ticker=${ticker}&limit=${limit}&sort=period_of_report_date&order=desc`);
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── Phase C: Related Companies (sympathy play detection) ──
+    async getRelatedCompanies(ticker) {
+        try {
+            var data = await this._restGet(`/v1/related-companies/${ticker}`);
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── Phase C: Market Holidays (auto-disable scheduler on closures) ──
+    async getMarketHolidays() {
+        try {
+            var data = await this._restGet('/v1/marketstatus/upcoming');
+            return Array.isArray(data) ? data : [];
+        } catch (e) { return []; }
+    }
+
+    // ── Phase C: Stock Splits (prevent false signals) ─────────
+    async getSplits(ticker, limit = 5) {
+        try {
+            var data = await this._restGet(`/v3/reference/splits?ticker=${ticker}&limit=${limit}&order=desc`);
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── Phase C: Dividends (prevent false signals) ───────────
+    async getDividends(ticker, limit = 5) {
+        try {
+            var data = await this._restGet(`/v3/reference/dividends?ticker=${ticker}&limit=${limit}&order=desc`);
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── D3: Trade Condition Codes (filter quality) ───────────
+    async getConditions() {
+        try {
+            var data = await this._restGet('/v3/reference/conditions?asset_class=stocks');
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── D3: Exchange Metadata ────────────────────────────────
+    async getExchanges() {
+        try {
+            var data = await this._restGet('/v3/reference/exchanges?asset_class=stocks');
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // ── D3: Filter trades by quality conditions ──────────────
+    // Filters out trades with questionable condition codes (odd lots, average price, etc.)
+    filterQualityTrades(trades) {
+        if (!trades || !Array.isArray(trades)) return trades;
+        // Condition codes to exclude: 15=avg price, 16=odd lot, 37=contingent, 52=prior ref price
+        var excludeConditions = [15, 16, 37, 52];
+        return trades.filter(function (t) {
+            var conds = t.conditions || t.c || [];
+            if (!Array.isArray(conds) || conds.length === 0) return true;
+            for (var i = 0; i < conds.length; i++) {
+                if (excludeConditions.indexOf(conds[i]) !== -1) return false;
+            }
+            return true;
+        });
+    }
+
+    // ── Phase H: Options Contracts (live pricing for paper trading) ──
+    async getOptionsContracts(ticker, params = {}) {
+        try {
+            var queryParts = [`underlying_ticker=${ticker.toUpperCase()}`];
+            if (params.expiration_date) queryParts.push(`expiration_date=${params.expiration_date}`);
+            if (params.strike_price) queryParts.push(`strike_price=${params.strike_price}`);
+            if (params.contract_type) queryParts.push(`contract_type=${params.contract_type}`);
+            if (params.expired !== undefined) queryParts.push(`expired=${params.expired}`);
+            queryParts.push('limit=' + (params.limit || 50));
+            queryParts.push('order=asc&sort=strike_price');
+            var data = await this._restGet('/v3/reference/options/contracts?' + queryParts.join('&'));
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
+
+    // Phase H: Options Snapshot — live bid/ask/last for all options on a ticker
+    async getOptionsSnapshot(ticker, params = {}) {
+        try {
+            var queryParts = [];
+            if (params.strike_price) queryParts.push(`strike_price=${params.strike_price}`);
+            if (params.expiration_date) queryParts.push(`expiration_date=${params.expiration_date}`);
+            if (params.contract_type) queryParts.push(`contract_type=${params.contract_type}`);
+            queryParts.push('limit=' + (params.limit || 50));
+            var url = '/v3/snapshot/options/' + ticker.toUpperCase() + (queryParts.length > 0 ? '?' + queryParts.join('&') : '');
+            var data = await this._restGet(url);
+            return data?.results || [];
+        } catch (e) { return []; }
+    }
 }
 
 module.exports = PolygonTickClient;

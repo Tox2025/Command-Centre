@@ -442,6 +442,135 @@ class UWClient {
     return this._fetch(`/insider/${sector}/sector-flow`);
   }
 
+  // ── Phase E: Priority 1 Endpoints ──────────────────────────
+
+  // E1: Option Contract Flow — flow for a specific contract
+  async getOptionContractFlow(contractId) {
+    return this._fetch(`/option-contract/${contractId}/flow`);
+  }
+
+  // E2: Option Contract Historic — historical data for specific contract
+  async getOptionContractHistoric(contractId) {
+    return this._fetch(`/option-contract/${contractId}/historic`);
+  }
+
+  // E3: Option Contract Intraday — intraday data for specific contract
+  async getOptionContractIntraday(contractId) {
+    return this._fetch(`/option-contract/${contractId}/intraday`);
+  }
+
+  // E4: Option Contract Volume Profile — volume profile for specific contract
+  async getOptionContractVolumeProfile(contractId) {
+    return this._fetch(`/option-contract/${contractId}/volume-profile`);
+  }
+
+  // E5: Full Options Tape — complete options tape for a date
+  async getFullOptionsTape(date) {
+    return this._fetch(`/option-trades/full-tape/${date}`);
+  }
+
+  // E6: OI Per Strike — open interest breakdown by strike
+  async getOIPerStrike(ticker) {
+    return this._fetch(`/stock/${ticker}/oi-per-strike`);
+  }
+
+  // E7: OI Per Expiry — open interest breakdown by expiry
+  async getOIPerExpiry(ticker) {
+    return this._fetch(`/stock/${ticker}/oi-per-expiry`);
+  }
+
+  // E8: ATM Chains — at-the-money options chains
+  async getATMChains(ticker) {
+    return this._fetch(`/stock/${ticker}/atm-chains`);
+  }
+
+  // E9: Stock Price Levels — volume profile price levels
+  async getStockPriceLevels(ticker) {
+    return this._fetch(`/stock/${ticker}/stock-price-levels`);
+  }
+
+  // E10: Stock Volume Price Levels — volume at price
+  async getStockVolumePriceLevels(ticker) {
+    return this._fetch(`/stock/${ticker}/stock-volume-price-levels`);
+  }
+
+  // ── Phase F: Priority 2 Endpoints ──────────────────────────
+
+  // F1: Expiry Breakdown — options activity by expiry
+  async getExpiryBreakdown(ticker) {
+    return this._fetch(`/stock/${ticker}/expiry-breakdown`);
+  }
+
+  // F2: Spot GEX by Expiry+Strike — granular GEX analysis
+  async getSpotGEXByExpiryStrike(ticker) {
+    return this._fetch(`/stock/${ticker}/spot-exposures/expiry-strike`);
+  }
+
+  // F2b: Spot GEX for specific expiry — GEX at specific expiry date
+  async getSpotGEXByExpiry(ticker, expiry) {
+    return this._fetch(`/stock/${ticker}/spot-exposures/${expiry}/strike`);
+  }
+
+  // F3: Greek Flow by Expiry — time-targeted greek exposure
+  async getGreekFlowByExpiry(ticker, expiry) {
+    return this._fetch(`/stock/${ticker}/greek-flow/${expiry}`);
+  }
+
+  // F3b: Group Flow Greek — group flow greek analysis
+  async getGroupFlowGreek(flowGroup) {
+    return this._fetch(`/group-flow/${flowGroup}/greek-flow`);
+  }
+
+  // F3c: Group Flow by Expiry — group flow greek for specific expiry
+  async getGroupFlowGreekByExpiry(flowGroup, expiry) {
+    return this._fetch(`/group-flow/${flowGroup}/greek-flow/${expiry}`);
+  }
+
+  // F4: ETF Info — ETF information and metadata
+  async getETFInfo(ticker) {
+    return this._fetch(`/etfs/${ticker}/info`);
+  }
+
+  // F4b: ETF Weights — ETF holdings and weights
+  async getETFWeights(ticker) {
+    return this._fetch(`/etfs/${ticker}/weights`);
+  }
+
+  // F5: Institution Sectors — institution sector exposure
+  async getInstitutionSectors(name) {
+    return this._fetch(`/institution/${encodeURIComponent(name)}/sectors`);
+  }
+
+  // F5b: Institution Activity V2 — updated activity endpoint
+  async getInstitutionActivityV2(name) {
+    return this._fetch(`/institution/${encodeURIComponent(name)}/activity/v2`);
+  }
+
+  // F5c: Ticker Ownership — who owns a ticker
+  async getTickerOwnership(ticker) {
+    return this._fetch(`/institution/${ticker}/ownership`);
+  }
+
+  // F6: Politician Holdings — politicians holding a specific ticker
+  async getPoliticianHolders(ticker) {
+    return this._fetch(`/politician-portfolios/holders/${ticker}`);
+  }
+
+  // F6b: Politician Portfolio — a politician's full portfolio
+  async getPoliticianPortfolio(politicianId) {
+    return this._fetch(`/politician-portfolios/${politicianId}`);
+  }
+
+  // F7: Seasonality Performers — top performers for a month
+  async getSeasonalityPerformers(month) {
+    return this._fetch(`/seasonality/${month}/performers`);
+  }
+
+  // F7b: Seasonality Year-Month — granular year-month seasonality
+  async getSeasonalityYearMonth(ticker) {
+    return this._fetch(`/seasonality/${ticker}/year-month`);
+  }
+
   // == Alerts ==
   async getAlerts() {
     return this._fetch('/alerts');
@@ -452,4 +581,164 @@ class UWClient {
   }
 }
 
-module.exports = UWClient;
+// ── D1/D2: UW WebSocket Client for Lit and Off-Lit Trade Streams ──
+class UWWebSocketClient {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+    this.ws = null;
+    this.connected = false;
+    this.reconnectDelay = 5000;
+    this.maxReconnectDelay = 60000;
+    this.litTrades = {};      // { ticker: [recent trades] }
+    this.offLitTrades = {};   // { ticker: [recent dark pool prints] }
+    this.subscribedTickers = [];
+    this.handlers = {};       // event handlers
+    this.maxTradesPerTicker = 50;
+  }
+
+  connect(tickers = []) {
+    const self = this;
+    this.subscribedTickers = tickers.map(t => t.toUpperCase());
+
+    try {
+      const WebSocket = require('ws');
+      this.ws = new WebSocket('wss://ws.unusualwhales.com/trades', {
+        headers: { 'Authorization': 'Bearer ' + this.apiKey }
+      });
+
+      this.ws.on('open', function () {
+        self.connected = true;
+        self.reconnectDelay = 5000;
+        console.log('🐋 UW WebSocket connected');
+        // Subscribe to channels
+        self._subscribe();
+      });
+
+      this.ws.on('message', function (data) {
+        try {
+          var msg = JSON.parse(data);
+          self._handleMessage(msg);
+        } catch (e) { /* skip malformed messages */ }
+      });
+
+      this.ws.on('close', function () {
+        self.connected = false;
+        console.log('🐋 UW WebSocket disconnected, reconnecting...');
+        self._reconnect();
+      });
+
+      this.ws.on('error', function (err) {
+        console.error('🐋 UW WebSocket error:', err.message);
+      });
+    } catch (e) {
+      console.error('🐋 UW WebSocket connection failed:', e.message);
+      this._reconnect();
+    }
+  }
+
+  _subscribe() {
+    if (!this.ws || !this.connected) return;
+    // Subscribe to lit_trades and off_lit_trades channels
+    var payload = {
+      action: 'subscribe',
+      channels: ['lit_trades', 'off_lit_trades'],
+      tickers: this.subscribedTickers
+    };
+    this.ws.send(JSON.stringify(payload));
+    console.log('🐋 Subscribed to lit/off-lit trades for ' + this.subscribedTickers.length + ' tickers');
+  }
+
+  _handleMessage(msg) {
+    var channel = msg.channel || msg.type || '';
+    var ticker = (msg.ticker || msg.symbol || '').toUpperCase();
+    if (!ticker) return;
+
+    var trade = {
+      ticker: ticker,
+      price: parseFloat(msg.price || msg.p || 0),
+      size: parseInt(msg.size || msg.s || msg.volume || 0, 10),
+      timestamp: msg.timestamp || msg.t || Date.now(),
+      exchange: msg.exchange || msg.x || null,
+      conditions: msg.conditions || msg.c || [],
+      side: msg.side || null
+    };
+
+    if (channel === 'lit_trades' || channel === 'lit') {
+      if (!this.litTrades[ticker]) this.litTrades[ticker] = [];
+      this.litTrades[ticker].unshift(trade);
+      if (this.litTrades[ticker].length > this.maxTradesPerTicker) {
+        this.litTrades[ticker] = this.litTrades[ticker].slice(0, this.maxTradesPerTicker);
+      }
+      if (this.handlers.onLitTrade) this.handlers.onLitTrade(trade);
+    } else if (channel === 'off_lit_trades' || channel === 'off_lit') {
+      if (!this.offLitTrades[ticker]) this.offLitTrades[ticker] = [];
+      this.offLitTrades[ticker].unshift(trade);
+      if (this.offLitTrades[ticker].length > this.maxTradesPerTicker) {
+        this.offLitTrades[ticker] = this.offLitTrades[ticker].slice(0, this.maxTradesPerTicker);
+      }
+      if (this.handlers.onOffLitTrade) this.handlers.onOffLitTrade(trade);
+    }
+  }
+
+  _reconnect() {
+    var self = this;
+    setTimeout(function () {
+      self.reconnectDelay = Math.min(self.reconnectDelay * 2, self.maxReconnectDelay);
+      self.connect(self.subscribedTickers);
+    }, this.reconnectDelay);
+  }
+
+  updateSubscriptions(newTickers) {
+    this.subscribedTickers = newTickers.map(t => t.toUpperCase());
+    if (this.connected) this._subscribe();
+  }
+
+  on(event, handler) {
+    this.handlers[event] = handler;
+  }
+
+  getLitTrades(ticker) {
+    return this.litTrades[(ticker || '').toUpperCase()] || [];
+  }
+
+  getOffLitTrades(ticker) {
+    return this.offLitTrades[(ticker || '').toUpperCase()] || [];
+  }
+
+  // Get trade flow summary for signal engine consumption
+  getTradeFlowSummary(ticker) {
+    var t = (ticker || '').toUpperCase();
+    var lit = this.litTrades[t] || [];
+    var offLit = this.offLitTrades[t] || [];
+    if (lit.length === 0 && offLit.length === 0) return null;
+
+    var litBuyVol = 0, litSellVol = 0, offLitVol = 0;
+    for (var i = 0; i < lit.length; i++) {
+      if (lit[i].side === 'buy' || lit[i].side === 'B') litBuyVol += lit[i].size;
+      else if (lit[i].side === 'sell' || lit[i].side === 'S') litSellVol += lit[i].size;
+    }
+    for (var j = 0; j < offLit.length; j++) {
+      offLitVol += offLit[j].size;
+    }
+
+    return {
+      litBuyVolume: litBuyVol,
+      litSellVolume: litSellVol,
+      litRatio: litBuyVol + litSellVol > 0 ? litBuyVol / (litBuyVol + litSellVol) : 0.5,
+      offLitVolume: offLitVol,
+      offLitTradeCount: offLit.length,
+      totalLitTrades: lit.length,
+      avgLitSize: lit.length > 0 ? lit.reduce(function (s, t) { return s + t.size; }, 0) / lit.length : 0,
+      avgOffLitSize: offLit.length > 0 ? offLit.reduce(function (s, t) { return s + t.size; }, 0) / offLit.length : 0
+    };
+  }
+
+  disconnect() {
+    if (this.ws) { this.ws.close(); this.ws = null; }
+    this.connected = false;
+  }
+
+  isConnected() { return this.connected; }
+}
+
+module.exports = { UWClient, UWWebSocketClient };

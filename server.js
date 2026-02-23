@@ -1031,6 +1031,50 @@ app.post('/api/chat', async (req, res) => {
                 var topMag = magArr.slice().sort(function (a, b) { return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0); }).slice(0, 3);
                 if (topMag.length > 0) context += 'Strike Magnets: ' + topMag.map(function (m) { return '$' + m.strike + '(' + (m.volume || m.total_volume || 0) + ' vol)'; }).join(', ') + '\n';
             }
+
+            // Phase E-F: OI per strike (support/resistance from options positioning)
+            var tOIS = state.oiPerStrike && state.oiPerStrike[ticker];
+            if (tOIS && Array.isArray(tOIS)) {
+                var topCallOI = tOIS.slice().sort(function (a, b) { return parseFloat(b.call_oi || b.call_open_interest || 0) - parseFloat(a.call_oi || a.call_open_interest || 0); }).slice(0, 3);
+                var topPutOI = tOIS.slice().sort(function (a, b) { return parseFloat(b.put_oi || b.put_open_interest || 0) - parseFloat(a.put_oi || a.put_open_interest || 0); }).slice(0, 3);
+                context += 'OI Per Strike — Top Call OI: ' + topCallOI.map(function (s) { return '$' + s.strike + '(' + (s.call_oi || s.call_open_interest || 0) + ')'; }).join(', ');
+                context += ' | Top Put OI: ' + topPutOI.map(function (s) { return '$' + s.strike + '(' + (s.put_oi || s.put_open_interest || 0) + ')'; }).join(', ') + '\n';
+            }
+            // Phase E-F: OI per expiry
+            var tOIE = state.oiPerExpiry && state.oiPerExpiry[ticker];
+            if (tOIE) context += 'OI Per Expiry: ' + JSON.stringify(Array.isArray(tOIE) ? tOIE.slice(0, 5) : tOIE) + '\n';
+            // Phase E-F: Expiry Breakdown (volume concentration)
+            var tExpBk = state.expiryBreakdown && state.expiryBreakdown[ticker];
+            if (tExpBk && Array.isArray(tExpBk)) {
+                context += 'Expiry Breakdown: ' + tExpBk.slice(0, 5).map(function (e) {
+                    return (e.expiry || e.expiration_date || '?') + ' call_vol=' + (e.call_volume || 0) + ' put_vol=' + (e.put_volume || 0);
+                }).join(', ') + '\n';
+            }
+            // Phase E-F: Granular GEX by expiry+strike
+            var tGEXgran = state.spotGEXByExpiryStrike && state.spotGEXByExpiryStrike[ticker];
+            if (tGEXgran && Array.isArray(tGEXgran)) {
+                var totalGEX = 0; var nearGEX = 0;
+                var gxPrice = parseFloat((state.quotes[ticker] || {}).price || 0);
+                tGEXgran.forEach(function (g) { totalGEX += parseFloat(g.gex || g.gamma_exposure || 0); });
+                context += 'Granular GEX: total=' + totalGEX.toFixed(0) + ' (' + (totalGEX > 0 ? 'POSITIVE — pinning' : 'NEGATIVE — acceleration') + ') across ' + tGEXgran.length + ' strike-expiry combos\n';
+            }
+            // Phase E-F: GEX by expiry
+            var tGEXexp = state.spotGEXByExpiry && state.spotGEXByExpiry[ticker];
+            if (tGEXexp) context += 'GEX By Expiry: ' + JSON.stringify(Array.isArray(tGEXexp) ? tGEXexp.slice(0, 5) : tGEXexp) + '\n';
+            // Phase E-F: Greek flow by expiry
+            var tGFexp = state.greekFlowByExpiry && state.greekFlowByExpiry[ticker];
+            if (tGFexp) context += 'Greek Flow By Expiry: ' + JSON.stringify(Array.isArray(tGFexp) ? tGFexp.slice(0, 5) : tGFexp) + '\n';
+            // Phase E-F: Institutional Ownership
+            var tOwn = state.tickerOwnership && state.tickerOwnership[ticker];
+            if (tOwn && Array.isArray(tOwn)) {
+                var buyers = 0; var sellers = 0;
+                tOwn.slice(0, 10).forEach(function (h) { var chg = parseFloat(h.change || h.shares_change || 0); if (chg > 0) buyers++; if (chg < 0) sellers++; });
+                context += 'Institutional Ownership: ' + tOwn.length + ' holders — top 10: ' + buyers + ' buying, ' + sellers + ' selling\n';
+                context += 'Top Holders: ' + tOwn.slice(0, 5).map(function (h) { return (h.name || h.institution || '?') + ' (' + (h.shares || h.current_shares || 0) + ' shares, chg=' + (h.change || h.shares_change || 0) + ')'; }).join(', ') + '\n';
+            }
+            // Phase E-F: Seasonality year-month
+            var tSznYM = state.seasonalityYearMonth && state.seasonalityYearMonth[ticker];
+            if (tSznYM) context += 'Seasonality Year-Month: ' + JSON.stringify(Array.isArray(tSznYM) ? tSznYM.slice(0, 3) : tSznYM) + '\n';
         }
 
         // Earnings calendar with beat/miss analysis
@@ -1402,7 +1446,11 @@ app.post('/api/chat', async (req, res) => {
             + '- PAPER TRADING: open positions, closed P&L, win rate, journal stats\n'
             + '- ANALYSIS: signal engine scores (direction, confidence, active signals), trade setups (entry/stop/targets), '
             + 'morning brief, multi-timeframe analysis, seasonality, earnings risk, correlation risk, Kelly sizing, sentiment\n'
-            + '- REAL-TIME: Polygon tick data (buy/sell volume, VWAP, flow imbalance, large blocks)\n\n'
+            + '- REAL-TIME: Polygon tick data (buy/sell volume, VWAP, flow imbalance, large blocks)\n'
+            + '- OPTIONS STRUCTURE: OI per strike (call/put walls = S/R), OI per expiry, expiry breakdown (volume concentration), '
+            + 'granular GEX by expiry+strike (pinning vs acceleration), Greek flow by expiry\n'
+            + '- OWNERSHIP: institutional holders (accumulating/distributing), top holders with share changes\n'
+            + '- SEASONALITY: year-month granular historical performance (avg return, win rate per month)\n\n'
             + 'RULES:\n'
             + '1. Always reference SPECIFIC numbers from the data provided. Quote exact prices, levels, percentages.\n'
             + '2. For support/resistance: use pivot levels S1/S2/R1/R2, EMA9/20/50, Bollinger Bands, Fibonacci, and VWAP.\n'

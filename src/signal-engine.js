@@ -918,13 +918,14 @@ class SignalEngine {
                     else if (ftdQty > 500000) { sqScore += 1; sqDetail.push('FTD=' + (ftdQty / 1e3).toFixed(0) + 'K'); }
                 }
             }
-            // Component 3: Borrow Utilization (from short interest — high util = no shares to borrow)
+            // Component 3: SI % of Float (high SI% = squeeze fuel — UW returns percent_returned, not utilization)
             if (data.shortInterest) {
                 var sqSiData = Array.isArray(data.shortInterest) ? data.shortInterest[0] : data.shortInterest;
                 if (sqSiData) {
-                    var utilization = parseFloat(sqSiData.utilization || sqSiData.borrow_utilization || sqSiData.utilization_pct || 0);
-                    if (utilization > 90) { sqScore += 2; sqDetail.push('Util=' + utilization.toFixed(0) + '%'); }
-                    else if (utilization > 70) { sqScore += 1; sqDetail.push('Util=' + utilization.toFixed(0) + '%'); }
+                    var siPctFloat = parseFloat(sqSiData.percent_returned || sqSiData.si_pct_float || sqSiData.short_interest_pct || sqSiData.percent_of_float || 0);
+                    if (siPctFloat > 100) siPctFloat = 0; // bad data guard
+                    if (siPctFloat > 20) { sqScore += 2; sqDetail.push('SI%=' + siPctFloat.toFixed(1) + '%'); }
+                    else if (siPctFloat > 10) { sqScore += 1; sqDetail.push('SI%=' + siPctFloat.toFixed(1) + '%'); }
                 }
             }
             if (sqScore >= 2) {

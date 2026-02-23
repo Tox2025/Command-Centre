@@ -19,7 +19,12 @@ function getSqueezeScore(ticker) {
     if (lastFTD) { var q = parseFloat(lastFTD.quantity || lastFTD.fails || 0); if (q > 1000000) score += 2; else if (q > 500000) score += 1; }
     var siRaw = state.shortInterest && state.shortInterest[ticker];
     var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
-    if (siObj) { var u = parseFloat(siObj.utilization || siObj.borrow_utilization || 0); if (u > 90) score += 2; else if (u > 70) score += 1; }
+    if (siObj) {
+        // UW doesn't return utilization — use SI% of float as proxy
+        var siPct = parseFloat(siObj.percent_returned || siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_of_float || 0);
+        if (siPct > 100) siPct = 0; // bad data guard
+        if (siPct > 20) score += 2; else if (siPct > 10) score += 1;
+    }
     return score;
 }
 function squeezeBadge(ticker) {
@@ -1903,17 +1908,27 @@ function openTickerView(ticker) {
                 var sh = '';
                 var sif = sid.si_float_returned || sid.short_interest || sid.shares_short || 0;
                 var sifPct = parseFloat(sid.percent_returned || sid.short_interest_pct || sid.si_pct_float || sid.percent_of_float || 0);
+                // UW returns percent_returned as raw percentage e.g. 10.3 = 10.3%
+                // But if value > 100, it's likely shares count being misread — cap and recalc
+                if (sifPct > 100) {
+                    var totalFloat = parseFloat(sid.total_float_returned || sid.total_float || 0);
+                    if (totalFloat > 0 && sif > 0) {
+                        sifPct = (parseFloat(sif) / totalFloat * 100);
+                    } else {
+                        sifPct = 0; // can't calculate, don't show garbage
+                    }
+                }
                 var dvr = parseFloat(sid.days_to_cover_returned || sid.days_to_cover || sid.short_ratio || 0);
                 var totalFloat = sid.total_float_returned || sid.total_float || 0;
                 var mktDate = sid.market_date || sid.date || '';
                 if (mktDate) sh += '<div class="modal-metric"><span>Date:</span> <strong>' + mktDate + '</strong></div>';
                 sh += '<div class="modal-metric"><span>Short Interest:</span> <strong>' + fmtK(sif) + '</strong></div>';
-                if (sifPct) sh += '<div class="modal-metric"><span>SI % of Float:</span> <strong class="' + (sifPct > 15 ? 'text-bear' : '') + '">' + fmt(sifPct) + '%</strong></div>';
+                if (sifPct > 0) sh += '<div class="modal-metric"><span>SI % of Float:</span> <strong class="' + (sifPct > 15 ? 'text-bear' : '') + '">' + fmt(sifPct) + '%</strong></div>';
                 if (dvr) sh += '<div class="modal-metric"><span>Days to Cover:</span> <strong>' + fmt(dvr) + '</strong></div>';
                 if (totalFloat) sh += '<div class="modal-metric"><span>Total Float:</span> <strong>' + fmtK(totalFloat) + '</strong></div>';
                 siEl.innerHTML = sh;
             } else {
-                siEl.innerHTML = '<div class="empty">No short interest data for ' + ticker + '</div>';
+                siEl.innerHTML = '<div class="empty">Short interest loads on COLD cycle — may take ~15 min after restart</div>';
             }
         }
     } catch (e) { console.error('Modal SI error:', e); if ($('modalShorts')) $('modalShorts').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
@@ -2090,9 +2105,11 @@ function openTickerView(ticker) {
             var nih = '';
             // News filtered by ticker
             var tickerNews = (state.news || []).filter(function (n) {
-                var tickers = n.tickers || n.symbols || [];
+                var tickers = n.tickers || n.symbols || n.related_tickers || [];
                 if (typeof tickers === 'string') tickers = tickers.split(',');
-                return tickers.indexOf(ticker) >= 0;
+                // Also check if ticker appears in headline
+                var inTitle = (n.title || n.headline || '').toUpperCase().indexOf(ticker) >= 0;
+                return tickers.indexOf(ticker) >= 0 || inTitle;
             });
             if (tickerNews.length > 0) {
                 nih += '<div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-bottom:4px">News</div>';
@@ -2116,7 +2133,7 @@ function openTickerView(ticker) {
                     nih += '</div>';
                 });
             }
-            niEl.innerHTML = nih || '<div class="empty">No news or insider data for ' + ticker + '</div>';
+            niEl.innerHTML = nih || '<div class="empty">News/insider data loads on COLD cycle — may take ~15 min after restart</div>';
         }
     } catch (e) { console.error('Modal News/Insider error:', e); if ($('modalNewsInsider')) $('modalNewsInsider').innerHTML = '<div class="empty">Error: ' + e.message + '</div>'; }
 
@@ -2351,12 +2368,13 @@ function openTickerView(ticker) {
             var ftdDisplay = ftdQty > 1000000 ? (ftdQty / 1e6).toFixed(1) + 'M' : ftdQty > 0 ? (ftdQty / 1e3).toFixed(0) + 'K' : 'N/A';
             sqComponents.push({ label: 'Fails to Deliver', value: ftdDisplay + ' shares', pts: ftdPts, max: 2, threshold: '>1M=2pts, >500K=1pt', icon: ftdPts >= 2 ? '✅' : ftdPts >= 1 ? '⚠️' : '❌' });
 
-            // Component 3: Borrow Utilization
+            // Component 3: SI % of Float (high SI = squeeze fuel)
             var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
-            var utilPct = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || siObj.utilization_pct || 0) : 0;
-            var utilPts = utilPct > 90 ? 2 : utilPct > 70 ? 1 : 0;
-            sqScore += utilPts;
-            sqComponents.push({ label: 'Borrow Utilization', value: utilPct > 0 ? utilPct.toFixed(1) + '%' : 'N/A', pts: utilPts, max: 2, threshold: '>90%=2pts, >70%=1pt', icon: utilPts >= 2 ? '✅' : utilPts >= 1 ? '⚠️' : '❌' });
+            var siPct = siObj ? parseFloat(siObj.percent_returned || siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_of_float || 0) : 0;
+            if (siPct > 100) siPct = 0; // bad data guard
+            var siPts = siPct > 20 ? 2 : siPct > 10 ? 1 : 0;
+            sqScore += siPts;
+            sqComponents.push({ label: 'SI % of Float', value: siPct > 0 ? siPct.toFixed(1) + '%' : 'N/A', pts: siPts, max: 2, threshold: '>20%=2pts, >10%=1pt', icon: siPts >= 2 ? '✅' : siPts >= 1 ? '⚠️' : '❌' });
 
             // Build HTML
             var sqColor = sqScore >= 4 ? '#ef4444' : sqScore >= 2 ? '#f59e0b' : '#64748b';

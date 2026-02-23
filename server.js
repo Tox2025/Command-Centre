@@ -3195,6 +3195,13 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
+            // Analyst Ratings (consensus + targets) — COLD
+            try {
+                const ar = await uw.getAnalystRatingsByTicker(ticker);
+                if (ar?.data) state.analystRatings[ticker] = ar.data;
+                callCount++;
+            } catch (e) { /* optional */ }
+
             // Short Volumes by Exchange — COLD
             try {
                 const sve = await uw.getShortVolumesByExchange(ticker);

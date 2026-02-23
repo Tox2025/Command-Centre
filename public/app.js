@@ -146,17 +146,34 @@ function renderSectorTide() {
     var el = $('sectorTideContent'); if (!el) return;
     var data = state.sectorTide || {};
     var sectors = Object.keys(data);
-    if (sectors.length === 0) { el.innerHTML = '<span style="color:#64748b;font-size:11px">No sector data</span>'; return; }
+    if (sectors.length === 0) { el.innerHTML = '<span style="color:#64748b;font-size:11px">Sector data loads on WARM cycle (~3 refreshes)</span>'; return; }
     var h = '';
     sectors.forEach(function (s) {
         var d = data[s];
         var sentiment = 0;
         if (d) {
-            var calls = parseFloat(d.call_premium || d.calls || 0);
-            var puts = parseFloat(d.put_premium || d.puts || 0);
-            sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
+            // Handle various UW response shapes
+            if (typeof d === 'number') {
+                sentiment = d;
+            } else if (d.sentiment !== undefined) {
+                sentiment = parseFloat(d.sentiment);
+            } else if (d.net_premium !== undefined) {
+                // net_premium > 0 = bullish, < 0 = bearish
+                sentiment = d.net_premium > 0 ? 0.5 : d.net_premium < 0 ? -0.5 : 0;
+            } else {
+                var calls = parseFloat(d.call_premium || d.call_volume || d.calls || d.bullish || 0);
+                var puts = parseFloat(d.put_premium || d.put_volume || d.puts || d.bearish || 0);
+                sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
+            }
+            // Handle array of readings (take latest)
+            if (Array.isArray(d) && d.length > 0) {
+                var latest = d[d.length - 1];
+                calls = parseFloat(latest.call_premium || latest.call_volume || latest.calls || 0);
+                puts = parseFloat(latest.put_premium || latest.put_volume || latest.puts || 0);
+                sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
+            }
         }
-        var bg = sentiment > 0.2 ? '#22c55e' : sentiment < -0.2 ? '#ef4444' : '#64748b';
+        var bg = sentiment > 0.1 ? '#22c55e' : sentiment < -0.1 ? '#ef4444' : '#64748b';
         var pct = (sentiment * 100).toFixed(0);
         h += '<div style="background:' + bg + '22;border:1px solid ' + bg + ';border-radius:8px;padding:8px 12px;min-width:100px;text-align:center">';
         h += '<div style="font-size:11px;font-weight:600;color:#e2e8f0">' + s + '</div>';

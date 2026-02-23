@@ -128,24 +128,28 @@ function renderEcon() {
 function renderImpact() {
     var tb = $('impactBody'); if (!tb) return;
     var data = state.topNetImpact || [];
-    var cnt = $('impactCount'); if (cnt) cnt.textContent = data.length;
+    var items = Array.isArray(data) ? data : [];
+    var cnt = $('impactCount'); if (cnt) cnt.textContent = items.length;
     var h = '';
-    data.forEach(function (e) {
-        var net = parseFloat(e.net_premium || e.premium || 0);
+    items.forEach(function (e) {
+        // UW top-net-impact returns net_bullish_premium / net_bearish_premium per ticker
+        var bullPrem = parseFloat(e.net_bullish_premium || e.bullish_premium || 0);
+        var bearPrem = parseFloat(e.net_bearish_premium || e.bearish_premium || 0);
+        var net = bullPrem - Math.abs(bearPrem);
+        // Fallback to generic premium field
+        if (bullPrem === 0 && bearPrem === 0) net = parseFloat(e.net_premium || e.premium || 0);
         var cls = net >= 0 ? 'text-bull' : 'text-bear';
-        var side = (e.side || e.sentiment || (net >= 0 ? 'BULLISH' : 'BEARISH'));
-        var sideColor = side === 'BULLISH' || side === 'BUY' ? '#22c55e' : '#ef4444';
+        var side = net >= 0 ? 'BULLISH' : 'BEARISH';
+        var sideColor = net >= 0 ? '#22c55e' : '#ef4444';
         h += '<tr onclick="openTickerView(\'' + (e.ticker || e.symbol || '') + '\')" style="cursor:pointer">';
         h += '<td><strong>' + (e.ticker || e.symbol || '--') + '</strong></td>';
-        h += '<td>' + (e.option_type || e.type || '--') + '</td>';
-        h += '<td>$' + fmt(e.strike || 0) + '</td>';
-        h += '<td>' + (e.expiry || e.expiration || '--') + '</td>';
+        h += '<td class="text-bull">$' + fmtK(Math.abs(bullPrem)) + '</td>';
+        h += '<td class="text-bear">$' + fmtK(Math.abs(bearPrem)) + '</td>';
         h += '<td class="' + cls + '">$' + fmtK(Math.abs(net)) + '</td>';
-        h += '<td>' + fmtK(e.volume || 0) + '</td>';
         h += '<td><span class="badge" style="background:' + sideColor + '">' + side + '</span></td>';
         h += '</tr>';
     });
-    tb.innerHTML = h || '<tr><td colspan="7" class="empty">No data</td></tr>';
+    tb.innerHTML = h || '<tr><td colspan="5" class="empty">Top net impact loads on WARM cycle</td></tr>';
 }
 function renderSectorTide() {
     var el = $('sectorTideContent'); if (!el) return;
@@ -157,25 +161,21 @@ function renderSectorTide() {
         var d = data[s];
         var sentiment = 0;
         if (d) {
-            // Handle various UW response shapes
-            if (typeof d === 'number') {
-                sentiment = d;
-            } else if (d.sentiment !== undefined) {
-                sentiment = parseFloat(d.sentiment);
-            } else if (d.net_premium !== undefined) {
-                // net_premium > 0 = bullish, < 0 = bearish
-                sentiment = d.net_premium > 0 ? 0.5 : d.net_premium < 0 ? -0.5 : 0;
-            } else {
-                var calls = parseFloat(d.call_premium || d.call_volume || d.calls || d.bullish || 0);
-                var puts = parseFloat(d.put_premium || d.put_volume || d.puts || d.bearish || 0);
-                sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
-            }
             // Handle array of readings (take latest)
-            if (Array.isArray(d) && d.length > 0) {
-                var latest = d[d.length - 1];
-                calls = parseFloat(latest.call_premium || latest.call_volume || latest.calls || 0);
-                puts = parseFloat(latest.put_premium || latest.put_volume || latest.puts || 0);
-                sentiment = (calls + puts) > 0 ? (calls - puts) / (calls + puts) : 0;
+            var entry = Array.isArray(d) ? d[d.length - 1] : d;
+            if (entry) {
+                // UW sector-tide returns net_call_premium / net_put_premium
+                var callP = parseFloat(entry.net_call_premium || entry.call_premium || entry.calls || 0);
+                var putP = parseFloat(entry.net_put_premium || entry.put_premium || entry.puts || 0);
+                var netVol = parseFloat(entry.net_volume || 0);
+                if (callP !== 0 || putP !== 0) {
+                    var total = Math.abs(callP) + Math.abs(putP);
+                    sentiment = total > 0 ? (callP - Math.abs(putP)) / total : 0;
+                } else if (entry.sentiment !== undefined) {
+                    sentiment = parseFloat(entry.sentiment);
+                } else if (netVol !== 0) {
+                    sentiment = netVol > 0 ? 0.3 : -0.3;
+                }
             }
         }
         var bg = sentiment > 0.1 ? '#22c55e' : sentiment < -0.1 ? '#ef4444' : '#64748b';
@@ -195,16 +195,22 @@ function renderETFFlows() {
     etfs.forEach(function (e) {
         var d = data[e];
         if (!d) return;
-        var flow = parseFloat(d.flow || d.net_flow || d.inflow || 0);
+        // Handle array (take latest entry)
+        var entry = Array.isArray(d) ? d[d.length - 1] : d;
+        if (!entry) return;
+        // UW ETF in-outflow uses inflow/outflow/net_flow fields
+        var inflow = parseFloat(entry.inflow || entry.in_flow || 0);
+        var outflow = parseFloat(entry.outflow || entry.out_flow || 0);
+        var flow = parseFloat(entry.net_flow || entry.flow || (inflow - outflow) || 0);
         var cls = flow >= 0 ? 'text-bull' : 'text-bear';
         h += '<tr>';
         h += '<td><strong>' + e + '</strong></td>';
         h += '<td class="' + cls + '">$' + fmtK(flow) + '</td>';
-        h += '<td>' + (d.one_week_change ? fmt(d.one_week_change) + '%' : d.change_1w ? fmt(d.change_1w) + '%' : '--') + '</td>';
-        h += '<td>' + (d.total_assets ? '$' + fmtK(d.total_assets) : d.aum ? '$' + fmtK(d.aum) : '--') + '</td>';
+        h += '<td>' + (entry.one_week_change ? fmt(entry.one_week_change) + '%' : entry.change_1w ? fmt(entry.change_1w) + '%' : '--') + '</td>';
+        h += '<td>' + (entry.total_assets ? '$' + fmtK(entry.total_assets) : entry.aum ? '$' + fmtK(entry.aum) : '--') + '</td>';
         h += '</tr>';
     });
-    tb.innerHTML = h || '<tr><td colspan="4" class="empty">No ETF flow data</td></tr>';
+    tb.innerHTML = h || '<tr><td colspan="4" class="empty">ETF flows load on COLD cycle (~15 min)</td></tr>';
 }
 function renderFDA() {
     var tb = $('fdaBody'); if (!tb) return;
@@ -1021,7 +1027,14 @@ function renderNews() {
     var h = '';
     items.slice(0, 20).forEach(function (n) {
         var t = n.published_at || n.created_at || n.date || '';
-        var timeStr = t ? t.substring(11, 16) : '';
+        // Convert UTC timestamp to local timezone
+        var timeStr = '';
+        if (t) {
+            try {
+                var dt = new Date(t);
+                timeStr = dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            } catch (e) { timeStr = t.substring(11, 16); }
+        }
         var tickers = n.tickers || n.symbols || [];
         if (typeof tickers === 'string') tickers = tickers.split(',');
         var title = n.title || n.headline || '';

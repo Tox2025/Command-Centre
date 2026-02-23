@@ -2216,6 +2216,105 @@ function cleanupExpiredDiscoveries() {
 // Run cleanup every 15 minutes
 setInterval(cleanupExpiredDiscoveries, 15 * 60 * 1000);
 
+// ── F1: Smart Price Target Helper (ATR + Fib + Strike Magnets) ──
+// Module-scoped so both trackDiscovery and scoreTickerSignals can access it
+function snapToStructure(price, atrTarget, atrStop, dir, ticker) {
+    // Collect structural levels from Fib + flow-per-strike
+    var levels = [];
+
+    // Fibonacci levels
+    var ta = state.technicals[ticker] || {};
+    if (ta.fibonacci && ta.fibonacci.levels) {
+        var fibLevels = ta.fibonacci.levels;
+        for (var key in fibLevels) {
+            if (fibLevels.hasOwnProperty(key)) {
+                var lv = parseFloat(fibLevels[key]);
+                if (lv > 0) levels.push({ price: lv, source: 'fib_' + key });
+            }
+        }
+    }
+    // Pivot levels (S1/S2/R1/R2/PP)
+    if (ta.pivots) {
+        ['s1', 's2', 'r1', 'r2', 'pp'].forEach(function (k) {
+            if (ta.pivots[k]) levels.push({ price: parseFloat(ta.pivots[k]), source: 'pivot_' + k });
+        });
+    }
+
+    // High-volume strikes from flow-per-strike (daily)
+    var fps = state.flowPerStrike[ticker];
+    if (fps) {
+        var fpsArr = Array.isArray(fps) ? fps : (fps.data || []);
+        // Sort by volume, take top 10 most significant strikes
+        fpsArr.slice().sort(function (a, b) {
+            return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0);
+        }).slice(0, 10).forEach(function (s) {
+            var strike = parseFloat(s.strike || s.strike_price || 0);
+            if (strike > 0) levels.push({ price: strike, source: 'strike_daily' });
+        });
+    }
+
+    // Intraday strike magnets
+    var isf = state.flowPerStrikeIntraday && state.flowPerStrikeIntraday[ticker];
+    if (isf) {
+        var isfArr = Array.isArray(isf) ? isf : (isf.data || []);
+        isfArr.slice().sort(function (a, b) {
+            return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0);
+        }).slice(0, 10).forEach(function (s) {
+            var strike = parseFloat(s.strike || s.strike_price || 0);
+            if (strike > 0) levels.push({ price: strike, source: 'strike_intraday' });
+        });
+    }
+
+    if (levels.length === 0) {
+        return { target1: atrTarget, stop: atrStop, snapped: false };
+    }
+
+    // Snap target: find nearest structural level in the direction of the target
+    // within 30% of ATR distance (don't snap too far from ATR target)
+    var atrDist = Math.abs(atrTarget - price);
+    var snapRange = atrDist * 0.3; // snap within 30% of ATR range
+
+    var bestTarget = atrTarget;
+    var bestTargetDist = Infinity;
+    var targetSource = null;
+
+    levels.forEach(function (lv) {
+        if (dir === 'LONG' && lv.price > price && lv.price <= atrTarget + snapRange) {
+            var dist = Math.abs(lv.price - atrTarget);
+            if (dist < bestTargetDist) { bestTargetDist = dist; bestTarget = lv.price; targetSource = lv.source; }
+        } else if (dir === 'SHORT' && lv.price < price && lv.price >= atrTarget - snapRange) {
+            var dist2 = Math.abs(lv.price - atrTarget);
+            if (dist2 < bestTargetDist) { bestTargetDist = dist2; bestTarget = lv.price; targetSource = lv.source; }
+        }
+    });
+
+    // Snap stop: find nearest support (LONG) or resistance (SHORT) level
+    // that's beyond the ATR stop but within 50% extra range (prefer structural stops)
+    var stopDist = Math.abs(atrStop - price);
+    var stopSnapRange = stopDist * 0.5;
+    var bestStop = atrStop;
+    var bestStopDist = Infinity;
+    var stopSource = null;
+
+    levels.forEach(function (lv) {
+        if (dir === 'LONG' && lv.price < price && lv.price >= atrStop - stopSnapRange && lv.price <= atrStop + stopSnapRange) {
+            var dist = Math.abs(lv.price - atrStop);
+            if (dist < bestStopDist) { bestStopDist = dist; bestStop = lv.price; stopSource = lv.source; }
+        } else if (dir === 'SHORT' && lv.price > price && lv.price >= atrStop - stopSnapRange && lv.price <= atrStop + stopSnapRange) {
+            var dist2 = Math.abs(lv.price - atrStop);
+            if (dist2 < bestStopDist) { bestStopDist = dist2; bestStop = lv.price; stopSource = lv.source; }
+        }
+    });
+
+    return {
+        target1: +bestTarget.toFixed(2),
+        stop: +bestStop.toFixed(2),
+        snapped: targetSource !== null || stopSource !== null,
+        targetSource: targetSource,
+        stopSource: stopSource
+    };
+}
+
 // ── Discovery Tracking + Auto Trade Setup ────────────────
 // Records discoveries for dashboard display and performance tracking
 // Auto-generates trade setups for high-confidence discoveries (≥70%)
@@ -2259,103 +2358,6 @@ function trackDiscovery(ticker, source, signalResult, meta) {
         return (now - d.discoveredAt) < 4 * 60 * 60 * 1000;
     });
 
-    // ── F1: Smart Price Target Helper (ATR + Fib + Strike Magnets) ── Module-scoped for use in both scoring paths
-    function snapToStructure(price, atrTarget, atrStop, dir, ticker) {
-        // Collect structural levels from Fib + flow-per-strike
-        var levels = [];
-
-        // Fibonacci levels
-        var ta = state.technicals[ticker] || {};
-        if (ta.fibonacci && ta.fibonacci.levels) {
-            var fibLevels = ta.fibonacci.levels;
-            for (var key in fibLevels) {
-                if (fibLevels.hasOwnProperty(key)) {
-                    var lv = parseFloat(fibLevels[key]);
-                    if (lv > 0) levels.push({ price: lv, source: 'fib_' + key });
-                }
-            }
-        }
-        // Pivot levels (S1/S2/R1/R2/PP)
-        if (ta.pivots) {
-            ['s1', 's2', 'r1', 'r2', 'pp'].forEach(function (k) {
-                if (ta.pivots[k]) levels.push({ price: parseFloat(ta.pivots[k]), source: 'pivot_' + k });
-            });
-        }
-
-        // High-volume strikes from flow-per-strike (daily)
-        var fps = state.flowPerStrike[ticker];
-        if (fps) {
-            var fpsArr = Array.isArray(fps) ? fps : (fps.data || []);
-            // Sort by volume, take top 10 most significant strikes
-            fpsArr.slice().sort(function (a, b) {
-                return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0);
-            }).slice(0, 10).forEach(function (s) {
-                var strike = parseFloat(s.strike || s.strike_price || 0);
-                if (strike > 0) levels.push({ price: strike, source: 'strike_daily' });
-            });
-        }
-
-        // Intraday strike magnets
-        var isf = state.flowPerStrikeIntraday && state.flowPerStrikeIntraday[ticker];
-        if (isf) {
-            var isfArr = Array.isArray(isf) ? isf : (isf.data || []);
-            isfArr.slice().sort(function (a, b) {
-                return parseFloat(b.volume || b.total_volume || 0) - parseFloat(a.volume || a.total_volume || 0);
-            }).slice(0, 10).forEach(function (s) {
-                var strike = parseFloat(s.strike || s.strike_price || 0);
-                if (strike > 0) levels.push({ price: strike, source: 'strike_intraday' });
-            });
-        }
-
-        if (levels.length === 0) {
-            return { target1: atrTarget, stop: atrStop, snapped: false };
-        }
-
-        // Snap target: find nearest structural level in the direction of the target
-        // within 30% of ATR distance (don't snap too far from ATR target)
-        var atrDist = Math.abs(atrTarget - price);
-        var snapRange = atrDist * 0.3; // snap within 30% of ATR range
-
-        var bestTarget = atrTarget;
-        var bestTargetDist = Infinity;
-        var targetSource = null;
-
-        levels.forEach(function (lv) {
-            if (dir === 'LONG' && lv.price > price && lv.price <= atrTarget + snapRange) {
-                var dist = Math.abs(lv.price - atrTarget);
-                if (dist < bestTargetDist) { bestTargetDist = dist; bestTarget = lv.price; targetSource = lv.source; }
-            } else if (dir === 'SHORT' && lv.price < price && lv.price >= atrTarget - snapRange) {
-                var dist2 = Math.abs(lv.price - atrTarget);
-                if (dist2 < bestTargetDist) { bestTargetDist = dist2; bestTarget = lv.price; targetSource = lv.source; }
-            }
-        });
-
-        // Snap stop: find nearest support (LONG) or resistance (SHORT) level
-        // that's beyond the ATR stop but within 50% extra range (prefer structural stops)
-        var stopDist = Math.abs(atrStop - price);
-        var stopSnapRange = stopDist * 0.5;
-        var bestStop = atrStop;
-        var bestStopDist = Infinity;
-        var stopSource = null;
-
-        levels.forEach(function (lv) {
-            if (dir === 'LONG' && lv.price < price && lv.price >= atrStop - stopSnapRange && lv.price <= atrStop + stopSnapRange) {
-                var dist = Math.abs(lv.price - atrStop);
-                if (dist < bestStopDist) { bestStopDist = dist; bestStop = lv.price; stopSource = lv.source; }
-            } else if (dir === 'SHORT' && lv.price > price && lv.price >= atrStop - stopSnapRange && lv.price <= atrStop + stopSnapRange) {
-                var dist2 = Math.abs(lv.price - atrStop);
-                if (dist2 < bestStopDist) { bestStopDist = dist2; bestStop = lv.price; stopSource = lv.source; }
-            }
-        });
-
-        return {
-            target1: +bestTarget.toFixed(2),
-            stop: +bestStop.toFixed(2),
-            snapped: targetSource !== null || stopSource !== null,
-            targetSource: targetSource,
-            stopSource: stopSource
-        };
-    }
 
     // ── Auto Trade Setup for High-Confidence Discoveries ──
     if (signalResult && signalResult.confidence >= 70 && signalResult.direction !== 'NEUTRAL') {

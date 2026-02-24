@@ -1853,12 +1853,13 @@ class SignalEngine {
             matchedSetups: matchedSetups.map(s => s.setup),
             shadowScores: shadowScores,
             multiTFDetails: mtf ? mtf.confluence.details : [],
-            features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote)
+            features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data)
         };
     }
 
-    // Extract numeric feature vector for ML calibrator
-    _extractFeatures(ta, flow, dp, gex, ivData, siData, quote) {
+    // Extract numeric feature vector for ML calibrator (42 features)
+    _extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data) {
+        data = data || {};
         const rsi = (ta.rsi !== null && ta.rsi !== undefined) ? ta.rsi : 50;
         const macdHist = (ta.macd && ta.macd.histogram !== null) ? ta.macd.histogram : 0;
         const emaAlign = ta.emaBias === 'BULLISH' ? 1 : ta.emaBias === 'BEARISH' ? -1 : 0;
@@ -1963,7 +1964,168 @@ class SignalEngine {
         // Captures "volume confirming momentum"
         const volumeMacdInteraction = volSpike * (macdHist > 0 ? 1 : macdHist < 0 ? -1 : 0);
 
-        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction];
+        // ── Features 26-42: Extended data stream features ──
+
+        // Feature 26: Net Premium momentum (avg 3-tick, normalized to millions)
+        var netPrem = 0;
+        if (data.netPremium) {
+            var np = Array.isArray(data.netPremium) ? data.netPremium : [];
+            if (np.length >= 1) {
+                var recent = np.slice(-3);
+                netPrem = recent.reduce(function (s, t) { return s + parseFloat(t.net_premium || t.net_call_premium || 0); }, 0) / recent.length / 1e6;
+            }
+        }
+
+        // Feature 27: Dark pool net flow magnitude (not just direction)
+        var dpMagnitude = 0;
+        if (dp.length > 0) {
+            var dpBullCt = 0, dpBearCt = 0;
+            dp.forEach(function (d2) {
+                var pr = parseFloat(d2.price || 0);
+                var md = (parseFloat(d2.nbbo_bid || 0) + parseFloat(d2.nbbo_ask || 0)) / 2;
+                if (pr > 0 && md > 0) { if (pr >= md) dpBullCt++; else dpBearCt++; }
+            });
+            dpMagnitude = dp.length > 0 ? (dpBullCt - dpBearCt) / dp.length : 0;
+        }
+
+        // Feature 28: Sweep ratio (sweeps / total flow)
+        var sweepRatio = 0;
+        if (flow.length > 0) {
+            var sweepCt = flow.filter(function (f2) { return ((f2.trade_type || f2.execution_type || '')).toLowerCase().includes('sweep'); }).length;
+            sweepRatio = sweepCt / flow.length;
+        }
+
+        // Feature 29: Sector call/put ratio
+        var sectorCPRatio = 1;
+        if (data.sectorTide && quote && quote.sector) {
+            var st = data.sectorTide[quote.sector];
+            if (st) {
+                var scv = parseFloat(st.call_volume || st.calls || 0);
+                var spv = parseFloat(st.put_volume || st.puts || 0);
+                sectorCPRatio = spv > 0 ? scv / spv : scv > 0 ? 2 : 1;
+            }
+        }
+
+        // Feature 30: ETF macro direction (-1 bear, 0 neutral, +1 bull)
+        var etfMacroDir = 0;
+        if (data.etfTide) {
+            var spyT = data.etfTide['SPY'], qqqT = data.etfTide['QQQ'];
+            [spyT, qqqT].forEach(function (t) {
+                if (t) {
+                    var cv2 = parseFloat(t.call_volume || t.calls || 0);
+                    var pv2 = parseFloat(t.put_volume || t.puts || 0);
+                    if (cv2 > pv2 * 1.2) etfMacroDir += 0.5;
+                    else if (pv2 > cv2 * 1.2) etfMacroDir -= 0.5;
+                }
+            });
+        }
+
+        // Feature 31: Squeeze composite score (0-6)
+        var squeezeScore = 0;
+        if (data.shortVolume) {
+            var svA = Array.isArray(data.shortVolume) ? data.shortVolume : [];
+            var lsv = svA[svA.length - 1];
+            if (lsv) { var svr = parseFloat(lsv.short_volume_ratio || lsv.short_ratio || 0); if (svr > 0.5) squeezeScore += 2; else if (svr > 0.4) squeezeScore += 1; }
+        }
+        if (data.failsToDeliver) {
+            var ftdA = Array.isArray(data.failsToDeliver) ? data.failsToDeliver : [];
+            var lftd = ftdA[ftdA.length - 1];
+            if (lftd) { var ftdQ = parseFloat(lftd.quantity || lftd.fails || 0); if (ftdQ > 1e6) squeezeScore += 2; else if (ftdQ > 5e5) squeezeScore += 1; }
+        }
+        if (siPct > 20) squeezeScore += 2; else if (siPct > 10) squeezeScore += 1;
+
+        // Feature 32: Seasonality avg return for current month
+        var seasonReturn = 0;
+        if (data.seasonality) {
+            var sznArr = Array.isArray(data.seasonality) ? data.seasonality : [];
+            var mNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            var curMo = mNames[new Date().getMonth()];
+            var moData = sznArr.find(function (m) { return String(m.month || '').toLowerCase() === curMo.toLowerCase(); });
+            if (moData) seasonReturn = parseFloat(moData.avg_return || moData.mean || 0);
+        }
+
+        // Feature 33: IV/RV ratio (vol regime)
+        var ivrvRatio = 1;
+        if (data.realizedVol && ivData) {
+            var rvArr = Array.isArray(data.realizedVol) ? data.realizedVol : [];
+            var lrv = rvArr[rvArr.length - 1];
+            if (lrv) {
+                var rv = parseFloat(lrv.realized_vol || lrv.rv || 0);
+                var ivVal = parseFloat((Array.isArray(ivData) ? ivData[ivData.length - 1] : ivData)?.iv || 0);
+                if (rv > 0 && ivVal > 0) ivrvRatio = ivVal / rv;
+            }
+        }
+
+        // Feature 34: Congress net (buys - sells)
+        var congressNet = 0;
+        if (data.congress) {
+            var cg = Array.isArray(data.congress) ? data.congress : [];
+            cg.forEach(function (c) { var tt = (c.type || c.transaction_type || '').toLowerCase(); if (tt.includes('purchase')) congressNet++; else if (tt.includes('sale')) congressNet--; });
+        }
+
+        // Feature 35: Insider net (buys - sells)
+        var insiderNet = 0;
+        if (data.insider) {
+            var ins = Array.isArray(data.insider) ? data.insider : [];
+            ins.forEach(function (i) { var tt = (i.transaction_type || i.acquisition_or_disposition || '').toUpperCase(); if (tt.includes('BUY') || tt.includes('P') || tt === 'A') insiderNet++; else if (tt.includes('SELL') || tt.includes('S') || tt === 'D') insiderNet--; });
+        }
+
+        // Feature 36: GEX net gamma (positive above - negative below price)
+        var gexNetGamma = 0;
+        if (gex.length > 0 && quote) {
+            var cp = parseFloat(quote.last || quote.price || quote.close || 0);
+            if (cp > 0) {
+                var posAbove = 0, negBelow = 0;
+                gex.forEach(function (g) { var strike = parseFloat(g.strike || 0); var net = parseFloat(g.call_gex || 0) + parseFloat(g.put_gex || 0); if (strike > cp && net > 0) posAbove += net; if (strike < cp && net < 0) negBelow += Math.abs(net); });
+                gexNetGamma = posAbove > 0 || negBelow > 0 ? (posAbove - negBelow) / (posAbove + negBelow || 1) : 0;
+            }
+        }
+
+        // Feature 37: Multi-TF agreement count (0-3)
+        var mtfAgreement = 0;
+        if (data.multiTF && data.multiTF.confluence) { mtfAgreement = data.multiTF.confluence.timeframesAgreeing || 0; }
+
+        // Feature 38: Volatility runner score (0-6)
+        var runnerScore = 0;
+        if (data.volatilityRunner) {
+            var vr = data.volatilityRunner;
+            var gPct = parseFloat(vr.changePct || 0); var rV = parseFloat(vr.relativeVolume || 0);
+            if (gPct >= 20) runnerScore += 2; else if (gPct >= 10) runnerScore += 1;
+            if (rV >= 5) runnerScore += 2; else if (rV >= 3) runnerScore += 1;
+            if (parseFloat(vr.marketCap || 0) > 0 && parseFloat(vr.marketCap) < 5e7) runnerScore += 1;
+            if (parseFloat(vr.dollarVolume || 0) > 5e6) runnerScore += 1;
+        }
+
+        // Feature 39: Session position (price in day's range, 0-1)
+        var sessionPos = 0.5;
+        if (quote) {
+            var curP2 = parseFloat(quote.last || quote.price || 0);
+            var hi = parseFloat(quote.high || 0); var lo = parseFloat(quote.low || 0);
+            if (curP2 > 0 && hi > lo) sessionPos = (curP2 - lo) / (hi - lo);
+        }
+
+        // Feature 40: Delta shift (greek flow momentum)
+        var deltaShift = 0;
+        if (data.greekFlow) {
+            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : [];
+            if (gfl.length >= 2) { deltaShift = parseFloat(gfl[gfl.length - 1].net_delta || gfl[gfl.length - 1].delta || 0) - parseFloat(gfl[gfl.length - 2].net_delta || gfl[gfl.length - 2].delta || 0); }
+        }
+
+        // Feature 41: Strike magnet distance (% to top flow strike)
+        var strikeMagnetDist = 0;
+        if (data.flowPerStrike && quote) {
+            var fps = Array.isArray(data.flowPerStrike) ? data.flowPerStrike : [];
+            var cp3 = parseFloat(quote.price || quote.last || 0);
+            if (fps.length > 0 && cp3 > 0) {
+                var sorted = fps.filter(function (s) { return s.strike && s.total_premium; }).sort(function (a, b) { return parseFloat(b.total_premium) - parseFloat(a.total_premium); });
+                if (sorted[0]) strikeMagnetDist = (parseFloat(sorted[0].strike) - cp3) / cp3 * 100;
+            }
+        }
+
+        // Feature 42: Interaction — call/put ratio × dark pool direction
+        var cpDpInteraction = (cpRatio > 1 ? 1 : cpRatio < 1 ? -1 : 0) * dpDir;
+
+        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction];
     }
 }
 

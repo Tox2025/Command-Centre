@@ -1,5 +1,6 @@
 // ML Calibrator - Multi-timeframe logistic regression for confidence calibration
 // Maintains separate models for dayTrade (open/power hour) and swing (1-7d+)
+// Supports per-version models for A/B testing
 const fs = require('fs');
 const path = require('path');
 
@@ -11,13 +12,26 @@ const MODEL_PATHS = {
 const MIN_TRAINING_SAMPLES = 30;
 const ML_RAMP_FULL = 100;
 
+const FEATURE_NAMES = [
+    'RSI', 'MACD_Hist', 'EMA_Align', 'BB_Position', 'ATR',
+    'CP_Ratio', 'DP_Direction', 'IV_Rank', 'Short_Interest', 'Vol_Spike',
+    'BB_Bandwidth', 'VWAP_Dev', 'Regime', 'Gamma_Prox', 'IV_Skew',
+    'Candle_Score', 'Sentiment', 'ADX', 'RSI_Divergence', 'Fib_Proximity',
+    'RSI_Slope', 'MACD_Accel', 'ATR_Change', 'RSI_x_EMA', 'Vol_x_MACD',
+    'Net_Premium', 'DP_Magnitude', 'Sweep_Ratio', 'Sector_CP', 'ETF_Macro',
+    'Squeeze_Score', 'Season_Return', 'IVRV_Ratio', 'Congress_Net', 'Insider_Net',
+    'GEX_Net_Gamma', 'MTF_Agreement', 'Runner_Score', 'Session_Pos', 'Delta_Shift',
+    'Strike_Magnet', 'CP_x_DP'
+];
+
 class MLCalibrator {
     constructor() {
         this.models = {
             dayTrade: this._emptyModel(),
             swing: this._emptyModel()
         };
-        this.featureCount = 25; // expanded from 17 to 25 (added ADX, RSI divergence, Fib, slopes, interactions)
+        this.versionModels = {}; // { 'v1.0': { dayTrade: model, swing: model }, ... }
+        this.featureCount = 42;
         this._loadAll();
     }
 
@@ -29,11 +43,24 @@ class MLCalibrator {
         };
     }
 
+    _versionModelPath(tf, version) {
+        return path.join(DATA_DIR, 'ml-model-' + tf + '-' + version.replace(/\./g, '_') + '.json');
+    }
+
+    _getModel(tf, version) {
+        if (version && this.versionModels[version] && this.versionModels[version][tf]) {
+            var vm = this.versionModels[version][tf];
+            if (vm.trained) return vm;
+        }
+        return this.models[tf] || this.models.dayTrade;
+    }
+
     _loadAll() {
-        for (const tf of ['dayTrade', 'swing']) {
+        var self = this;
+        for (var tf of ['dayTrade', 'swing']) {
             try {
                 if (fs.existsSync(MODEL_PATHS[tf])) {
-                    const data = JSON.parse(fs.readFileSync(MODEL_PATHS[tf], 'utf8'));
+                    var data = JSON.parse(fs.readFileSync(MODEL_PATHS[tf], 'utf8'));
                     this.models[tf] = {
                         weights: data.weights,
                         bias: data.bias || 0,
@@ -48,20 +75,43 @@ class MLCalibrator {
                 console.error('MLCalibrator load error (' + tf + '):', e.message);
             }
         }
+        // Load per-version models
+        try {
+            var files = fs.readdirSync(DATA_DIR).filter(function (f) { return f.startsWith('ml-model-') && f.includes('-v'); });
+            files.forEach(function (f) {
+                var match = f.match(/ml-model-(dayTrade|swing)-v(.+)\.json/);
+                if (match) {
+                    var mtf = match[1];
+                    var ver = 'v' + match[2].replace(/_/g, '.');
+                    try {
+                        var d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+                        if (!self.versionModels[ver]) self.versionModels[ver] = {};
+                        self.versionModels[ver][mtf] = {
+                            weights: d.weights, bias: d.bias || 0, trained: d.trained || false,
+                            trainingSamples: d.trainingSamples || 0, accuracy: d.accuracy || 0,
+                            featureImportance: d.featureImportance || [], featureStats: d.featureStats || null
+                        };
+                    } catch (e2) { /* skip corrupt version models */ }
+                }
+            });
+            var vCount = Object.keys(self.versionModels).length;
+            if (vCount > 0) console.log('MLCalibrator: Loaded per-version models for ' + Object.keys(self.versionModels).join(', '));
+        } catch (e) { /* no version models yet */ }
     }
 
-    _save(tf) {
+    _save(tf, version) {
         try {
             if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-            const m = this.models[tf];
-            fs.writeFileSync(MODEL_PATHS[tf], JSON.stringify({
+            var m = version ? this._getModel(tf, version) : this.models[tf];
+            var filePath = version ? this._versionModelPath(tf, version) : MODEL_PATHS[tf];
+            fs.writeFileSync(filePath, JSON.stringify({
                 weights: m.weights, bias: m.bias, trained: m.trained,
                 trainingSamples: m.trainingSamples, accuracy: m.accuracy,
                 featureImportance: m.featureImportance, featureStats: m.featureStats,
-                lastTrained: new Date().toISOString()
+                lastTrained: new Date().toISOString(), version: version || 'shared'
             }, null, 2));
         } catch (e) {
-            console.error('MLCalibrator save error (' + tf + '):', e.message);
+            console.error('MLCalibrator save error (' + tf + (version ? '/' + version : '') + '):', e.message);
         }
     }
 
@@ -94,21 +144,21 @@ class MLCalibrator {
         return stats;
     }
 
-    // Train a specific timeframe model
-    train(trainingData, timeframe) {
+    // Train a specific timeframe model, optionally for a specific version
+    train(trainingData, timeframe, version) {
         var tf = timeframe || 'dayTrade';
-        if (!this.models[tf]) tf = 'dayTrade';
+        if (tf !== 'dayTrade' && tf !== 'swing') tf = 'dayTrade';
+        var label = tf + (version ? '/' + version : '');
 
         if (!trainingData || trainingData.length < MIN_TRAINING_SAMPLES) {
-            console.log('MLCalibrator (' + tf + '): Need ' + MIN_TRAINING_SAMPLES + ' samples, have ' + (trainingData ? trainingData.length : 0));
+            console.log('MLCalibrator (' + label + '): Need ' + MIN_TRAINING_SAMPLES + ' samples, have ' + (trainingData ? trainingData.length : 0));
             return false;
         }
 
         var self = this;
         var data = trainingData.filter(function (d) {
-            return d.features && d.features.length >= 10; // accept 10+ features
+            return d.features && d.features.length >= 10;
         });
-        // Pad features to 12 if needed
         data = data.map(function (d) {
             var f = d.features.slice();
             while (f.length < self.featureCount) f.push(0);
@@ -116,7 +166,7 @@ class MLCalibrator {
         });
 
         if (data.length < MIN_TRAINING_SAMPLES) return false;
-        console.log('MLCalibrator (' + tf + '): Training on ' + data.length + ' samples...');
+        console.log('MLCalibrator (' + label + '): Training on ' + data.length + ' samples...');
 
         var fStats = this._computeStats(data);
         var w = new Array(this.featureCount).fill(0);
@@ -147,7 +197,15 @@ class MLCalibrator {
             b -= lr * gradB / data.length;
         }
 
-        var m = this.models[tf];
+        // Store the trained model
+        var m;
+        if (version) {
+            if (!this.versionModels[version]) this.versionModels[version] = {};
+            if (!this.versionModels[version][tf]) this.versionModels[version][tf] = this._emptyModel();
+            m = this.versionModels[version][tf];
+        } else {
+            m = this.models[tf];
+        }
         m.weights = w;
         m.bias = b;
         m.trained = true;
@@ -157,27 +215,26 @@ class MLCalibrator {
         // Accuracy
         var correct = 0;
         for (var ci = 0; ci < data.length; ci++) {
-            var p = this.predict(data[ci].features, tf);
+            var p = this.predict(data[ci].features, tf, version);
             if ((p >= 0.5 ? 1 : 0) === data[ci].label) correct++;
         }
         m.accuracy = +(correct / data.length * 100).toFixed(1);
 
         // Feature importance
-        var names = ['RSI', 'MACD_Hist', 'EMA_Align', 'BB_Position', 'ATR', 'CP_Ratio', 'DP_Direction', 'IV_Rank', 'Short_Interest', 'Vol_Spike', 'BB_Bandwidth', 'VWAP_Dev', 'Regime', 'Gamma_Prox', 'IV_Skew', 'Candle_Score', 'Sentiment', 'ADX', 'RSI_Divergence', 'Fib_Proximity', 'RSI_Slope', 'MACD_Accel', 'ATR_Change', 'RSI_x_EMA', 'Vol_x_MACD'];
         m.featureImportance = w.map(function (wt, idx) {
-            return { name: names[idx] || 'Feature_' + idx, weight: +wt.toFixed(4), importance: +Math.abs(wt).toFixed(4) };
+            return { name: FEATURE_NAMES[idx] || 'Feature_' + idx, weight: +wt.toFixed(4), importance: +Math.abs(wt).toFixed(4) };
         }).sort(function (a, b2) { return b2.importance - a.importance; });
 
-        console.log('MLCalibrator (' + tf + '): Trained! Accuracy: ' + m.accuracy + '%');
+        console.log('MLCalibrator (' + label + '): Trained! Accuracy: ' + m.accuracy + '%');
         console.log('Top features:', m.featureImportance.slice(0, 5).map(function (f) { return f.name + '=' + f.weight; }).join(', '));
 
-        this._save(tf);
+        this._save(tf, version);
         return true;
     }
 
-    predict(features, timeframe) {
+    predict(features, timeframe, version) {
         var tf = timeframe || 'dayTrade';
-        var m = this.models[tf];
+        var m = this._getModel(tf, version);
         if (!m || !m.trained || !m.weights) return null;
 
         var f = features ? features.slice() : null;
@@ -194,10 +251,10 @@ class MLCalibrator {
     }
 
     // Ensemble: blend rule-based and ML confidence using the right TF model
-    ensemble(ruleBasedConfidence, features, timeframe) {
+    ensemble(ruleBasedConfidence, features, timeframe, version) {
         var tf = timeframe || 'dayTrade';
-        var m = this.models[tf];
-        var mlPred = this.predict(features, tf);
+        var m = this._getModel(tf, version);
+        var mlPred = this.predict(features, tf, version);
 
         if (mlPred === null) {
             return { confidence: ruleBasedConfidence, source: 'rule_based', mlWeight: 0, timeframe: tf };
@@ -217,6 +274,7 @@ class MLCalibrator {
             ruleWeight: +ruleWeight.toFixed(2),
             source: 'ensemble',
             timeframe: tf,
+            version: version || 'shared',
             modelAccuracy: m.accuracy,
             trainingSamples: m.trainingSamples
         };
@@ -234,7 +292,10 @@ class MLCalibrator {
             'IV_Rank': 'iv_rank', 'Short_Interest': 'short_interest',
             'Vol_Spike': 'volume_spike', 'BB_Bandwidth': 'bb_squeeze',
             'VWAP_Dev': 'vwap_deviation',
-            'ADX': 'adx_filter', 'RSI_Divergence': 'rsi_divergence'
+            'ADX': 'adx_filter', 'RSI_Divergence': 'rsi_divergence',
+            'Net_Premium': 'net_premium_momentum', 'Sector_CP': 'sector_tide_alignment',
+            'ETF_Macro': 'etf_tide_macro', 'Squeeze_Score': 'squeeze_composite',
+            'GEX_Net_Gamma': 'gex_positioning', 'Runner_Score': 'volatility_runner'
         };
         var suggestions = {};
         var maxImp = m.featureImportance[0].importance || 1;
@@ -250,7 +311,22 @@ class MLCalibrator {
     getStatus() {
         var dt = this.models.dayTrade;
         var sw = this.models.swing;
+        var versionStats = {};
+        var self = this;
+        Object.keys(this.versionModels).forEach(function (ver) {
+            versionStats[ver] = {};
+            ['dayTrade', 'swing'].forEach(function (tf) {
+                var vm = self.versionModels[ver][tf];
+                if (vm) {
+                    versionStats[ver][tf] = {
+                        trained: vm.trained, trainingSamples: vm.trainingSamples,
+                        accuracy: vm.accuracy
+                    };
+                }
+            });
+        });
         return {
+            featureCount: this.featureCount,
             dayTrade: {
                 trained: dt.trained, trainingSamples: dt.trainingSamples,
                 accuracy: dt.accuracy, featureImportance: dt.featureImportance,
@@ -260,7 +336,8 @@ class MLCalibrator {
                 trained: sw.trained, trainingSamples: sw.trainingSamples,
                 accuracy: sw.accuracy, featureImportance: sw.featureImportance,
                 mlRampPct: Math.min(100, Math.round(sw.trainingSamples / ML_RAMP_FULL * 100))
-            }
+            },
+            versionModels: versionStats
         };
     }
 }

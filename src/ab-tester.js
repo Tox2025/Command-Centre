@@ -49,7 +49,7 @@ class ABTester {
                 var isSwingSession = session === 'OVERNIGHT' || session === 'AFTER_HOURS';
                 var mlTimeframe = isSwingSession ? 'swing' : 'dayTrade';
                 if (this.mlCalibrator) {
-                    var ensemble = this.mlCalibrator.ensemble(result.confidence, result.features, mlTimeframe);
+                    var ensemble = this.mlCalibrator.ensemble(result.confidence, result.features, mlTimeframe, version);
                     result.technicalConfidence = result.confidence;
                     result.mlConfidence = ensemble.mlConfidence || null;
                     result.blendedConfidence = ensemble.confidence;

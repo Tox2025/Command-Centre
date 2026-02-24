@@ -881,15 +881,17 @@ class SignalEngine {
         // ── 26. Greek Flow Momentum (delta/gamma shift detection) ──
         var wGFM = this._ew('greek_flow_momentum', sess, hw);
         if (data.greekFlow) {
-            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : [];
+            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : (data.greekFlow.data ? data.greekFlow.data : []);
             if (gfl.length >= 2) {
                 var lastGF = gfl[gfl.length - 1];
                 var prevGF = gfl[gfl.length - 2];
-                var deltaShift = parseFloat(lastGF.net_delta || lastGF.delta || 0) - parseFloat(prevGF.net_delta || prevGF.delta || 0);
-                if (deltaShift > 0) {
-                    bull += wGFM * 0.6; signals.push({ name: '📈 Delta Rising', dir: 'BULL', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift +' + deltaShift.toFixed(0) });
-                } else if (deltaShift < 0) {
-                    bear += wGFM * 0.6; signals.push({ name: '📉 Delta Falling', dir: 'BEAR', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift ' + deltaShift.toFixed(0) });
+                if (lastGF && prevGF) {
+                    var deltaShift = parseFloat(lastGF.net_delta || lastGF.delta || 0) - parseFloat(prevGF.net_delta || prevGF.delta || 0);
+                    if (deltaShift > 0) {
+                        bull += wGFM * 0.6; signals.push({ name: '📈 Delta Rising', dir: 'BULL', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift +' + deltaShift.toFixed(0) });
+                    } else if (deltaShift < 0) {
+                        bear += wGFM * 0.6; signals.push({ name: '📉 Delta Falling', dir: 'BEAR', weight: +(wGFM * 0.6).toFixed(2), detail: 'Net delta shift ' + deltaShift.toFixed(0) });
+                    }
                 }
             }
         }
@@ -2107,8 +2109,8 @@ class SignalEngine {
         // Feature 40: Delta shift (greek flow momentum)
         var deltaShift = 0;
         if (data.greekFlow) {
-            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : [];
-            if (gfl.length >= 2) { deltaShift = parseFloat(gfl[gfl.length - 1].net_delta || gfl[gfl.length - 1].delta || 0) - parseFloat(gfl[gfl.length - 2].net_delta || gfl[gfl.length - 2].delta || 0); }
+            var gfl = Array.isArray(data.greekFlow) ? data.greekFlow : (data.greekFlow.data ? data.greekFlow.data : []);
+            if (gfl.length >= 2 && gfl[gfl.length - 1] && gfl[gfl.length - 2]) { deltaShift = parseFloat(gfl[gfl.length - 1].net_delta || gfl[gfl.length - 1].delta || 0) - parseFloat(gfl[gfl.length - 2].net_delta || gfl[gfl.length - 2].delta || 0); }
         }
 
         // Feature 41: Strike magnet distance (% to top flow strike)

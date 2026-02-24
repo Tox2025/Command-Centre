@@ -29,6 +29,7 @@ const EODReporter = require('./src/eod-reporter');
 const PolygonTickClient = require('./src/polygon-client');
 const PolygonHistorical = require('./src/polygon-historical');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const ABTester = require('./src/ab-tester');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -61,6 +62,7 @@ const alertEngine = new AlertEngine();
 const signalEngine = new SignalEngine();
 const tradeJournal = new TradeJournal();
 const mlCalibrator = new MLCalibrator();
+const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler assigned after init
 
 // Auto-load ML model from persisted cumulative training data
 (function () {
@@ -86,6 +88,7 @@ const notifier = new Notifier();
 const polygonClient = new PolygonTickClient(process.env.POLYGON_API_KEY);
 const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPrice: 2, polygonClient: polygonClient });
 const scheduler = new SessionScheduler({ dailyLimit: 15000, safetyMargin: 0.90 });
+abTester.scheduler = scheduler; // Assign scheduler for market hours gating
 const xAlertMonitor = new XAlertMonitor({ minScore: 50 });
 const gapAnalyzer = new GapAnalyzer();
 // yahooPriceFeed removed — replaced by Polygon REST snapshots
@@ -494,6 +497,18 @@ app.get('/api/sentiment/:ticker', (req, res) => {
     res.json(state.sentiment[t] || null);
 });
 app.get('/api/notifier/status', (req, res) => res.json(notifier.getStatus()));
+
+// A/B Version Testing Results
+app.get('/api/ab-results', (req, res) => {
+    res.json({
+        versions: abTester.getVersionNames(),
+        versionCount: abTester.getVersionCount(),
+        comparison: abTester.getComparison(),
+        latestScores: abTester.getLatestResults(),
+        perVersionBudget: abTester.perVersionBudget
+    });
+});
+
 app.get('/api/paper-trades', (req, res) => {
     const trades = tradeJournal.getPaperTrades().map(t => {
         // Compute missing fields for old trades
@@ -552,6 +567,7 @@ app.post('/api/paper-trades/close', (req, res) => {
     }
 });
 app.get('/api/paper-trades/stats', (req, res) => {
+
     const trades = tradeJournal.getPaperTrades().map(t => {
         // Ensure pnl field exists (some old trades only have pnlPct)
         if (t.pnl === undefined && t.pnlPct !== undefined && t.pnlPct !== null) {
@@ -2439,18 +2455,31 @@ function trackDiscovery(ticker, source, signalResult, meta) {
             // ── Auto Paper Trade for Discovery Setups ──
             // Same logic as watchlist: cooldown + consecutive loss guard
             tradeJournal.logSetup(setup, signalResult, scheduler);
-            var maxConsecLosses = 3;
-            var consecLosses = tradeJournal.getConsecutiveLosses(t, dir);
-            if (consecLosses < maxConsecLosses) {
-                var cooldownMs = 30 * 60 * 1000;
-                var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
-                if (autoTrade) {
-                    console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
-                        ' (conf: ' + signalResult.confidence + '%, source: ' + source + ')');
-                    try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
-                }
+
+            // ── A/B Parallel Scoring: create paper trades for ALL versions ──
+            if (abTester.getVersionCount() > 1) {
+                var abResults = abTester.scoreAll(t, data, state.session);
+                abTester.logComparison(t, abResults);
+                var abTrades = abTester.createTrades(t, abResults, price, setup);
+                abTrades.forEach(function (at) {
+                    console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + t + ' @ $' + price.toFixed(2));
+                    try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
+                });
             } else {
-                console.log('⏭️  Discovery paper blocked ' + dir + ' ' + t + ': streak=' + consecLosses);
+                // Fallback: single version
+                var maxConsecLosses = 3;
+                var consecLosses = tradeJournal.getConsecutiveLosses(t, dir);
+                if (consecLosses < maxConsecLosses) {
+                    var cooldownMs = 30 * 60 * 1000;
+                    var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
+                    if (autoTrade) {
+                        console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
+                            ' (conf: ' + signalResult.confidence + '%, source: ' + source + ')');
+                        try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                    }
+                } else {
+                    console.log('⏭️  Discovery paper blocked ' + dir + ' ' + t + ': streak=' + consecLosses);
+                }
             }
         } catch (setupErr) {
             console.error('Auto trade setup error for ' + t + ':', setupErr.message);
@@ -2832,21 +2861,29 @@ async function scoreTickerSignals(ticker) {
                     }
                 } catch (sqErr) { /* squeeze alert is optional */ }
 
-                // ── Auto Paper Trade: mirror every unique setup ─────────────────────
-                // logSetup above already deduplicates (30min cooldown, any status)
-                // Only additional guard: don't re-enter after 3+ consecutive losses
-                var maxConsecLosses = 3;
-                var consecLosses = tradeJournal.getConsecutiveLosses(ticker, dir);
-
-                if (consecLosses < maxConsecLosses) {
-                    var cooldownMs = 30 * 60 * 1000;
-                    var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
-                    if (autoTrade) {
-                        console.log('📝 Auto paper trade: ' + dir + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (conf: ' + signalResult.confidence + '%, signals: ' + (signalResult.signals || []).length + ', ' + horizon + ')');
-                        try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
-                    }
+                // ── Auto Paper Trade: A/B version testing ─────────────────────
+                if (abTester.getVersionCount() > 1) {
+                    var abResults = abTester.scoreAll(ticker, data, state.session);
+                    abTester.logComparison(ticker, abResults);
+                    var abTrades = abTester.createTrades(ticker, abResults, price, setup);
+                    abTrades.forEach(function (at) {
+                        console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + price.toFixed(2));
+                        try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
+                    });
                 } else {
-                    console.log('⏭️  Paper trade blocked ' + dir + ' ' + ticker + ': losing_streak=' + consecLosses + '/' + maxConsecLosses);
+                    // Fallback: single version
+                    var maxConsecLosses = 3;
+                    var consecLosses = tradeJournal.getConsecutiveLosses(ticker, dir);
+                    if (consecLosses < maxConsecLosses) {
+                        var cooldownMs = 30 * 60 * 1000;
+                        var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
+                        if (autoTrade) {
+                            console.log('📝 Auto paper trade: ' + dir + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (conf: ' + signalResult.confidence + '%, signals: ' + (signalResult.signals || []).length + ', ' + horizon + ')');
+                            try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                        }
+                    } else {
+                        console.log('⏭️  Paper trade blocked ' + dir + ' ' + ticker + ': losing_streak=' + consecLosses + '/' + maxConsecLosses);
+                    }
                 }
 
                 // Check earnings risk

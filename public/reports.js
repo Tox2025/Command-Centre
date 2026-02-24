@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     loadReportList();
+    loadABResults();
 });
 
 async function loadReportList() {
@@ -243,3 +244,60 @@ function renderSignalTable(bodyId, signals) {
         tbody.appendChild(tr);
     });
 }
+
+// A/B Version Comparison — loads independently from api/ab-results
+async function loadABResults() {
+    try {
+        var res = await fetch('/api/ab-results');
+        var data = await res.json();
+        if (!data || data.versionCount < 2) return; // No A/B data
+
+        var section = document.getElementById('abSection');
+        if (!section) return;
+        section.style.display = 'block';
+
+        var summary = document.getElementById('abSummary');
+        summary.textContent = data.versionCount + ' versions running in parallel \u2014 $' + (data.perVersionBudget || 0).toLocaleString() + ' budget per version';
+
+        var body = document.getElementById('abBody');
+        body.innerHTML = '';
+        var comp = data.comparison || {};
+        var versions = Object.keys(comp);
+
+        // Find best WR
+        var bestWR = -1;
+        var bestVersion = '';
+        versions.forEach(function (v) {
+            var s = comp[v];
+            if ((s.wins + s.losses) >= 5 && s.winRate > bestWR) {
+                bestWR = s.winRate;
+                bestVersion = v;
+            }
+        });
+
+        versions.sort().forEach(function (v) {
+            var s = comp[v];
+            var isBest = (v === bestVersion && bestWR > 0);
+            var wrColor = s.winRate >= 55 ? '#4ade80' : s.winRate >= 45 ? '#facc15' : '#f87171';
+            var pnlColor = s.avgPnlPct >= 0 ? '#4ade80' : '#f87171';
+            var rowBg = isBest ? 'background:rgba(74,222,128,0.08);' : '';
+            var trophy = isBest ? ' \ud83c\udfc6' : '';
+
+            var tr = document.createElement('tr');
+            tr.setAttribute('style', rowBg);
+            tr.innerHTML =
+                '<td style="font-weight:600">' + v + trophy + '</td>' +
+                '<td>' + s.trades + '</td>' +
+                '<td style="color:#4ade80">' + s.wins + '</td>' +
+                '<td style="color:#f87171">' + s.losses + '</td>' +
+                '<td style="color:#facc15">' + s.pending + '</td>' +
+                '<td style="color:' + wrColor + ';font-weight:600">' + s.winRate + '%</td>' +
+                '<td style="color:' + pnlColor + ';font-weight:600">' + (s.avgPnlPct >= 0 ? '+' : '') + s.avgPnlPct + '%</td>' +
+                '<td style="color:' + pnlColor + ';font-weight:600">$' + s.pnlTotal.toLocaleString() + '</td>';
+            body.appendChild(tr);
+        });
+    } catch (e) {
+        console.error('A/B results load error:', e);
+    }
+}
+

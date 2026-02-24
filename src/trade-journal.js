@@ -368,7 +368,7 @@ class TradeJournal {
     }
 
     // Paper Trading - simulate entries at current price
-    paperTrade(setup, currentPrice, cooldownMs, scheduler) {
+    paperTrade(setup, currentPrice, cooldownMs, scheduler, explicitVersion) {
         if (!setup || !setup.ticker) return null;
 
         // ── Market hours gate — no trading on weekends or outside session ──
@@ -381,9 +381,12 @@ class TradeJournal {
         cooldownMs = cooldownMs || 2 * 60 * 60 * 1000; // default 2 hours
         var nowMs = Date.now();
 
-        // ── Duplicate check: ANY trade (open OR closed) for same ticker+direction within cooldown ──
+        // ── Duplicate check: same ticker+direction+version within cooldown ──
+        var checkVersion = explicitVersion || null;
         var dup = this.trades.find(function (t) {
-            if (!t.paper || t.ticker !== setup.ticker || t.direction !== setup.direction) return false;
+            if (t.paper !== true || t.ticker !== setup.ticker || t.direction !== setup.direction) return false;
+            // In A/B testing, only check duplicates within same version
+            if (checkVersion && t.signalVersion !== checkVersion) return false;
             var tradeTime = new Date(t.openTime || t.entryTime).getTime();
             return (nowMs - tradeTime) < cooldownMs;
         });
@@ -445,12 +448,38 @@ class TradeJournal {
             paper: true,
             paperEntry: entryPrice,
             shares: tentativeShares,
-            signalVersion: this._getSignalVersion()
+            signalVersion: explicitVersion || this._getSignalVersion()
         };
 
         this.trades.push(trade);
         this._save();
         return trade;
+    }
+
+    // Get performance stats grouped by signal version
+    getStatsByVersion() {
+        var byVersion = {};
+        this.trades.forEach(function (t) {
+            if (t.paper !== true) return;
+            var v = t.signalVersion || 'unknown';
+            if (byVersion[v] === undefined) {
+                byVersion[v] = { version: v, trades: 0, wins: 0, losses: 0, expired: 0, pending: 0, pnlSum: 0, pnlTotal: 0 };
+            }
+            byVersion[v].trades++;
+            if (t.status === 'PENDING') byVersion[v].pending++;
+            else if (t.status && t.status.indexOf('WIN') >= 0) { byVersion[v].wins++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnlTotal || 0); }
+            else if (t.status === 'LOSS_STOP' || t.status === 'LOSS_EOD') { byVersion[v].losses++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnlTotal || 0); }
+            else if (t.status === 'EXPIRED') { byVersion[v].expired++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnlTotal || 0); }
+        });
+        // Compute derived stats
+        Object.keys(byVersion).forEach(function (v) {
+            var s = byVersion[v];
+            var decided = s.wins + s.losses;
+            s.winRate = decided > 0 ? +(s.wins / decided * 100).toFixed(1) : 0;
+            s.avgPnlPct = (decided + s.expired) > 0 ? +(s.pnlSum / (decided + s.expired)).toFixed(2) : 0;
+            s.pnlTotal = +s.pnlTotal.toFixed(2);
+        });
+        return byVersion;
     }
 
     // Count consecutive losses for a ticker+direction (most recent trades first)

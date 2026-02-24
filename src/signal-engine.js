@@ -228,14 +228,52 @@ const SESSION_MULTIPLIERS = {
 };
 
 class SignalEngine {
-    constructor(weights) {
+    constructor(weights, options) {
+        options = options || {};
         this.weights = weights || { ...SIGNAL_WEIGHTS };
-        this.weightsScalp = SIGNAL_WEIGHTS_SCALP;
-        this.weightsDay = SIGNAL_WEIGHTS_DAY;
-        this.weightsSwing = SIGNAL_WEIGHTS_SWING;
-        this.tickerOverrides = SIGNAL_TICKER_OVERRIDES;
+        this.weightsScalp = options.weightsScalp || SIGNAL_WEIGHTS_SCALP;
+        this.weightsDay = options.weightsDay || SIGNAL_WEIGHTS_DAY;
+        this.weightsSwing = options.weightsSwing || SIGNAL_WEIGHTS_SWING;
+        this.tickerOverrides = options.tickerOverrides || SIGNAL_TICKER_OVERRIDES;
+        this.gating = options.gating || SIGNAL_GATING;
+        this.versionName = options.versionName || SIGNAL_VERSION;
         this.setupDetector = new SetupDetector();
     }
+
+    // Create a SignalEngine instance for a specific version from signal-versions.json
+    static loadVersion(versionKey) {
+        try {
+            var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
+            if (!fs.existsSync(versionsPath)) return null;
+            var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+            if (!config.versions || !config.versions[versionKey]) return null;
+            var ver = config.versions[versionKey];
+            var weights = Object.assign({}, DEFAULT_WEIGHTS, ver.weights || {});
+            var options = {
+                weightsScalp: ver.weights_scalp ? Object.assign({}, DEFAULT_WEIGHTS, ver.weights_scalp) : null,
+                weightsDay: ver.weights_day ? Object.assign({}, DEFAULT_WEIGHTS, ver.weights_day) : null,
+                weightsSwing: ver.weights_swing ? Object.assign({}, DEFAULT_WEIGHTS, ver.weights_swing) : null,
+                tickerOverrides: ver.ticker_overrides || {},
+                gating: ver.gating || {},
+                versionName: versionKey
+            };
+            return new SignalEngine(weights, options);
+        } catch (e) {
+            console.error('SignalEngine.loadVersion error for ' + versionKey + ':', e.message);
+            return null;
+        }
+    }
+
+    // Get all available version keys from signal-versions.json
+    static getVersionKeys() {
+        try {
+            var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
+            if (!fs.existsSync(versionsPath)) return [];
+            var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+            return Object.keys(config.versions || {});
+        } catch (e) { return []; }
+    }
+
 
     updateWeights(newWeights) {
         Object.assign(this.weights, newWeights);

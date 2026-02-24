@@ -354,6 +354,31 @@
                 <div id="horizonContainer"></div>
             </section>
 
+            <!-- A/B Version Comparison -->
+            <section class="report-section" id="abSection" style="display:none">
+                <h2>🔬 A/B Version Comparison</h2>
+                <div class="report-card">
+                    <div id="abSummary" style="margin-bottom:12px;color:var(--text-muted);font-size:12px"></div>
+                    <div style="overflow-x:auto">
+                        <table class="signal-table" id="abTable">
+                            <thead>
+                                <tr>
+                                    <th>Version</th>
+                                    <th>Trades</th>
+                                    <th>Wins</th>
+                                    <th>Losses</th>
+                                    <th>Pending</th>
+                                    <th>Win Rate</th>
+                                    <th>Avg PnL%</th>
+                                    <th>Total PnL$</th>
+                                </tr>
+                            </thead>
+                            <tbody id="abBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- Recommendations -->
             <section class="report-section">
                 <h2>💡 AI Recommendations</h2>

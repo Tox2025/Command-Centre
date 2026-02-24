@@ -182,6 +182,44 @@ const state = {
     unusualOptions: []
 };
 
+// ── Memory-Safe State Serialization ───────────────────────
+// Prevents OOM crashes by capping unbounded arrays and stripping non-serializable fields
+function getSerializableState() {
+    var safe = Object.assign({}, state);
+    // Strip non-serializable and large cache fields
+    safe.chatHistory = undefined;
+    safe.polygonSnapshots = undefined;
+    // Cap unbounded arrays to prevent memory bloat
+    if (Array.isArray(safe.optionsFlow) && safe.optionsFlow.length > 200) safe.optionsFlow = safe.optionsFlow.slice(-200);
+    if (Array.isArray(safe.alerts) && safe.alerts.length > 300) safe.alerts = safe.alerts.slice(-300);
+    if (Array.isArray(safe.darkPoolRecent) && safe.darkPoolRecent.length > 100) safe.darkPoolRecent = safe.darkPoolRecent.slice(-100);
+    if (Array.isArray(safe.news) && safe.news.length > 100) safe.news = safe.news.slice(-100);
+    if (Array.isArray(safe.congressTrades) && safe.congressTrades.length > 100) safe.congressTrades = safe.congressTrades.slice(-100);
+    if (Array.isArray(safe.insiderTransactions) && safe.insiderTransactions.length > 100) safe.insiderTransactions = safe.insiderTransactions.slice(-100);
+    if (Array.isArray(safe.xAlerts) && safe.xAlerts.length > 50) safe.xAlerts = safe.xAlerts.slice(-50);
+    if (Array.isArray(safe.halts) && safe.halts.length > 50) safe.halts = safe.halts.slice(-50);
+    if (Array.isArray(safe.gapAnalysis) && safe.gapAnalysis.length > 50) safe.gapAnalysis = safe.gapAnalysis.slice(-50);
+    if (Array.isArray(safe.hotOpportunities) && safe.hotOpportunities.length > 50) safe.hotOpportunities = safe.hotOpportunities.slice(-50);
+    if (Array.isArray(safe.liveDiscoveries) && safe.liveDiscoveries.length > 50) safe.liveDiscoveries = safe.liveDiscoveries.slice(-50);
+    if (Array.isArray(safe.discoveryHistory) && safe.discoveryHistory.length > 200) safe.discoveryHistory = safe.discoveryHistory.slice(-200);
+    if (Array.isArray(safe.unusualOptions) && safe.unusualOptions.length > 50) safe.unusualOptions = safe.unusualOptions.slice(-50);
+    if (Array.isArray(safe.economicCalendar) && safe.economicCalendar.length > 50) safe.economicCalendar = safe.economicCalendar.slice(-50);
+    if (Array.isArray(safe.topNetImpact) && safe.topNetImpact.length > 50) safe.topNetImpact = safe.topNetImpact.slice(-50);
+    return safe;
+}
+
+// Also trim the actual state arrays periodically to prevent in-memory bloat
+function trimStateArrays() {
+    if (Array.isArray(state.optionsFlow) && state.optionsFlow.length > 500) state.optionsFlow = state.optionsFlow.slice(-500);
+    if (Array.isArray(state.alerts) && state.alerts.length > 500) state.alerts = state.alerts.slice(-500);
+    if (Array.isArray(state.darkPoolRecent) && state.darkPoolRecent.length > 200) state.darkPoolRecent = state.darkPoolRecent.slice(-200);
+    if (Array.isArray(state.news) && state.news.length > 200) state.news = state.news.slice(-200);
+    if (Array.isArray(state.congressTrades) && state.congressTrades.length > 200) state.congressTrades = state.congressTrades.slice(-200);
+    if (Array.isArray(state.insiderTransactions) && state.insiderTransactions.length > 200) state.insiderTransactions = state.insiderTransactions.slice(-200);
+    if (Array.isArray(state.xAlerts) && state.xAlerts.length > 100) state.xAlerts = state.xAlerts.slice(-100);
+    if (Array.isArray(state.halts) && state.halts.length > 100) state.halts = state.halts.slice(-100);
+}
+
 // ── Express Setup ─────────────────────────────────────────
 app.use((req, res, next) => {
     if (req.path.endsWith('.html') || req.path === '/') {
@@ -194,7 +232,7 @@ app.use(express.json());
 
 // REST API for initial page load
 app.get('/api/state', (req, res) => {
-    res.json(state);
+    res.json(getSerializableState());
 });
 
 app.get('/api/tickers', (req, res) => {
@@ -216,7 +254,7 @@ app.post('/api/tickers', async (req, res) => {
         } catch (e) {
             console.log('⚠️ Error fetching data for ' + sym + ':', e.message);
         }
-        broadcast({ type: 'full_state', data: state });
+        broadcast({ type: 'full_state', data: getSerializableState() });
         saveWatchlist();
         polygonClient.updateSubscriptions(state.tickers);
         console.log('➕ Added ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
@@ -250,7 +288,7 @@ app.post('/api/tickers', async (req, res) => {
         delete state.tradeSetups[sym];
         delete state.kellySizing[sym];
         state.morningBrief = generateMorningBrief();
-        broadcast({ type: 'full_state', data: state });
+        broadcast({ type: 'full_state', data: getSerializableState() });
         saveWatchlist();
         polygonClient.updateSubscriptions(state.tickers);
         console.log('➖ Removed ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
@@ -1900,7 +1938,7 @@ wss.on('connection', (ws) => {
     console.log(`🔗 Dashboard client connected (${clients.size} total)`);
 
     // Send current state immediately
-    ws.send(JSON.stringify({ type: 'full_state', data: state }));
+    ws.send(JSON.stringify({ type: 'full_state', data: getSerializableState() }));
 
     ws.on('close', () => {
         clients.delete(ws);
@@ -3882,7 +3920,9 @@ async function refreshAll() {
     scheduler.logCycle(tier, state.tickers.length, totalCalls);
 
     // Broadcast update
-    broadcast({ type: 'full_state', data: state });
+    // Trim in-memory arrays to prevent unbounded growth
+    trimStateArrays();
+    broadcast({ type: 'full_state', data: getSerializableState() });
 
     console.log(`✅ Updated ${state.tickers.length} tickers | ${state.alerts.length} alerts | Session: ${AlertEngine.sessionLabel(state.session)}`);
 

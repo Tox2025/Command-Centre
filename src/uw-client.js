@@ -480,8 +480,8 @@ class UWClient {
   }
 
   // E8: ATM Chains — at-the-money options chains
-  async getATMChains(ticker) {
-    return this._fetch(`/stock/${ticker}/atm-chains`);
+  async getATMChains(ticker, expiration) {
+    return this._fetch(`/stock/${ticker}/atm-chains`, expiration ? { expiration } : {});
   }
 
   // E9: Stock Price Levels — volume profile price levels

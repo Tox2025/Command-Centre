@@ -3135,7 +3135,7 @@ async function fetchTickerData(ticker, tier) {
                     var sortedExp = oiExpData.slice().sort(function (a, b) { return (b.volume || 0) - (a.volume || 0); });
                     var nearestExpiry = sortedExp[0].expiry || sortedExp[0].expiration_date;
                     if (nearestExpiry) {
-                        const atm = await uw.getATMChains(ticker + '?expiration=' + nearestExpiry);
+                        const atm = await uw.getATMChains(ticker, nearestExpiry);
                         if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
                         callCount++;
                     }
@@ -3234,7 +3234,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Analyst Ratings (consensus + targets) — COLD
             try {
-                const ar = await uw.getAnalystRatingsByTicker(ticker);
+                const ar = await uw.getAnalystRatings(ticker);
                 if (ar?.data) state.analystRatings[ticker] = ar.data;
                 callCount++;
             } catch (e) { /* optional */ }

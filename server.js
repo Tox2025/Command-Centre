@@ -2706,19 +2706,19 @@ async function scoreTickerSignals(ticker) {
             earningsEnriched: (state.earningsToday && state.earningsToday.enriched) ? state.earningsToday.enriched[ticker] || null : null,
             earningsReaction: (state.earningsToday && state.earningsToday.reactions) ? state.earningsToday.reactions[ticker] || null : null,
             // Phase 2 data
-            nope: state.nope[ticker] || null,
-            flowPerStrikeIntraday: state.flowPerStrikeIntraday[ticker] || null,
-            analystRatings: state.analystRatings[ticker] || null,
-            institutionHoldings: state.institutionHoldings[ticker] || null,
-            institutionActivity: state.institutionActivity[ticker] || null,
-            shortVolumesByExchange: state.shortVolumesByExchange[ticker] || null,
+            nope: (state.nope || {})[ticker] || null,
+            flowPerStrikeIntraday: (state.flowPerStrikeIntraday || {})[ticker] || null,
+            analystRatings: (state.analystRatings || {})[ticker] || null,
+            institutionHoldings: (state.institutionHoldings || {})[ticker] || null,
+            institutionActivity: (state.institutionActivity || {})[ticker] || null,
+            shortVolumesByExchange: (state.shortVolumesByExchange || {})[ticker] || null,
             fdaCalendar: state.fdaCalendar || [],
             // GAP-1 through GAP-6: Previously fetched but never passed to signal engine
-            maxPain: state.maxPain[ticker] || null,
-            oiChange: state.oiChange[ticker] || null,
-            greeks: state.greeks[ticker] || null,
-            stockState: state.stockState[ticker] || null,
-            earnings: state.earnings[ticker] || null,
+            maxPain: (state.maxPain || {})[ticker] || null,
+            oiChange: (state.oiChange || {})[ticker] || null,
+            greeks: (state.greeks || {})[ticker] || null,
+            stockState: (state.stockState || {})[ticker] || null,
+            earnings: (state.earnings || {})[ticker] || null,
             etfFlows: state.etfFlows || {},
             // Phase B — New UW endpoints
             shortInterestV2: state.shortInterestV2 ? state.shortInterestV2[ticker] : null,
@@ -2942,7 +2942,7 @@ async function scoreTickerSignals(ticker) {
             }
         }
     } catch (e) {
-        console.error(`⚠️ Signal scoring error for ${ticker}:`, e.message);
+        console.error(`⚠️ Signal scoring error for ${ticker}:`, e.message, e.stack ? e.stack.split('\n')[1] : '');
     }
 }
 

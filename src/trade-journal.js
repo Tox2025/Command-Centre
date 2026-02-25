@@ -409,7 +409,9 @@ class TradeJournal {
             var riskPerShare = Math.abs(entryPrice - setup.stop);
             tentativeShares = riskPerShare > 0 ? Math.floor(2000 / riskPerShare) : 10;
         }
-        if (tentativeShares < 1) tentativeShares = 1;
+        // Minimum shares based on stock price — 1-share trades are unrealistic
+        var minShares = entryPrice < 100 ? 5 : entryPrice < 500 ? 2 : 1;
+        if (tentativeShares < minShares) tentativeShares = minShares;
 
         // ── Portfolio exposure cap — total open notional ≤ account balance ──
         var newNotional = entryPrice * tentativeShares;

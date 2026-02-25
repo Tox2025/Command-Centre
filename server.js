@@ -847,7 +847,7 @@ app.post('/api/validate-ticker', async (req, res) => {
 
         // Update state and broadcast
         state.xAlerts = xAlertMonitor.getAlerts();
-        broadcast({ type: 'full_state', data: state });
+        broadcast({ type: 'full_state', data: getSerializableState() });
 
         res.json(result);
     } catch (e) {
@@ -880,7 +880,7 @@ app.post('/webhook/x-alert', async (req, res) => {
         }
 
         state.xAlerts = xAlertMonitor.getAlerts();
-        broadcast({ type: 'full_state', data: state });
+        broadcast({ type: 'full_state', data: getSerializableState() });
 
         res.json(result);
     } catch (e) {
@@ -899,7 +899,7 @@ app.delete('/api/x-alerts/:ticker', (req, res) => {
     xAlertMonitor.alerts = xAlertMonitor.alerts.filter(a => a.ticker !== ticker);
     xAlertMonitor.clearCooldown(ticker);
     state.xAlerts = xAlertMonitor.getAlerts();
-    broadcast({ type: 'full_state', data: state });
+    broadcast({ type: 'full_state', data: getSerializableState() });
     res.json({ deleted: ticker });
 });
 
@@ -915,7 +915,7 @@ app.post('/api/scan-low-float', async (req, res) => {
         var results = await xAlertMonitor.scanMarket(state, uw, polygonClient);
         scheduler.trackCalls(results.length * 7); // 5 UW + 2 Polygon calls per candidate
         state.xAlerts = xAlertMonitor.getAlerts();
-        broadcast({ type: 'full_state', data: state });
+        broadcast({ type: 'full_state', data: getSerializableState() });
         res.json({
             scanned: results.length,
             results: results,
@@ -3907,7 +3907,7 @@ async function refreshAll() {
             }
 
             // Always broadcast updated state so scanner results persist on dashboard
-            broadcast({ type: 'full_state', data: state });
+            broadcast({ type: 'full_state', data: getSerializableState() });
             console.log('🔍 Scanner: ' + (newHits.length || 0) + ' new discoveries (' + (state.scannerResults.results || []).length + ' total)');
         } catch (e) {
             console.error('Scanner deferred error:', e.message);
@@ -4454,7 +4454,7 @@ function startPolygonPriceRefresh() {
                 }
 
                 // Broadcast fresh prices to all clients
-                broadcast({ type: 'full_state', data: state });
+                broadcast({ type: 'full_state', data: getSerializableState() });
             }
         } catch (e) {
             // Silent — price refresh is best-effort

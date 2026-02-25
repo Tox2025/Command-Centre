@@ -132,12 +132,12 @@ function renderImpact() {
     var cnt = $('impactCount'); if (cnt) cnt.textContent = items.length;
     var h = '';
     items.forEach(function (e) {
-        // UW top-net-impact returns net_bullish_premium / net_bearish_premium per ticker
-        var bullPrem = parseFloat(e.net_bullish_premium || e.bullish_premium || 0);
-        var bearPrem = parseFloat(e.net_bearish_premium || e.bearish_premium || 0);
+        // UW top-net-impact returns various field names for bull/bear premium
+        var bullPrem = parseFloat(e.net_bullish_premium || e.bullish_premium || e.call_premium || e.calls_premium || 0);
+        var bearPrem = parseFloat(e.net_bearish_premium || e.bearish_premium || e.put_premium || e.puts_premium || 0);
         var net = bullPrem - Math.abs(bearPrem);
         // Fallback to generic premium field
-        if (bullPrem === 0 && bearPrem === 0) net = parseFloat(e.net_premium || e.premium || 0);
+        if (bullPrem === 0 && bearPrem === 0) net = parseFloat(e.net_premium || e.premium || e.total_premium || 0);
         var cls = net >= 0 ? 'text-bull' : 'text-bear';
         var side = net >= 0 ? 'BULLISH' : 'BEARISH';
         var sideColor = net >= 0 ? '#22c55e' : '#ef4444';

@@ -488,6 +488,11 @@ class XAlertMonitor {
                 console.log('🔎 Scanning low-float candidate: ' + cand.ticker + ' (weight: ' + cand.weight + ', sources: ' + cand.sources.join(',') + ')');
                 var result = await this.ingestAlert(cand.ticker, 'Auto-Scan', '', uw, polygonClient);
                 if (result && result.status !== 'COOLDOWN' && result.status !== 'ERROR') {
+                    // Reject high-float stocks — this scanner is for micro/low float plays only
+                    if (result.floatShares > 0 && result.floatShares > 50000000) {
+                        console.log('🚫 Rejecting ' + cand.ticker + ': float ' + (result.floatShares / 1e6).toFixed(1) + 'M too high for low-float scanner');
+                        continue;
+                    }
                     results.push(result);
                 }
             } catch (e) {

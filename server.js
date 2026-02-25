@@ -3046,6 +3046,22 @@ async function fetchTickerData(ticker, tier) {
                 livePrice: livePrice,                 // Null if no Polygon data
                 priceSource: livePrice ? 'polygon_live' : 'uw_historical'
             };
+
+            // FIX-3: Populate sector for Sector Tide signal (#27)
+            var sectorName = null;
+            if (quoteInfo.sector) {
+                sectorName = quoteInfo.sector;
+            } else if (quoteInfo.sic_description) {
+                var sicUpper = (quoteInfo.sic_description || '').toUpperCase();
+                if (sicUpper.includes('SEMICONDUCTOR') || sicUpper.includes('COMPUTER') || sicUpper.includes('SOFTWARE') || sicUpper.includes('ELECTRONIC')) sectorName = 'Technology';
+                else if (sicUpper.includes('PHARMA') || sicUpper.includes('BIOTECH') || sicUpper.includes('HEALTH') || sicUpper.includes('MEDICAL')) sectorName = 'Healthcare';
+                else if (sicUpper.includes('BANK') || sicUpper.includes('FINANCIAL') || sicUpper.includes('INSUR')) sectorName = 'Financial';
+                else if (sicUpper.includes('OIL') || sicUpper.includes('GAS') || sicUpper.includes('PETROL') || sicUpper.includes('ENERGY')) sectorName = 'Energy';
+                else if (sicUpper.includes('RETAIL') || sicUpper.includes('MOTOR') || sicUpper.includes('CONSUMER')) sectorName = 'Consumer Cyclical';
+                else if (sicUpper.includes('INDUSTRIAL') || sicUpper.includes('MANUFACTUR') || sicUpper.includes('AEROSPACE')) sectorName = 'Industrials';
+                else if (sicUpper.includes('TELECOM') || sicUpper.includes('BROADCAST') || sicUpper.includes('MEDIA')) sectorName = 'Communication Services';
+            }
+            if (sectorName) state.quotes[ticker].sector = sectorName;
             const setup = alertEngine.generateTradeSetup(ticker, analysis, currentPrice);
             if (setup) {
                 // Only use alert engine setup if signal engine didn't already produce one
@@ -3592,7 +3608,7 @@ async function fetchMarketData(tier) {
 
             // Tier 2: Market Correlations (cross-asset hedging) — COLD
             try {
-                const mc = await uw.getMarketCorrelations();
+                const mc = await uw.getMarketCorrelations(state.tickers);
                 if (mc?.data) state.marketCorrelations = mc.data;
                 callCount++;
             } catch (e) { /* optional */ }
@@ -3608,6 +3624,15 @@ async function fetchMarketData(tier) {
     } catch (err) {
         console.error('Error fetching market data:', err.message);
     }
+
+    // FIX-4: Feed health logging — surface silent failures
+    console.log('📊 Feed health: tide=' + (state.marketTide ? '✅' : '❌') +
+        ' flow=' + (state.optionsFlow?.length || 0) +
+        ' sectors=' + Object.keys(state.sectorTide || {}).length + '/7' +
+        ' etfTide=' + Object.keys(state.etfTide || {}).length + '/3' +
+        ' etfFlows=' + Object.keys(state.etfFlows || {}).length + '/7' +
+        ' spike=' + (state.marketSpike ? '✅' : '❌'));
+
     return callCount;
 }
 
@@ -3658,6 +3683,12 @@ async function refreshAll() {
     // Fetch market-wide data (tiered)
     totalCalls += await fetchMarketData(tier);
 
+    // FIX-1: Fetch Polygon snapshot BEFORE scoring/gap analysis (was at line 3756, too late)
+    try {
+        await polygonClient.getSnapshot();
+        console.log('📸 Polygon snapshots refreshed (' + Object.keys(polygonClient.snapshotCache || {}).length + ' tickers)');
+    } catch (pe) { console.warn('⚠️ Polygon snapshot fetch failed:', pe.message); }
+
     // Track API calls
     scheduler.trackCalls(totalCalls);
 
@@ -3677,6 +3708,22 @@ async function refreshAll() {
                 state.quotes[ticker].ask = tickSummary.ask || state.quotes[ticker].ask;
                 state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
                 state.quotes[ticker].priceSource = 'polygon-ws';
+            }
+            // FIX-2: Merge Polygon REST snapshot (today's open, yesterday's close)
+            var snap = polygonClient.getSnapshotData(ticker);
+            if (snap && state.quotes[ticker]) {
+                if (snap.open > 0) state.quotes[ticker].open = snap.open;
+                if (snap.prevClose > 0) {
+                    state.quotes[ticker].prevClose = snap.prevClose;
+                    state.quotes[ticker].prev_close = snap.prevClose;
+                }
+                // Recalculate change/changePct from live price vs actual prev close
+                var liveP = state.quotes[ticker].last || state.quotes[ticker].price || 0;
+                var snapPrev = snap.prevClose || 0;
+                if (liveP > 0 && snapPrev > 0) {
+                    state.quotes[ticker].change = +(liveP - snapPrev).toFixed(2);
+                    state.quotes[ticker].changePercent = +((liveP - snapPrev) / snapPrev * 100).toFixed(2);
+                }
             }
         });
     } catch (e) { console.error('Polygon price feed error:', e.message); }
@@ -3751,10 +3798,7 @@ async function refreshAll() {
     } catch (e) { console.error('Volatility scanner pipeline error:', e.message); }
 
     // ── Market Scanner (deferred 60s to avoid rate limit overlap) ──
-    // Fetch Polygon snapshot for bid/ask updates + scanner candidates
-    try {
-        await polygonClient.getSnapshot();
-    } catch (pe) { /* optional */ }
+    // NOTE: Polygon snapshot already fetched earlier (FIX-1), no need to re-fetch here
 
     var polygonGainers = [];
     var polygonLosers = [];

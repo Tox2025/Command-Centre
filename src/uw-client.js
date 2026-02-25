@@ -214,8 +214,10 @@ class UWClient {
     return this._fetch('/market/spike');
   }
 
-  async getMarketCorrelations() {
-    return this._fetch('/market/correlations');
+  async getMarketCorrelations(tickers) {
+    var params = {};
+    if (tickers && tickers.length > 0) params.tickers = tickers.join(',');
+    return this._fetch('/market/correlations', params);
   }
 
   async getSectorETFs() {
@@ -481,7 +483,11 @@ class UWClient {
 
   // E8: ATM Chains — at-the-money options chains
   async getATMChains(ticker, expiration) {
-    return this._fetch(`/stock/${ticker}/atm-chains`, expiration ? { expiration } : {});
+    // UW API expects expirations[] array format: expirations[]=YYYY-MM-DD
+    if (expiration) {
+      return this._fetch(`/stock/${ticker}/atm-chains?expirations[]=${expiration}`, {});
+    }
+    return this._fetch(`/stock/${ticker}/atm-chains`);
   }
 
   // E9: Stock Price Levels — volume profile price levels

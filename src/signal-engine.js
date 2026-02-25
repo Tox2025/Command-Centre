@@ -1434,6 +1434,7 @@ class SignalEngine {
         var wAGE = this._ew('aggregate_greek_exposure', sess, hw);
         if (data.greeks) {
             var gkData = Array.isArray(data.greeks) ? data.greeks[0] : data.greeks;
+            if (!gkData) gkData = {};
             var netDelta = parseFloat(gkData.net_delta || gkData.delta || 0);
             var netGamma = parseFloat(gkData.net_gamma || gkData.gamma || 0);
             if (Math.abs(netDelta) > 0) {

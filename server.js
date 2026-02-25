@@ -3914,7 +3914,7 @@ async function refreshAll() {
     } catch (e) { /* brief notification optional */ }
 
     // Save state to disk for persistence across restarts
-    scheduler.saveState(state);
+    scheduler.saveState(getSerializableState());
 
     // Log cycle stats
     scheduler.logCycle(tier, state.tickers.length, totalCalls);

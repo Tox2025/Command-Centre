@@ -275,7 +275,22 @@ function addTicker() {
         });
 }
 function removeTicker(t) {
-    fetch('/api/tickers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, action: 'remove' }) });
+    // Optimistic UI: remove immediately from local state for instant feedback
+    state.tickers = state.tickers.filter(function (x) { return x !== t; });
+    renderWatchlist();
+    renderBrief();
+    fetch('/api/tickers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, action: 'remove' }) })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.tickers) state.tickers = data.tickers;
+            renderWatchlist();
+        })
+        .catch(function (err) {
+            // Restore ticker on failure
+            if (state.tickers.indexOf(t) < 0) state.tickers.push(t);
+            renderWatchlist();
+            console.error('Failed to remove ' + t + ':', err);
+        });
 }
 $('addTickerBtn').addEventListener('click', addTicker);
 $('tickerInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTicker(); });

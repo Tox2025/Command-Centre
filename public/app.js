@@ -2855,12 +2855,17 @@ function sendChat() {
     // Only use it if it's a known ticker
     if (ticker && !state.quotes[ticker]) ticker = null;
 
+    // 60s timeout for Gemini thinking time
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 60000);
+
     fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, ticker: ticker })
+        body: JSON.stringify({ message: msg, ticker: ticker }),
+        signal: controller.signal
     })
-        .then(function (r) { return r.json(); })
+        .then(function (r) { clearTimeout(timeout); return r.json(); })
         .then(function (data) {
             msgs.removeChild(typingDiv);
             var botDiv = document.createElement('div');
@@ -2870,10 +2875,13 @@ function sendChat() {
             msgs.scrollTop = msgs.scrollHeight;
         })
         .catch(function (e) {
+            clearTimeout(timeout);
             msgs.removeChild(typingDiv);
             var errDiv = document.createElement('div');
             errDiv.className = 'chat-msg bot';
-            errDiv.textContent = 'Error: ' + e.message + '. Make sure GEMINI_API_KEY is set in .env';
+            var errMsg = e.name === 'AbortError' ? 'Request timed out. Try a simpler question.'
+                : 'Error: ' + e.message + '. Try again in a moment.';
+            errDiv.textContent = errMsg;
             msgs.appendChild(errDiv);
             msgs.scrollTop = msgs.scrollHeight;
         });

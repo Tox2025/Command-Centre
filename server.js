@@ -1568,10 +1568,15 @@ app.post('/api/chat', async (req, res) => {
         var maxRetries = 3;
         for (var attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                var result = await model.generateContent({
+                // 45s timeout to prevent server hanging
+                var geminiPromise = model.generateContent({
                     contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }],
-                    generationConfig: { maxOutputTokens: 2500, temperature: 0.3 }
+                    generationConfig: { maxOutputTokens: 8000, temperature: 0.3 }
                 });
+                var timeoutPromise = new Promise(function (_, reject) {
+                    setTimeout(function () { reject(new Error('Gemini timeout after 45s')); }, 45000);
+                });
+                var result = await Promise.race([geminiPromise, timeoutPromise]);
                 reply = result.response.text();
                 break; // Success — exit retry loop
             } catch (retryErr) {

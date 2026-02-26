@@ -963,12 +963,13 @@ app.post('/api/chat', async (req, res) => {
                     state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
                     state.quotes[ticker].priceSource = 'polygon-ws-live';
                 }
-                // REST snapshot fallback
+                // REST snapshot fallback (prefer lastTradePrice over day close)
                 var snap = polygonClient.getSnapshotData(ticker);
-                if (snap && snap.price > 0 && (!state.quotes[ticker] || !state.quotes[ticker].priceSource || state.quotes[ticker].priceSource !== 'polygon-ws-live')) {
+                var snapPrice = snap ? (snap.lastTradePrice || snap.price || 0) : 0;
+                if (snapPrice > 0 && (!state.quotes[ticker] || !state.quotes[ticker].priceSource || state.quotes[ticker].priceSource !== 'polygon-ws-live')) {
                     if (!state.quotes[ticker]) state.quotes[ticker] = {};
-                    state.quotes[ticker].last = snap.price;
-                    state.quotes[ticker].price = snap.price;
+                    state.quotes[ticker].last = snapPrice;
+                    state.quotes[ticker].price = snapPrice;
                     state.quotes[ticker].priceSource = 'polygon-rest-live';
                 }
                 // Recalculate change from fresh price vs prev close

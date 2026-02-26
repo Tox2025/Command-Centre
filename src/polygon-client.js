@@ -325,7 +325,7 @@ class PolygonTickClient {
                 result.tickers.forEach(function (t) {
                     if (t.ticker) {
                         self.snapshotCache[t.ticker] = {
-                            price: t.day ? t.day.c : (t.lastTrade ? t.lastTrade.p : 0),
+                            price: (t.lastTrade && t.lastTrade.p > 0) ? t.lastTrade.p : (t.day ? t.day.c : 0),
                             open: t.day ? t.day.o : 0,
                             high: t.day ? t.day.h : 0,
                             low: t.day ? t.day.l : 0,

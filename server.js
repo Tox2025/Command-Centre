@@ -948,24 +948,62 @@ app.post('/api/chat', async (req, res) => {
         }
         if (!process.env.GEMINI_API_KEY) return res.json({ reply: 'GEMINI_API_KEY not configured in .env' });
 
+        // Inject FRESH Polygon prices into state.quotes at chat time
+        // This ensures the AI always sees real-time prices, not stale UW data
+        try {
+            (state.tickers || []).forEach(function (ticker) {
+                // WebSocket tick data (most real-time)
+                var tickSummary = polygonClient.getTickSummary(ticker);
+                if (tickSummary && tickSummary.lastPrice > 0) {
+                    if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                    state.quotes[ticker].last = tickSummary.lastPrice;
+                    state.quotes[ticker].price = tickSummary.lastPrice;
+                    state.quotes[ticker].high = tickSummary.highOfDay || state.quotes[ticker].high;
+                    state.quotes[ticker].low = tickSummary.lowOfDay || state.quotes[ticker].low;
+                    state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
+                    state.quotes[ticker].priceSource = 'polygon-ws-live';
+                }
+                // REST snapshot fallback
+                var snap = polygonClient.getSnapshotData(ticker);
+                if (snap && snap.price > 0 && (!state.quotes[ticker] || !state.quotes[ticker].priceSource || state.quotes[ticker].priceSource !== 'polygon-ws-live')) {
+                    if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                    state.quotes[ticker].last = snap.price;
+                    state.quotes[ticker].price = snap.price;
+                    state.quotes[ticker].priceSource = 'polygon-rest-live';
+                }
+                // Recalculate change from fresh price vs prev close
+                var qq = state.quotes[ticker];
+                if (qq && qq.last > 0) {
+                    var prevC = qq.prevClose || qq.prev_close || 0;
+                    if (prevC > 0) {
+                        qq.change = +(qq.last - prevC).toFixed(2);
+                        qq.changePercent = +((qq.last - prevC) / prevC * 100).toFixed(2);
+                    }
+                }
+            });
+        } catch (e) { /* price injection best effort */ }
+
         // Build rich market context
         var context = '=== LIVE TRADING DASHBOARD DATA ===\n';
         context += 'Time: ' + new Date().toISOString() + '\n';
         context += 'Session: ' + (state.session || 'UNKNOWN') + '\n';
         context += 'Market Regime: ' + JSON.stringify(state.marketRegime || 'N/A') + '\n\n';
 
-        // Watchlist quotes
-        context += '--- WATCHLIST QUOTES ---\n';
+        // Watchlist quotes (with real-time Polygon prices)
+        context += '--- WATCHLIST QUOTES (REAL-TIME) ---\n';
         state.tickers.forEach(function (t) {
             var q = state.quotes[t];
             if (q) {
-                context += t + ': $' + (q.price || q.last || 'N/A') + ' | Change: ' + (q.change_percent || q.changePercent || 'N/A') + '%';
+                context += t + ': $' + (q.last || q.price || 'N/A') + ' | Change: ' + (q.changePercent || q.change_percent || 'N/A') + '%';
+                if (q.high) context += ' | High: $' + q.high;
+                if (q.low) context += ' | Low: $' + q.low;
+                if (q.vwap) context += ' | VWAP: $' + (typeof q.vwap === 'number' ? q.vwap.toFixed(2) : q.vwap);
                 if (q.next_earnings_date) context += ' | Next Earnings: ' + q.next_earnings_date;
                 var ta = state.technicals[t];
                 if (ta) context += ' | RSI: ' + (ta.rsi ? ta.rsi.toFixed(1) : 'N/A') + ' | Bias: ' + (ta.bias || 'N/A');
                 var sig = state.signalScores[t];
                 if (sig) context += ' | Signal: ' + (sig.direction || 'N/A') + ' ' + (sig.confidence || 0) + '% conf';
-                context += '\n';
+                context += ' [src:' + (q.priceSource || 'uw') + ']\n';
             }
         });
 

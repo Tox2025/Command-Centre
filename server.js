@@ -2702,6 +2702,37 @@ setInterval(checkDiscoveryPerformance, 30 * 60 * 1000);
 // ── Score a single ticker: signal engine + ML ensemble + trade setup ──
 async function scoreTickerSignals(ticker) {
     try {
+        // ── Inject fresh Polygon prices into state.quotes BEFORE scoring ──
+        try {
+            var tickSummary = polygonClient.getTickSummary(ticker);
+            if (tickSummary && tickSummary.lastPrice > 0) {
+                if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                state.quotes[ticker].last = tickSummary.lastPrice;
+                state.quotes[ticker].price = tickSummary.lastPrice;
+                state.quotes[ticker].high = tickSummary.highOfDay || state.quotes[ticker].high;
+                state.quotes[ticker].low = tickSummary.lowOfDay || state.quotes[ticker].low;
+                state.quotes[ticker].vwap = tickSummary.vwap || state.quotes[ticker].vwap;
+                state.quotes[ticker].priceSource = 'polygon-ws-live';
+            }
+            var snapData = polygonClient.getSnapshotData(ticker);
+            var snapP = snapData ? (snapData.lastTradePrice || snapData.price || 0) : 0;
+            if (snapP > 0 && (!state.quotes[ticker] || state.quotes[ticker].priceSource !== 'polygon-ws-live')) {
+                if (!state.quotes[ticker]) state.quotes[ticker] = {};
+                state.quotes[ticker].last = snapP;
+                state.quotes[ticker].price = snapP;
+                state.quotes[ticker].priceSource = 'polygon-rest-live';
+            }
+            // Recalculate change from fresh price
+            var sq = state.quotes[ticker];
+            if (sq && sq.last > 0) {
+                var pc = sq.prevClose || sq.prev_close || 0;
+                if (pc > 0) {
+                    sq.change = +(sq.last - pc).toFixed(2);
+                    sq.changePercent = +((sq.last - pc) / pc * 100).toFixed(2);
+                }
+            }
+        } catch (priceErr) { /* best effort */ }
+
         // Fetch multi-timeframe analysis during market hours (uses Polygon REST)
         var multiTFData = null;
         var isMarketSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
@@ -4320,6 +4351,8 @@ async function fetchTradingHalts() {
         // ── Halt Resume Auto-Ingestion ──────────────────────────
         // When any ticker resumes from halt (especially LULD/volatility),
         // auto-score it and alert — these often move 20%+ post-resume
+        // ONLY during market hours — no alerts after hours
+        var activeForHalts = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
         var resumedTickers = halts.filter(function (h) {
             return h.status === 'RESUMED' && !prevResumed.includes(h.ticker);
         });
@@ -4328,6 +4361,12 @@ async function fetchTradingHalts() {
             var resumed = resumedTickers[hi];
             try {
                 console.log('🔓 Halt resume detected: ' + resumed.ticker + ' (' + resumed.reason + ')');
+
+                // Only alert and score during active market sessions
+                if (!activeForHalts) {
+                    console.log('   ⏸️  Skipping alert/scoring — outside market hours');
+                    continue;
+                }
 
                 // Send immediate resume alert
                 var resumeMsg = '🔓 *HALT RESUMED: ' + resumed.ticker + '*\n';

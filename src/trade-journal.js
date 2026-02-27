@@ -6,6 +6,7 @@ const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
 const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
 const EXPIRY_DAYS = 5; // Max days to track a trade before marking expired
 const ACCOUNT_BALANCE = 100000; // Paper trading account size
+const VERSION_BUDGET = 25000;   // Per-version budget ($100K / 4 versions)
 const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
 
 class TradeJournal {
@@ -51,19 +52,21 @@ class TradeJournal {
         return 'unknown';
     }
 
-    // Get total open position notional exposure
-    _getOpenExposure() {
+    // Get total open position notional exposure (per-version aware)
+    _getOpenExposure(version) {
         var total = 0;
+        var versionTotal = 0;
         var byTicker = {};
         this.trades.forEach(function (t) {
-            if (t.status !== 'PENDING') return;
+            if (t.status !== 'PENDING' || !t.paper) return;
             var price = t.paperEntry || t.entry || 0;
             var shares = t.shares || 1;
             var notional = price * shares;
             total += notional;
+            if (version && t.signalVersion === version) versionTotal += notional;
             byTicker[t.ticker] = (byTicker[t.ticker] || 0) + 1;
         });
-        return { total: total, byTicker: byTicker };
+        return { total: total, versionTotal: versionTotal, byTicker: byTicker };
     }
 
     // Log a new trade setup
@@ -328,13 +331,15 @@ class TradeJournal {
         }
         return results;
     }
-    // Kelly Criterion Position Sizing (half-Kelly for safety)
+    // Kelly Criterion Position Sizing — per-version budget
+    // 4 versions × $25,000 = $100K total paper account
     calculateKellySize(confidence, accountSize) {
-        accountSize = accountSize || 100000;
+        accountSize = accountSize || VERSION_BUDGET; // $25K per version
         var closed = this.trades.filter(function (t) { return t.status !== 'PENDING' && t.status !== 'EXPIRED'; });
         if (closed.length < 10) {
-            // Not enough data, use fixed 2% risk
-            return { size: Math.round(accountSize * 0.02), pct: 2, method: 'fixed', reason: 'Not enough trades for Kelly' };
+            // Not enough data — scale by confidence: 10-40% of budget
+            var pct = Math.max(10, Math.min(40, (confidence || 60) / 100 * 30));
+            return { size: Math.round(accountSize * pct / 100), pct: pct, method: 'fixed-aggressive', reason: 'Not enough trades for Kelly — confidence-scaled' };
         }
 
         var wins = closed.filter(function (t) { return t.status.startsWith('WIN'); });
@@ -347,23 +352,23 @@ class TradeJournal {
         var R = avgLoss > 0 ? avgWin / avgLoss : 1;
         var kelly = winRate - (1 - winRate) / R;
 
-        // Half Kelly for safety, capped at 5%
-        var halfKelly = Math.max(0.5, Math.min(5, kelly * 50));
+        // Scale for paper trading: 10-50% of per-version budget
+        var kellyPct = Math.max(10, Math.min(50, kelly * 100));
 
-        // Confidence adjustment: scale by confidence/100
+        // Confidence adjustment
         var confAdj = (confidence || 60) / 100;
-        var finalPct = +(halfKelly * confAdj).toFixed(1);
-        finalPct = Math.max(0.5, Math.min(5, finalPct));
+        var finalPct = +(kellyPct * confAdj).toFixed(1);
+        finalPct = Math.max(10, Math.min(50, finalPct));
 
         return {
             size: Math.round(accountSize * finalPct / 100),
             pct: finalPct,
-            method: 'half-kelly',
+            method: 'kelly-paper',
             winRate: +(winRate * 100).toFixed(1),
             avgWinPct: +avgWin.toFixed(2),
             avgLossPct: +avgLoss.toFixed(2),
             fullKelly: +(kelly * 100).toFixed(1),
-            reason: 'Half-Kelly * confidence'
+            reason: 'Kelly × confidence — $25K version budget'
         };
     }
 
@@ -393,7 +398,8 @@ class TradeJournal {
         if (dup) return null; // Cooldown period hasn't expired
 
         // ── Per-ticker limit — max concurrent positions per ticker ──
-        var exposure = this._getOpenExposure();
+        var tradeVersion = explicitVersion || this._getSignalVersion();
+        var exposure = this._getOpenExposure(tradeVersion);
         var tickerOpenCount = exposure.byTicker[setup.ticker] || 0;
         if (tickerOpenCount >= MAX_PER_TICKER) {
             return null; // Too many open positions for this ticker
@@ -401,25 +407,33 @@ class TradeJournal {
 
         var entryPrice = currentPrice || setup.entry;
 
-        // Tentatively calculate shares for exposure check
+        // Tentatively calculate shares — use Kelly sizing or default to meaningful position
         var tentativeShares = 0;
         if (setup.kellySizing && setup.kellySizing.size > 0) {
             tentativeShares = Math.floor(setup.kellySizing.size / entryPrice);
         } else {
-            var riskPerShare = Math.abs(entryPrice - setup.stop);
-            tentativeShares = riskPerShare > 0 ? Math.floor(2000 / riskPerShare) : 10;
+            // Default: allocate $5000 per trade (20% of $25K version budget)
+            tentativeShares = Math.max(1, Math.floor(5000 / entryPrice));
         }
-        // Minimum shares based on stock price — 1-share trades are unrealistic
-        var minShares = entryPrice < 100 ? 5 : entryPrice < 500 ? 2 : 1;
+        // Minimum shares — paper trades should be realistic size
+        var minShares = entryPrice < 100 ? 10 : entryPrice < 500 ? 5 : 2;
         if (tentativeShares < minShares) tentativeShares = minShares;
 
-        // ── Portfolio exposure cap — total open notional ≤ account balance ──
+        // ── Per-version exposure cap — ≤ $25K per version, ≤ $100K total ──
         var newNotional = entryPrice * tentativeShares;
-        if (exposure.total + newNotional > ACCOUNT_BALANCE) {
-            // Scale down shares to fit within remaining budget
-            var remaining = ACCOUNT_BALANCE - exposure.total;
-            if (remaining < entryPrice) return null; // Not enough capital
+        var versionCap = VERSION_BUDGET;
+        if (exposure.versionTotal + newNotional > versionCap) {
+            var remaining = versionCap - exposure.versionTotal;
+            if (remaining < entryPrice) return null;
             tentativeShares = Math.floor(remaining / entryPrice);
+            if (tentativeShares < 1) return null;
+        }
+        // Also cap at total account level
+        newNotional = entryPrice * tentativeShares;
+        if (exposure.total + newNotional > ACCOUNT_BALANCE) {
+            var totalRemaining = ACCOUNT_BALANCE - exposure.total;
+            if (totalRemaining < entryPrice) return null;
+            tentativeShares = Math.floor(totalRemaining / entryPrice);
             if (tentativeShares < 1) return null;
         }
 

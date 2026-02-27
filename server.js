@@ -94,9 +94,9 @@ function _bootstrapML() {
             var histTrainer = new PolygonHistorical(process.env.POLYGON_API_KEY || '');
             var tickers = loadWatchlist();
             if (!tickers || tickers.length === 0) tickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA', 'META', 'AMZN', 'AMD', 'COIN', 'MSTR'];
-            console.log('🧠 ML Bootstrap: Generating training data for ' + tickers.length + ' tickers (5 years)...');
+            console.log('🧠 ML Bootstrap: Generating training data for ' + tickers.length + ' tickers (15 years)...');
 
-            var result = await histTrainer.generateAndConvert(tickers, 5);
+            var result = await histTrainer.generateAndConvert(tickers, 15);
             if (!result || result.mlSamples < 30) {
                 console.log('🧠 ML Bootstrap: Insufficient data (' + (result ? result.mlSamples : 0) + ' samples)');
                 return;
@@ -303,10 +303,10 @@ app.post('/api/tickers', async (req, res) => {
         polygonClient.updateSubscriptions(state.tickers);
         console.log('➕ Added ticker: ' + sym + ' (total: ' + state.tickers.length + ')');
 
-        // Background ML: fetch 5yr history for new ticker and retrain
+        // Background ML: fetch 15yr history for new ticker and retrain
         (async function () {
             try {
-                var result = await polygonHistorical.generateAndConvert([sym], 5);
+                var result = await polygonHistorical.generateAndConvert([sym], 15);
                 if (result && result.mlSamples > 30) {
                     // Load cumulative dataset, append, save
                     var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');

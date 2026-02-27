@@ -2119,23 +2119,21 @@ async function scoreDiscoveredTicker(ticker, source) {
         var t = ticker.toUpperCase();
         console.log('🎯 Full scoring: ' + t + ' (source: ' + (source || 'discovery') + ')');
 
-        // 1. Fetch UW data on-demand (flow, dark pool, GEX, IV, SI)
-        var uwFlow = [], uwDP = [], uwGex = [], uwIV = null, uwSI = null, uwQuote = {};
+        // 1. Fetch UW data on-demand (flow, dark pool, GEX, IV, SI) — NO UW quotes (Polygon only)
+        var uwFlow = [], uwDP = [], uwGex = [], uwIV = null, uwSI = null;
         try {
             var results = await Promise.all([
                 uw.getFlowByTicker(t).catch(function () { return null; }),
                 uw.getDarkPoolData(t).catch(function () { return null; }),
                 uw.getGEXByTicker(t).catch(function () { return null; }),
                 uw.getIVRank(t).catch(function () { return null; }),
-                uw.getShortInterest(t).catch(function () { return null; }),
-                uw.getStockQuote(t).catch(function () { return null; })
+                uw.getShortInterest(t).catch(function () { return null; })
             ]);
             uwFlow = results[0]?.data || [];
             uwDP = results[1]?.data || [];
             uwGex = results[2]?.data || [];
             uwIV = results[3]?.data || null;
             uwSI = results[4]?.data || null;
-            uwQuote = results[5]?.data || {};
         } catch (e) { /* partial data is fine */ }
 
         // 2. Get Polygon snapshot for price/volume
@@ -2149,7 +2147,7 @@ async function scoreDiscoveredTicker(ticker, source) {
             price = snap.lastTrade ? snap.lastTrade.p : (snap.day ? snap.day.c : 0);
             volume = snap.day ? snap.day.v : 0;
         }
-        if (!price && uwQuote) price = parseFloat(uwQuote.last || uwQuote.price || 0);
+        // Price comes from Polygon only — no UW fallback
 
         // 3. Run multi-TF analysis
         var mtfData = null;
@@ -2189,7 +2187,7 @@ async function scoreDiscoveredTicker(ticker, source) {
             congress: [],
             congressTrader: state.congressTrader || null,
             congressLateReports: state.congressLateReports || null,
-            quote: { price: price, last: price, volume: volume, ...(uwQuote || {}) },
+            quote: { price: price, last: price, volume: volume },
             regime: state.marketRegime,
             sentiment: null,
             multiTF: mtfData,
@@ -3035,11 +3033,9 @@ async function fetchTickerData(ticker, tier) {
             try {
                 pDetails = await polygonClient.getTickerDetails(ticker);
                 if (pDetails) quoteInfo = { ticker: pDetails.ticker, name: pDetails.name, market_cap: pDetails.market_cap, exchange: pDetails.exchange, sic_description: pDetails.sic_description };
-            } catch (e) { /* Polygon failed, try UW */ }
+            } catch (e) { /* Polygon details failed — use ticker only */ }
             if (!quoteInfo.ticker) {
-                const quote = await uw.getStockQuote(ticker);
-                quoteInfo = quote?.data || {};
-                callCount++;
+                quoteInfo = { ticker: ticker }; // Minimal info — Polygon snapshot provides price
             }
         }
 
@@ -3611,18 +3607,17 @@ async function fetchMarketData(tier) {
                                 state.earningsToday.enriched[et] = enriched;
                             }
                         }
-                        // Also fetch quote for after-hours price reaction
-                        var eq = await uw.getStockQuote(et);
-                        callCount++;
-                        if (eq?.data) {
+                        // Fetch Polygon snapshot for price reaction (no UW)
+                        var eSnap = await polygonClient.getTickerSnapshot(et).catch(function () { return null; });
+                        if (eSnap) {
                             if (!state.earningsToday.reactions) state.earningsToday.reactions = {};
                             state.earningsToday.reactions[et] = {
-                                price: eq.data.last || eq.data.price || eq.data.close || null,
-                                change_pct: eq.data.change_percent || eq.data.changePercent || null,
-                                afterhours_price: eq.data.afterhours_price || eq.data.ah_price || eq.data.extended_hours_price || null,
-                                afterhours_change: eq.data.afterhours_change_percent || eq.data.ah_change_pct || null,
-                                volume: eq.data.volume || null,
-                                prev_close: eq.data.prev_close || eq.data.previousClose || null
+                                price: (eSnap.lastTrade && eSnap.lastTrade.p > 0) ? eSnap.lastTrade.p : (eSnap.day ? eSnap.day.c : null),
+                                change_pct: eSnap.todaysChangePerc || null,
+                                afterhours_price: null, // Polygon doesn't separate AH
+                                afterhours_change: null,
+                                volume: eSnap.day ? eSnap.day.v : null,
+                                prev_close: eSnap.prevDay ? eSnap.prevDay.c : null
                             };
                         }
                         // Small delay to respect rate limits
@@ -3848,18 +3843,16 @@ async function refreshAll() {
             if (!state.tickers.includes(rt)) {
                 // Fetch minimal data for the runner (quote + flow)
                 try {
-                    // A8: Use Polygon snapshot for runner quotes (free), UW fallback
+                    // Polygon snapshot ONLY — no UW fallback
                     var rSnap = await polygonClient.getTickerSnapshot(rt);
                     if (rSnap && (rSnap.day || rSnap.lastTrade)) {
                         state.quotes[rt] = state.quotes[rt] || {};
-                        state.quotes[rt].price = rSnap.lastTrade?.p || rSnap.day?.c || 0;
+                        state.quotes[rt].price = (rSnap.lastTrade && rSnap.lastTrade.p > 0) ? rSnap.lastTrade.p : (rSnap.day ? rSnap.day.c : 0);
                         state.quotes[rt].last = state.quotes[rt].price;
-                        state.quotes[rt].volume = rSnap.day?.v || 0;
+                        state.quotes[rt].volume = rSnap.day ? rSnap.day.v : 0;
                         state.quotes[rt].changePercent = rSnap.todaysChangePerc || 0;
                     } else {
-                        var rQuote = await uw.getStockQuote(rt);
-                        if (rQuote?.data) state.quotes[rt] = rQuote.data;
-                        scheduler.trackCalls(1);
+                        console.log('⚠️ No Polygon data for runner ' + rt + ' — skipping');
                     }
 
                     // (Polygon snapshot already fetched above in A8 migration)

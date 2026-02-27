@@ -361,7 +361,7 @@ class MarketScanner {
         // Compute final score — spread-based like main signal engine
         var spread = Math.abs(bull - bear);
         var direction = bull > bear + 0.5 ? 'BULLISH' : bear > bull + 0.5 ? 'BEARISH' : 'NEUTRAL';
-        var confidence = Math.min(95, Math.round(50 + (spread / 15) * 50));  // 15 = max realistic score
+        var confidence = Math.min(95, Math.round(50 + (spread / 25) * 50));  // 25 = realistic max for scanner's simplified scoring
         console.log('Scanner quickScore: ' + ticker + ' → ' + direction + ' conf=' + confidence + '% bull=' + bull.toFixed(1) + ' bear=' + bear.toFixed(1) + ' signals=' + signals.length + ' sources=' + candidate.sources.join(','));
 
         return {

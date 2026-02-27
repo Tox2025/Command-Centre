@@ -453,14 +453,30 @@ class TradeJournal {
             if (tentativeShares < 1) return null;
         }
 
+        // ── Recalculate stop/target from ACTUAL fill price (not setup entry) ──
+        // Setup entry and paper fill may differ; stops/targets must be relative to actual entry
+        var setupEntry = parseFloat(setup.entry) || entryPrice;
+        var adjustedStop = setup.stop;
+        var adjustedT1 = setup.target1;
+        var adjustedT2 = setup.target2;
+        if (setupEntry > 0 && Math.abs(setupEntry - entryPrice) / setupEntry > 0.001) {
+            // Proportional adjustment: maintain same % distances from actual fill
+            var stopPct = (setup.stop - setupEntry) / setupEntry;
+            var t1Pct = (setup.target1 - setupEntry) / setupEntry;
+            var t2Pct = (setup.target2 - setupEntry) / setupEntry;
+            adjustedStop = +(entryPrice * (1 + stopPct)).toFixed(2);
+            adjustedT1 = +(entryPrice * (1 + t1Pct)).toFixed(2);
+            adjustedT2 = +(entryPrice * (1 + t2Pct)).toFixed(2);
+        }
+
         var trade = {
             id: 'PT-' + nowMs + '-' + Math.random().toString(36).substr(2, 5),
             ticker: setup.ticker,
             direction: setup.direction,
-            entry: setup.entry,
-            target1: setup.target1,
-            target2: setup.target2,
-            stop: setup.stop,
+            entry: entryPrice,
+            target1: adjustedT1,
+            target2: adjustedT2,
+            stop: adjustedStop,
             riskReward: setup.riskReward,
             confidence: setup.confidence,
             signals: setup.signals || [],

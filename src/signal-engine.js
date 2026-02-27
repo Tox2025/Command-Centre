@@ -556,10 +556,16 @@ class SignalEngine {
         // 12. Volume Spike + Intraday Volume Rate
         const w12 = this._ew('volume_spike', sess, hw);
         if (ta.volumeSpike) {
-            const dir = bull > bear ? 'BULL' : 'BEAR';
+            // Use tick data flow imbalance for direction (not circular bull/bear accumulation)
+            var volDir = 'BULL'; // default
+            if (data.tickData && data.tickData.flowImbalance !== undefined) {
+                volDir = data.tickData.flowImbalance >= 0 ? 'BULL' : 'BEAR';
+            } else if (ta.emaBias === 'BEARISH') {
+                volDir = 'BEAR';
+            }
             const pts = w12;
-            if (dir === 'BULL') bull += pts; else bear += pts;
-            signals.push({ name: 'Volume Spike', dir: dir, weight: pts, detail: 'Unusual volume detected' });
+            if (volDir === 'BULL') bull += pts; else bear += pts;
+            signals.push({ name: 'Volume Spike', dir: volDir, weight: pts, detail: 'Unusual volume — ' + (volDir === 'BULL' ? 'buying' : 'selling') + ' pressure' });
         }
 
         // 12b. Intraday price action — detect bounce from session low or rejection from high
@@ -586,7 +592,7 @@ class SignalEngine {
         if (ta.bollingerBands && ta.bollingerBands.bandwidth !== undefined) {
             const bw = ta.bollingerBands.bandwidth;
             const pos = ta.bollingerBands.position;
-            if (bw < 0.05) {
+            if (bw < 3.0) {
                 // Tight squeeze - breakout signal based on position
                 if (pos > 0.6) {
                     bull += w13; signals.push({ name: 'BB Squeeze Breakout', dir: 'BULL', weight: w13, detail: 'BW ' + bw.toFixed(3) + ' pos ' + pos.toFixed(2) });
@@ -1873,7 +1879,7 @@ class SignalEngine {
         (flow || []).forEach(f => {
             const prem = parseFloat(f.premium || f.total_premium || 0);
             const pc = (f.put_call || f.option_type || '').toUpperCase();
-            if (pc.includes('CALL') || pc.includes('C')) callPrem += prem; else putPrem += prem;
+            if (pc.includes('CALL') || pc === 'C') callPrem += prem; else putPrem += prem;
         });
         const cpRatio = putPrem > 0 ? callPrem / putPrem : callPrem > 0 ? 2 : 1;
 

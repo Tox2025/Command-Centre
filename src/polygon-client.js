@@ -342,7 +342,8 @@ class PolygonTickClient {
                             lastTradePrice: t.lastTrade ? t.lastTrade.p : 0,
                             lastTradeSize: t.lastTrade ? t.lastTrade.s : 0,
                             minBar: t.min || null,
-                            updatedAt: t.updated ? new Date(t.updated / 1e6).toISOString() : null
+                            updatedAt: t.updated ? new Date(t.updated / 1e6).toISOString() : null,
+                            isMarketOpen: (function () { var h = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false })); var m = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', minute: 'numeric' })); return (h * 60 + m) >= 570; })()
                         };
 
                         // Update bid/ask for tick classification

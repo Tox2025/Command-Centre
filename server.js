@@ -92,7 +92,11 @@ function _bootstrapML() {
     setTimeout(async function () {
         try {
             var histTrainer = new PolygonHistorical(process.env.POLYGON_API_KEY || '');
-            var tickers = loadWatchlist();
+            var tickers = [];
+            try {
+                var wlPath = path.join(__dirname, 'data', 'watchlist.json');
+                if (require('fs').existsSync(wlPath)) tickers = JSON.parse(require('fs').readFileSync(wlPath, 'utf8'));
+            } catch (wle) { /* use defaults */ }
             if (!tickers || tickers.length === 0) tickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA', 'META', 'AMZN', 'AMD', 'COIN', 'MSTR'];
             console.log('🧠 ML Bootstrap: Generating training data for ' + tickers.length + ' tickers (15 years)...');
 

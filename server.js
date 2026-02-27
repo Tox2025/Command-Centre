@@ -64,7 +64,7 @@ const tradeJournal = new TradeJournal();
 const mlCalibrator = new MLCalibrator();
 const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler assigned after init
 
-// Auto-load ML model from persisted cumulative training data
+// Auto-load ML model from persisted data, or bootstrap from Polygon historical
 (function () {
     try {
         var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
@@ -76,10 +76,54 @@ const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler as
                 mlCalibrator.train(cumulative, 'swing');
                 var st = mlCalibrator.getStatus();
                 console.log('🧠 ML models loaded from disk: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
+            } else {
+                console.log('🧠 ML training data exists but too small (' + (cumulative ? cumulative.length : 0) + ' samples) — will bootstrap');
+                _bootstrapML();
             }
+        } else {
+            console.log('🧠 No ML training data found — bootstrapping from Polygon historical...');
+            _bootstrapML();
         }
-    } catch (e) { console.error('ML auto-load error:', e.message); }
+    } catch (e) { console.error('ML auto-load error:', e.message); _bootstrapML(); }
 })();
+
+// Bootstrap ML from Polygon 15-year historical data (runs in background)
+function _bootstrapML() {
+    setTimeout(async function () {
+        try {
+            var histTrainer = new PolygonHistorical(process.env.POLYGON_API_KEY || '');
+            var tickers = loadWatchlist();
+            if (!tickers || tickers.length === 0) tickers = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA', 'META', 'AMZN', 'AMD', 'COIN', 'MSTR'];
+            console.log('🧠 ML Bootstrap: Generating training data for ' + tickers.length + ' tickers (5 years)...');
+
+            var result = await histTrainer.generateAndConvert(tickers, 5);
+            if (!result || result.mlSamples < 30) {
+                console.log('🧠 ML Bootstrap: Insufficient data (' + (result ? result.mlSamples : 0) + ' samples)');
+                return;
+            }
+
+            var allData = result.data;
+            var midpoint = Math.floor(allData.length * 0.6);
+            var recentData = allData.slice(midpoint);
+
+            var dtSuccess = mlCalibrator.train(recentData, 'dayTrade');
+            var swSuccess = mlCalibrator.train(allData, 'swing');
+
+            // Persist for fast startup next time
+            var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+            if (allData.length > 50000) allData = allData.slice(-50000);
+            require('fs').writeFileSync(cumulPath, JSON.stringify(allData));
+
+            var st = mlCalibrator.getStatus();
+            console.log('🧠 ML Bootstrap COMPLETE! ' + result.mlSamples + ' samples trained');
+            console.log('   dayTrade: ' + (dtSuccess ? st.dayTrade.accuracy + '% accuracy' : 'failed') +
+                ' | swing: ' + (swSuccess ? st.swing.accuracy + '% accuracy' : 'failed'));
+            console.log('   Data persisted → next restart will load instantly');
+        } catch (e) {
+            console.error('🧠 ML Bootstrap error:', e.message);
+        }
+    }, 10000); // Wait 10s for server to fully initialize
+}
 const earningsCalendar = new EarningsCalendar(uw);
 const marketRegime = new MarketRegime();
 const newsSentiment = new NewsSentiment();

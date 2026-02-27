@@ -100,33 +100,10 @@ class GapAnalyzer {
                 }
             }
 
-            // Use open vs prev close for gap detection
-            // SANITY CHECK: validate open price against current price and prev close
-            // If open diverges wildly from both, it's a bad data point (stale pre-market tick, API error)
-            var gapRef = price; // default to current price
-            if (open > 0 && prevClose > 0 && price > 0) {
-                var openVsPrev = Math.abs((open - prevClose) / prevClose);
-                var openVsCurrent = Math.abs((open - price) / price);
-                // Only trust the open price if:
-                // 1. It's within 15% of prev close (reasonable overnight gap), OR
-                // 2. The current price CONFIRMS the gap direction (both moved the same way)
-                var openGapDir = open > prevClose ? 1 : -1;
-                var currentGapDir = price > prevClose ? 1 : -1;
+            // Gap = current price vs yesterday's close. Simple.
+            if (prevClose <= 0 || price <= 0) return;
 
-                if (openVsPrev < 0.15) {
-                    // Normal gap — use open
-                    gapRef = open;
-                } else if (openGapDir === currentGapDir && openVsCurrent < 0.10) {
-                    // Large gap but current price confirms direction and open is close to current
-                    gapRef = open;
-                } else {
-                    // Open doesn't match reality — use current price instead
-                    gapRef = price;
-                }
-            }
-            if (prevClose <= 0 || gapRef <= 0) return;
-
-            var gapPct = ((gapRef - prevClose) / prevClose) * 100;
+            var gapPct = ((price - prevClose) / prevClose) * 100;
 
             // Only flag gaps > 0.5%
             if (Math.abs(gapPct) < 0.5) return;

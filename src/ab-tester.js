@@ -81,21 +81,23 @@ class ABTester {
             var conf = result.blendedConfidence || result.confidence || 0;
             if (conf < 50) continue;
 
-            // Build version-specific setup
+            // Build version-specific setup WITH features for ML training
             var vSetup = Object.assign({}, setup, {
                 ticker: ticker,
                 direction: result.direction,
                 confidence: conf,
                 signals: result.signals || [],
+                features: result.features || [],
+                bullScore: result.bull || 0,
+                bearScore: result.bear || 0,
                 session: setup.session || 'UNKNOWN',
                 horizon: setup.horizon || 'Swing',
                 kellySizing: setup.kellySizing || null
             });
 
-            // Consecutive loss guard (per version)
-            var maxConsecLosses = 3;
-            var consecLosses = this.tradeJournal.getConsecutiveLosses(ticker, result.direction);
-            if (consecLosses >= maxConsecLosses) continue;
+            // Paper trading: NO consecutive loss guard
+            // We need data from ALL conditions to train ML properly
+            // Consecutive loss guard is for real money only
 
             // Create paper trade with version tag + 30 min cooldown
             var cooldownMs = 30 * 60 * 1000;

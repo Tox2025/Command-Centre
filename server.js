@@ -2503,6 +2503,9 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                 stop: snapped.stop,
                 riskReward: +(Math.abs(snapped.target1 - price) / Math.abs(price - snapped.stop)).toFixed(2),
                 signals: signalResult.signals,
+                features: signalResult.features || [],
+                bullScore: signalResult.bull || 0,
+                bearScore: signalResult.bear || 0,
                 session: state.session,
                 horizon: 'Intraday',
                 source: source,
@@ -2541,9 +2544,15 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                 abTester.logComparison(t, abResults);
                 var abTrades = abTester.createTrades(t, abResults, price, setup);
                 abTrades.forEach(function (at) {
-                    console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + t + ' @ $' + price.toFixed(2));
+                    console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + t + ' @ $' + price.toFixed(2) + ' (' + (at.features || []).length + ' features)');
                     try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
                 });
+                // Auto-enter options paper trade for discoveries
+                if (abTrades.length > 0) {
+                    try {
+                        optionsPaper.autoEnterFromSignal(t, signalResult, price, state.quotes[t]);
+                    } catch (oe) { /* options auto-entry is optional */ }
+                }
             } else {
                 // Fallback: single version
                 var maxConsecLosses = 3;
@@ -2977,9 +2986,15 @@ async function scoreTickerSignals(ticker) {
                     abTester.logComparison(ticker, abResults);
                     var abTrades = abTester.createTrades(ticker, abResults, price, setup);
                     abTrades.forEach(function (at) {
-                        console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + price.toFixed(2));
+                        console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (' + (at.features || []).length + ' features)');
                         try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
                     });
+                    // Auto-enter options paper trade for watchlist
+                    if (abTrades.length > 0) {
+                        try {
+                            optionsPaper.autoEnterFromSignal(ticker, signalResult, price, state.quotes[ticker]);
+                        } catch (oe) { /* options auto-entry is optional */ }
+                    }
                 } else {
                     // Fallback: single version
                     var maxConsecLosses = 3;

@@ -385,6 +385,68 @@ class OptionsPaperTrading {
             };
         });
     }
+
+    // ── Auto-enter from signal engine ────────────────────
+    // Called automatically when A/B paper trades are created
+    autoEnterFromSignal(ticker, signalResult, stockPrice, quote) {
+        if (!ticker || !signalResult || !stockPrice || stockPrice <= 0) return null;
+        if (!signalResult.direction || signalResult.direction === 'NEUTRAL') return null;
+        if ((signalResult.confidence || 0) < 60) return null; // Only trade high-conf signals
+
+        // Cooldown: max 1 options trade per ticker per 2 hours
+        var now = Date.now();
+        var recent = this.trades.find(function (t) {
+            return t.ticker === ticker && t.status === 'OPEN'
+                && (now - new Date(t.openTime).getTime()) < 2 * 60 * 60 * 1000;
+        });
+        if (recent) return null;
+
+        var isBullish = signalResult.direction === 'BULLISH';
+        var optionType = isBullish ? 'call' : 'put';
+        var strategy = isBullish ? 'long_call' : 'long_put';
+
+        // ATM strike (round to nearest $5 for stocks > $100, $1 otherwise)
+        var strikeRound = stockPrice > 100 ? 5 : 1;
+        var strike = Math.round(stockPrice / strikeRound) * strikeRound;
+
+        // DTE: 14 days for day/intraday, 30 for swing
+        var dte = 14;
+
+        // Estimate premium: ~2-4% of stock price for ATM with 14 DTE
+        var premiumPct = 0.03; // 3%
+        var estimatedPremium = +(stockPrice * premiumPct).toFixed(2);
+
+        // Contracts: 1-3 based on confidence
+        var contracts = signalResult.confidence >= 80 ? 3 : signalResult.confidence >= 70 ? 2 : 1;
+
+        // Cap max premium per trade at $500 per contract
+        if (estimatedPremium * 100 * contracts > 5000) {
+            contracts = Math.max(1, Math.floor(5000 / (estimatedPremium * 100)));
+        }
+
+        var trade = this.openTrade({
+            ticker: ticker,
+            optionType: optionType,
+            strategy: strategy,
+            strike: strike,
+            dte: dte,
+            premium: estimatedPremium,
+            contracts: contracts,
+            stockPrice: stockPrice,
+            confidence: signalResult.confidence,
+            direction: signalResult.direction,
+            signals: (signalResult.signals || []).slice(0, 5).map(function (s) { return s.name || s; }),
+            features: signalResult.features || [],
+            autoEntry: true,
+            session: 'AUTO',
+            horizon: 'day_trade'
+        });
+
+        if (trade) {
+            console.log('📋 Auto options paper: ' + optionType.toUpperCase() + ' ' + ticker + ' $' + strike + ' x' + contracts + ' @ $' + estimatedPremium + ' (conf: ' + signalResult.confidence + '%)');
+        }
+        return trade;
+    }
 }
 
 module.exports = OptionsPaperTrading;

@@ -14,6 +14,22 @@ class TradeJournal {
         this.trades = [];
         this.stats = { totalTrades: 0, wins: 0, losses: 0, expired: 0, pending: 0 };
         this._load();
+        this._migrateUnknownToV1();
+    }
+
+    // One-time migration: tag old 'unknown' trades as v1.0 (same baseline weights)
+    _migrateUnknownToV1() {
+        var migrated = 0;
+        this.trades.forEach(function (t) {
+            if (t.signalVersion === 'unknown' || !t.signalVersion) {
+                t.signalVersion = 'v1.0';
+                migrated++;
+            }
+        });
+        if (migrated > 0) {
+            console.log('📦 Migrated ' + migrated + ' unknown trades → v1.0');
+            this._save();
+        }
     }
 
     _load() {

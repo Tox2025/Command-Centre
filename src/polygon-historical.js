@@ -320,6 +320,7 @@ class PolygonHistorical {
             features[24] = (f.relativeVolume || 1) * (f.dailyReturn || 0) * 100;
 
             trainingData.push({
+                _ticker: f.ticker || 'UNKNOWN',
                 features: features,
                 label: f.label === 'BULLISH' ? 1 : 0,
                 confidence: f.label === 'BULLISH' ? 70 : 30,

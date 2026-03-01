@@ -21,7 +21,7 @@ const FEATURE_NAMES = [
     'Net_Premium', 'DP_Magnitude', 'Sweep_Ratio', 'Sector_CP', 'ETF_Macro',
     'Squeeze_Score', 'Season_Return', 'IVRV_Ratio', 'Congress_Net', 'Insider_Net',
     'GEX_Net_Gamma', 'MTF_Agreement', 'Runner_Score', 'Session_Pos', 'Delta_Shift',
-    'Strike_Magnet', 'CP_x_DP'
+    'Strike_Magnet', 'CP_x_DP', 'Sector_ID', 'Sector_Vol_Profile'
 ];
 
 class MLCalibrator {
@@ -31,7 +31,7 @@ class MLCalibrator {
             swing: this._emptyModel()
         };
         this.versionModels = {}; // { 'v1.0': { dayTrade: model, swing: model }, ... }
-        this.featureCount = 42;
+        this.featureCount = 44;
         this._loadAll();
     }
 

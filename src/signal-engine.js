@@ -2134,7 +2134,26 @@ class SignalEngine {
         // Feature 42: Interaction — call/put ratio × dark pool direction
         var cpDpInteraction = (cpRatio > 1 ? 1 : cpRatio < 1 ? -1 : 0) * dpDir;
 
-        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction];
+        // Feature 43: Sector ID (0-10, one per GICS sector)
+        var SECTOR_MAP = {
+            'AAPL': 0, 'MSFT': 0, 'NVDA': 0, 'AVGO': 0, 'ADBE': 0, 'CRM': 0, 'AMD': 0, 'INTC': 0, 'ORCL': 0, 'CSCO': 0, 'NOW': 0, 'INTU': 0, 'MU': 0, 'AMAT': 0, 'LRCX': 0, 'KLAC': 0, 'SNPS': 0, 'CDNS': 0, 'MRVL': 0, 'PANW': 0, 'TSM': 0, 'CRWD': 0, 'APP': 0, 'SNDK': 0,
+            'UNH': 1, 'JNJ': 1, 'LLY': 1, 'ABBV': 1, 'MRK': 1, 'PFE': 1, 'TMO': 1, 'ABT': 1, 'DHR': 1, 'AMGN': 1, 'BMY': 1, 'GILD': 1, 'ISRG': 1, 'VRTX': 1, 'REGN': 1, 'MDT': 1, 'SYK': 1, 'BSX': 1, 'ELV': 1, 'HCA': 1,
+            'JPM': 2, 'V': 2, 'MA': 2, 'BAC': 2, 'WFC': 2, 'GS': 2, 'MS': 2, 'BLK': 2, 'SCHW': 2, 'AXP': 2, 'SPGI': 2, 'CB': 2, 'PGR': 2, 'MMC': 2, 'ICE': 2, 'CME': 2, 'AON': 2, 'MET': 2, 'AIG': 2, 'TFC': 2, 'COIN': 2,
+            'AMZN': 3, 'TSLA': 3, 'HD': 3, 'MCD': 3, 'NKE': 3, 'LOW': 3, 'SBUX': 3, 'TJX': 3, 'BKNG': 3, 'CMG': 3, 'ORLY': 3, 'AZO': 3, 'ROST': 3, 'DHI': 3, 'LEN': 3, 'GM': 3, 'F': 3, 'ABNB': 3, 'MAR': 3, 'HLT': 3, 'DUOL': 3,
+            'META': 4, 'GOOGL': 4, 'GOOG': 4, 'NFLX': 4, 'DIS': 4, 'CMCSA': 4, 'T': 4, 'VZ': 4, 'TMUS': 4, 'CHTR': 4, 'EA': 4, 'TTWO': 4, 'ZM': 4, 'SNAP': 4, 'PINS': 4, 'ROKU': 4,
+            'GE': 5, 'CAT': 5, 'HON': 5, 'UNP': 5, 'UPS': 5, 'BA': 5, 'RTX': 5, 'LMT': 5, 'DE': 5, 'MMM': 5, 'GD': 5, 'NOC': 5, 'FDX': 5, 'WM': 5, 'EMR': 5, 'ITW': 5, 'ETN': 5, 'PH': 5, 'CSX': 5, 'NSC': 5,
+            'PG': 6, 'KO': 6, 'PEP': 6, 'COST': 6, 'WMT': 6, 'PM': 6, 'MO': 6, 'MDLZ': 6, 'CL': 6, 'EL': 6, 'KMB': 6, 'GIS': 6, 'HSY': 6, 'STZ': 6, 'KHC': 6, 'KR': 6, 'SYY': 6,
+            'XOM': 7, 'CVX': 7, 'COP': 7, 'SLB': 7, 'EOG': 7, 'MPC': 7, 'PSX': 7, 'VLO': 7, 'OXY': 7, 'HAL': 7, 'HES': 7, 'DVN': 7, 'BKR': 7, 'KMI': 7, 'WMB': 7, 'OKE': 7, 'BE': 7,
+            'NEE': 8, 'DUK': 8, 'SO': 8, 'D': 8, 'AEP': 8, 'SRE': 8, 'EXC': 8, 'XEL': 8, 'ED': 8, 'WEC': 8, 'AWK': 8, 'PPL': 8, 'EIX': 8, 'DTE': 8, 'CEG': 8,
+            'PLD': 9, 'AMT': 9, 'CCI': 9, 'EQIX': 9, 'PSA': 9, 'SPG': 9, 'O': 9, 'WELL': 9, 'DLR': 9, 'AVB': 9, 'EQR': 9, 'VICI': 9,
+            'LIN': 10, 'APD': 10, 'SHW': 10, 'FCX': 10, 'NEM': 10, 'ECL': 10, 'DOW': 10, 'NUE': 10, 'VMC': 10, 'MLM': 10, 'PPG': 10, 'DD': 10
+        };
+        // Sector volatility profiles (avg daily range %, from historical data)
+        var SECTOR_VOL = [0.022, 0.014, 0.015, 0.020, 0.019, 0.013, 0.009, 0.018, 0.008, 0.012, 0.016];
+        var sectorId = SECTOR_MAP[ticker] !== undefined ? SECTOR_MAP[ticker] / 10 : 0.5; // normalized 0-1
+        var sectorVolProfile = SECTOR_MAP[ticker] !== undefined ? SECTOR_VOL[SECTOR_MAP[ticker]] * 100 : 1.5;
+
+        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
     }
 }
 

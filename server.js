@@ -30,6 +30,7 @@ const PolygonTickClient = require('./src/polygon-client');
 const PolygonHistorical = require('./src/polygon-historical');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const ABTester = require('./src/ab-tester');
+const { MLTrainingScheduler } = require('./src/ml-training-scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,7 @@ const signalEngine = new SignalEngine();
 const tradeJournal = new TradeJournal();
 const mlCalibrator = new MLCalibrator();
 const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler assigned after init
+const mlTrainingScheduler = new MLTrainingScheduler(process.env.POLYGON_API_KEY || '');
 
 // Auto-load ML model from persisted data, or bootstrap from Polygon historical
 (function () {
@@ -3769,11 +3771,26 @@ async function fetchMarketData(tier) {
 }
 
 async function refreshAll() {
-    // Weekend gate — market is closed Sat/Sun, don't burn API calls
+    // Weekend gate — market is closed Sat/Sun, use this time for ML training
     if (!scheduler.isMarketDay()) {
-        // Log once per hour instead of every cycle to avoid log spam
-        if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
-            console.log('📅 Weekend/non-market day — skipping fetch cycle (API calls saved)');
+        // Run ML sector training instead of idling
+        if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
+            try {
+                var mlStatus = mlTrainingScheduler.getStatus();
+                if (mlStatus.remaining > 0) {
+                    var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
+                    if (newSamples > 0) {
+                        console.log('📊 ML weekend training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
+                    }
+                } else if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
+                    console.log('📅 Weekend — all ' + mlStatus.total + ' sector tickers trained. Next refresh in ' + Math.round((7 * 24 * 3600000 - (Date.now() - new Date(mlTrainingScheduler.progress.startedAt).getTime())) / 3600000) + 'h');
+                    refreshAll._lastWeekendLog = Date.now();
+                }
+            } catch (e) {
+                console.error('ML weekend training error:', e.message);
+            }
+        } else if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
+            console.log('📅 Weekend/non-market day — ML training idle');
             refreshAll._lastWeekendLog = Date.now();
         }
         return;

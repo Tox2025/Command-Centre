@@ -3769,6 +3769,16 @@ async function fetchMarketData(tier) {
 }
 
 async function refreshAll() {
+    // Weekend gate — market is closed Sat/Sun, don't burn API calls
+    if (!scheduler.isMarketDay()) {
+        // Log once per hour instead of every cycle to avoid log spam
+        if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
+            console.log('📅 Weekend/non-market day — skipping fetch cycle (API calls saved)');
+            refreshAll._lastWeekendLog = Date.now();
+        }
+        return;
+    }
+
     // Check API budget before fetching
     if (!scheduler.isWithinBudget()) {
         console.log('⚠️  API budget limit reached (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — skipping fetch cycle');

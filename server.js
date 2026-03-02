@@ -3845,7 +3845,7 @@ async function fetchMarketData(tier) {
 }
 
 async function refreshAll() {
-    // Weekend gate — market is closed Sat/Sun, use this time for ML training
+    // Weekend gate — market is closed Sat/Sun (before Sunday 8PM), use this time for ML training only
     if (!scheduler.isMarketDay()) {
         // Run ML sector training instead of idling
         if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
@@ -3868,6 +3868,23 @@ async function refreshAll() {
             refreshAll._lastWeekendLog = Date.now();
         }
         return;
+    }
+
+    // ML training during off-hours on market days (OVERNIGHT + AFTER_HOURS)
+    // Uses Polygon only — no UW budget impact
+    var currentSession = scheduler.getSessionName();
+    if ((currentSession === 'OVERNIGHT' || currentSession === 'AFTER_HOURS') && mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
+        try {
+            var mlStatus = mlTrainingScheduler.getStatus();
+            if (mlStatus.remaining > 0) {
+                var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
+                if (newSamples > 0) {
+                    console.log('📊 ML overnight training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
+                }
+            }
+        } catch (e) {
+            console.error('ML overnight training error:', e.message);
+        }
     }
 
     // Check API budget before fetching

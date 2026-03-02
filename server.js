@@ -3870,20 +3870,18 @@ async function refreshAll() {
         return;
     }
 
-    // ML training during off-hours on market days (OVERNIGHT + AFTER_HOURS)
-    // Uses Polygon only — no UW budget impact
-    var currentSession = scheduler.getSessionName();
-    if ((currentSession === 'OVERNIGHT' || currentSession === 'AFTER_HOURS') && mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
+    // ML training — runs every cycle (uses Polygon only, no UW budget impact)
+    if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
         try {
             var mlStatus = mlTrainingScheduler.getStatus();
             if (mlStatus.remaining > 0) {
                 var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
                 if (newSamples > 0) {
-                    console.log('📊 ML overnight training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
+                    console.log('📊 ML training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
                 }
             }
         } catch (e) {
-            console.error('ML overnight training error:', e.message);
+            console.error('ML training error:', e.message);
         }
     }
 

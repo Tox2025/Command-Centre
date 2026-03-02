@@ -1717,7 +1717,7 @@ app.get('/api/options-recommend/:ticker', async (req, res) => {
 
         // Determine trade horizon
         var session = state.session || 'OVERNIGHT';
-        var isActive = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(session);
+        var isActive = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(session);
         var horizon = isActive ? 'day_trade' : 'swing';
 
         // ── Decision Logic ──
@@ -2057,7 +2057,7 @@ state.volatilityRunnerCooldown = {};  // { ticker: timestamp }
 async function scanVolatilityRunners() {
     try {
         // Only scan during active market sessions
-        var activeSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var activeSession = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(state.session);
         if (!activeSession) return;
 
         // Use UW screener to find big movers (all market caps)
@@ -2201,7 +2201,7 @@ async function scoreDiscoveredTicker(ticker, source) {
 
         // 3. Run multi-TF analysis
         var mtfData = null;
-        var isMarketSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var isMarketSession = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(state.session);
         if (isMarketSession) {
             try {
                 var siPct = 0;
@@ -2792,7 +2792,7 @@ async function scoreTickerSignals(ticker) {
 
         // Fetch multi-timeframe analysis during market hours (uses Polygon REST)
         var multiTFData = null;
-        var isMarketSession = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var isMarketSession = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(state.session);
         if (isMarketSession && state.multiTF && state.multiTF[ticker]) {
             multiTFData = state.multiTF[ticker];
         }
@@ -2924,14 +2924,13 @@ async function scoreTickerSignals(ticker) {
                 const isHighlyVolatile = changePct > 3.0 || volRatio > 2.5;
 
                 // Session-aware ATR multiplier for target/stop sizing
-                // Uses ACTUAL scheduler session names (OPEN_RUSH, POWER_OPEN, MIDDAY, etc.)
+                // Uses ACTUAL scheduler session names (OPEN, MIDDAY, etc.)
                 const sessionMultipliers = {
-                    'OPEN_RUSH': 0.4,       // First 20 min — tight scalps (widened from 0.3)
-                    'POWER_OPEN': 0.4,      // 9:21-10:00 AM — scalp/day trade (reduced from 0.5)
+                    'OPEN': 0.4,            // 9:01-10:00 AM — scalp/day trade
                     'PRE_MARKET': 0.4,      // 8:30-9:00 AM — pre-market
-                    'MIDDAY': 0.5,          // 10:01 AM-3:00 PM — day trade (reduced from 0.7)
-                    'POWER_HOUR': 0.4,      // 3:01-4:15 PM — day trade (reduced from 0.6)
-                    'AFTER_HOURS': 0.6,     // 4:16-5:00 PM — extended hours (reduced from 0.8)
+                    'MIDDAY': 0.5,          // 10:01 AM-12:00 PM — day trade
+                    'AFTERNOON': 0.4,       // 12:01-4:15 PM — afternoon
+                    'AFTER_HOURS': 0.6,     // 4:16-5:00 PM — extended hours
                     'OVERNIGHT': 0.8        // 5:01 PM-8:29 AM — swing
                 };
                 var atrMult = sessionMultipliers[state.session] || 0.5;
@@ -2956,9 +2955,9 @@ async function scoreTickerSignals(ticker) {
 
                 // Determine horizon label (uses actual scheduler session names)
                 var horizon = 'Swing (2-5d)';
-                if (state.session === 'OPEN_RUSH' || state.session === 'POWER_OPEN') {
+                if (state.session === 'OPEN') {
                     horizon = 'Scalp / Day Trade';
-                } else if (state.session === 'MIDDAY' || state.session === 'POWER_HOUR') {
+                } else if (state.session === 'MIDDAY' || state.session === 'AFTERNOON') {
                     horizon = isVolatile ? 'Day Trade (volatile)' : 'Day Trade';
                 } else if (state.session === 'PRE_MARKET') {
                     horizon = 'Intraday';
@@ -3739,6 +3738,15 @@ async function refreshAll() {
         }
     }
 
+    // UW blackout — no UW calls from 12 PM to 7:30 AM EST
+    if (!scheduler.isUWActive()) {
+        if (!refreshAll._lastBlackoutLog || Date.now() - refreshAll._lastBlackoutLog > 3600000) {
+            console.log('🌙 UW blackout (12PM-7:30AM EST) — Polygon + ML running, UW paused');
+            refreshAll._lastBlackoutLog = Date.now();
+        }
+        return;
+    }
+
     // Check API budget before fetching
     if (!scheduler.isWithinBudget()) {
         console.log('⚠️  API budget limit reached (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — skipping fetch cycle');
@@ -3899,7 +3907,7 @@ async function refreshAll() {
 
     // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
     try {
-        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var activeForPolyScan = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(state.session);
         if (activeForPolyScan) {
             var gainers = await polygonClient.getGainers().catch(function () { return []; });
             var losers = await polygonClient.getLosers().catch(function () { return []; });
@@ -4378,7 +4386,7 @@ async function fetchTradingHalts() {
         // When any ticker resumes from halt (especially LULD/volatility),
         // auto-score it and alert — these often move 20%+ post-resume
         // ONLY during market hours — no alerts after hours
-        var activeForHalts = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var activeForHalts = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(state.session);
         var resumedTickers = halts.filter(function (h) {
             return h.status === 'RESUMED' && !prevResumed.includes(h.ticker);
         });
@@ -4471,11 +4479,10 @@ var polygonRefreshTimer = null;
 
 // Session-aware refresh intervals (ms)
 var POLYGON_REFRESH_INTERVALS = {
-    'OPEN_RUSH': 10000,  // 10s — fastest during open chaos
-    'POWER_OPEN': 10000,  // 10s — fast for day trade entries
+    'OPEN': 10000,  // 10s — fastest during open
     'PRE_MARKET': 15000,  // 15s — pre-market gaps changing fast
     'MIDDAY': 15000,  // 15s — still active, just slower
-    'POWER_HOUR': 15000,  // 15s — closing momentum
+    'AFTERNOON': 15000,  // 15s — afternoon
     'AFTER_HOURS': 30000,  // 30s — after hours
     'OVERNIGHT': 60000   // 60s — overnight, minimal movement
 };
@@ -4771,7 +4778,7 @@ function startPolygonPriceRefresh() {
                 tradeJournal.checkOutcomes(state.quotes);
 
                 // During market hours, run multi-TF analysis for watchlist tickers
-                var isActive = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(scheduler.getSessionName());
+                var isActive = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(scheduler.getSessionName());
                 if (isActive) {
                     try {
                         var siMap = {};

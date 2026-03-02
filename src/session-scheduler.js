@@ -8,11 +8,10 @@ const path = require('path');
 const SESSIONS = [
     { name: 'OVERNIGHT', start: 1021, end: 509, intervalMs: 3600000 }, // 5:01 PM – 8:29 AM, 60 min
     { name: 'PRE_MARKET', start: 510, end: 540, intervalMs: 600000 }, // 8:30 – 9:00 AM, 10 min
-    { name: 'OPEN_RUSH', start: 541, end: 560, intervalMs: 300000 }, // 9:01 – 9:20 AM, 5 min
-    { name: 'POWER_OPEN', start: 561, end: 600, intervalMs: 60000 }, // 9:21 – 10:00 AM, 1 min
-    { name: 'MIDDAY', start: 601, end: 900, intervalMs: 600000 }, // 10:01 AM – 3:00 PM, 10 min
-    { name: 'POWER_HOUR', start: 901, end: 975, intervalMs: 300000 }, // 3:01 – 4:15 PM, 5 min
-    { name: 'AFTER_HOURS', start: 976, end: 1020, intervalMs: 600000 }, // 4:16 – 5:00 PM, 10 min
+    { name: 'OPEN', start: 541, end: 600, intervalMs: 300000 }, // 9:01 – 10:00 AM, 5 min
+    { name: 'MIDDAY', start: 601, end: 720, intervalMs: 600000 }, // 10:01 AM – 12:00 PM, 10 min
+    { name: 'AFTERNOON', start: 721, end: 975, intervalMs: 600000 }, // 12:01 – 4:15 PM, 10 min (UW off)
+    { name: 'AFTER_HOURS', start: 976, end: 1020, intervalMs: 600000 }, // 4:16 – 5:00 PM, 10 min (UW off)
 ];
 
 // Data tier definitions
@@ -93,6 +92,13 @@ class SessionScheduler {
         if (day >= 1 && day <= 5) return true;
         if (day === 0 && hour >= 20) return true; // Sunday 8 PM+
         return false;
+    }
+
+    // Check if UW API should be active (off from 12 PM to 7:30 AM EST)
+    isUWActive() {
+        var mins = this.getESTMinutes(); // minutes from midnight
+        // Active from 7:30 AM (450) to 12:00 PM (720)
+        return mins >= 450 && mins < 720;
     }
 
     // Check if market is open for trading (not overnight/weekend)

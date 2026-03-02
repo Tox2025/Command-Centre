@@ -1862,12 +1862,12 @@ class SignalEngine {
             matchedSetups: matchedSetups.map(s => s.setup),
             shadowScores: shadowScores,
             multiTFDetails: mtf ? mtf.confluence.details : [],
-            features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data)
+            features: this._extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data, ticker)
         };
     }
 
-    // Extract numeric feature vector for ML calibrator (42 features)
-    _extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data) {
+    // Extract numeric feature vector for ML calibrator (44 features)
+    _extractFeatures(ta, flow, dp, gex, ivData, siData, quote, data, ticker) {
         data = data || {};
         const rsi = (ta.rsi !== null && ta.rsi !== undefined) ? ta.rsi : 50;
         const macdHist = (ta.macd && ta.macd.histogram !== null) ? ta.macd.histogram : 0;

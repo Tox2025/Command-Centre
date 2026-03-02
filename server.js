@@ -4733,6 +4733,43 @@ function startPolygonPriceRefresh() {
                 }
             } catch (snapErr) { /* partial data is fine */ }
 
+            // ── Fast Polygon Options Data (IV, greeks, volume) ──
+            // Fetch options data for watchlist tickers on each cycle (staggered: 3 per cycle)
+            try {
+                if (!polygonTick._optIdx) polygonTick._optIdx = 0;
+                var watchlist = state.tickers || [];
+                var optBatchSize = 3;
+                for (var oi = 0; oi < optBatchSize && watchlist.length > 0; oi++) {
+                    var optTicker = watchlist[polygonTick._optIdx % watchlist.length];
+                    polygonTick._optIdx++;
+                    try {
+                        var optSnap = await polygonClient.getOptionsSnapshot(optTicker, { limit: 15 });
+                        if (optSnap && optSnap.length > 0) {
+                            // Update IV
+                            var ivVals = optSnap.filter(function (o) { return o.implied_volatility > 0; }).map(function (o) { return o.implied_volatility; });
+                            if (ivVals.length > 0) {
+                                var avgIV = ivVals.reduce(function (a, b) { return a + b; }, 0) / ivVals.length;
+                                state.ivRank[optTicker] = { iv: avgIV, iv_rank: avgIV * 100, source: 'polygon-fast' };
+                            }
+                            // Update greeks
+                            var gData = optSnap.filter(function (o) { return o.greeks; }).map(function (o) {
+                                return {
+                                    strike: o.details?.strike_price, type: o.details?.contract_type,
+                                    delta: o.greeks?.delta || 0, gamma: o.greeks?.gamma || 0,
+                                    theta: o.greeks?.theta || 0, vega: o.greeks?.vega || 0
+                                };
+                            });
+                            if (gData.length > 0) state.greeks[optTicker] = gData;
+                            // Update option volume
+                            var volData = optSnap.map(function (o) {
+                                return { strike: o.details?.strike_price, type: o.details?.contract_type, volume: o.day?.volume || 0, open_interest: o.open_interest || 0, iv: o.implied_volatility || 0 };
+                            });
+                            if (volData.length > 0) state.optionVolume = state.optionVolume || {}, state.optionVolume[optTicker] = volData;
+                        }
+                    } catch (optErr) { /* individual ticker options failed, continue */ }
+                }
+            } catch (optBatchErr) { /* options batch failed */ }
+
             // Polygon WebSocket override for watchlist tickers (real-time > REST)
             var polygonOverrideCount = 0;
             (state.tickers || []).forEach(function (ticker) {

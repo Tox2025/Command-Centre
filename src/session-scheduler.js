@@ -88,7 +88,11 @@ class SessionScheduler {
         var estStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
         var est = new Date(estStr);
         var day = est.getDay(); // 0=Sun, 6=Sat
-        return day >= 1 && day <= 5;
+        var hour = est.getHours();
+        // Mon-Fri always active; Sunday after 8 PM EST = overnight session open
+        if (day >= 1 && day <= 5) return true;
+        if (day === 0 && hour >= 20) return true; // Sunday 8 PM+
+        return false;
     }
 
     // Check if market is open for trading (not overnight/weekend)

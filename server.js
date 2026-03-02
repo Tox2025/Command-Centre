@@ -4543,6 +4543,11 @@ function getAllCommandCentreTickers() {
     // 10. Polygon mover tickers (gainers/losers discoveries)
     Object.keys(state.polygonMovers || {}).forEach(function (t) { tickerSet[t] = true; });
 
+    // 11. Live discovery tickers (always keep prices fresh for displayed discoveries)
+    (state.liveDiscoveries || []).forEach(function (d) {
+        if (d.ticker) tickerSet[d.ticker.toUpperCase()] = true;
+    });
+
     // Cap at 50 tickers to avoid API overload
     var all = Object.keys(tickerSet).filter(function (t) {
         return t && /^[A-Z]{1,5}$/.test(t);
@@ -4609,6 +4614,17 @@ function startPolygonPriceRefresh() {
                     q.priceSource = 'polygon-rest';
                     updatedCount++;
                 }
+
+                // Update liveDiscovery prices with fresh data
+                (state.liveDiscoveries || []).forEach(function (d) {
+                    if (d.ticker && state.quotes[d.ticker] && state.quotes[d.ticker].last > 0) {
+                        var currentPrice = state.quotes[d.ticker].last;
+                        d.currentPrice = currentPrice;
+                        if (d.price > 0) {
+                            d.pnl = ((currentPrice - d.price) / d.price * 100).toFixed(2) + '%';
+                        }
+                    }
+                });
             } catch (snapErr) { /* partial data is fine */ }
 
             // ── Fast Polygon Options Data (IV, greeks, volume) ──

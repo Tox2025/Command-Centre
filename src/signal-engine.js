@@ -1550,10 +1550,12 @@ class SignalEngine {
         // ── Enhanced Short Interest (B1): V2 float data for squeeze detection ──
         if (data.shortInterestV2) {
             var si2 = Array.isArray(data.shortInterestV2) ? data.shortInterestV2[0] : data.shortInterestV2;
-            var floatPct = parseFloat(si2.short_interest_pct || si2.si_pct_float || si2.percent_float || 0);
-            var dtc = parseFloat(si2.days_to_cover || si2.dtc || 0);
-            if (floatPct > 20 && dtc > 3) {
-                bull += 2; signals.push({ name: '🔥 Squeeze Setup (V2)', dir: 'BULL', weight: 2, detail: 'SI ' + floatPct.toFixed(1) + '% float, DTC ' + dtc.toFixed(1) + 'd — squeeze candidate' });
+            if (si2) {
+                var floatPct = parseFloat(si2.short_interest_pct || si2.si_pct_float || si2.percent_float || 0);
+                var dtc = parseFloat(si2.days_to_cover || si2.dtc || 0);
+                if (floatPct > 20 && dtc > 3) {
+                    bull += 2; signals.push({ name: '🔥 Squeeze Setup (V2)', dir: 'BULL', weight: 2, detail: 'SI ' + floatPct.toFixed(1) + '% float, DTC ' + dtc.toFixed(1) + 'd — squeeze candidate' });
+                }
             }
         }
 

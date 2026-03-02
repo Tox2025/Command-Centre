@@ -3134,23 +3134,28 @@ async function fetchTickerData(ticker, tier) {
             const changeAmt = currentPrice - prevClose;
             const changePct = prevClose ? (changeAmt / prevClose * 100) : 0;
 
-            // BUG-2 FIX: Build quote object ONCE with canonical keys
-            state.quotes[ticker] = {
-                ...quoteInfo,                         // Company info from getStockQuote
-                optionVolume: optVolData,              // Options volume merged in
-                price: currentPrice,
-                last: currentPrice,
-                close: histClose,                     // Historical close (daily)
-                open: lastCandle.open,
-                high: lastCandle.high,
-                low: lastCandle.low,
-                prevClose: prevClose,                  // Single canonical key
-                change: parseFloat(changeAmt.toFixed(2)),
-                changePercent: parseFloat(changePct.toFixed(2)),
-                volume: lastCandle.volume,
-                livePrice: livePrice,                 // Null if no Polygon data
-                priceSource: livePrice ? 'polygon_live' : 'uw_historical'
-            };
+            // Use live Polygon price from fast loop if available (always fresher than candles)
+            var existingQuote = state.quotes[ticker] || {};
+            var fastLoopPrice = existingQuote.last;
+            var bestPrice = (fastLoopPrice && fastLoopPrice > 0) ? fastLoopPrice : currentPrice;
+
+            // Merge into existing quote — don't overwrite live Polygon prices
+            state.quotes[ticker] = Object.assign(existingQuote, {
+                ...quoteInfo,
+                optionVolume: optVolData || existingQuote.optionVolume,
+                price: bestPrice,
+                last: bestPrice,
+                close: histClose,
+                open: existingQuote.open || lastCandle.open,
+                high: existingQuote.high || lastCandle.high,
+                low: existingQuote.low || lastCandle.low,
+                prevClose: prevClose,
+                change: parseFloat((bestPrice - prevClose).toFixed(2)),
+                changePercent: parseFloat(((bestPrice - prevClose) / prevClose * 100).toFixed(2)),
+                volume: existingQuote.volume || lastCandle.volume,
+                livePrice: fastLoopPrice || livePrice,
+                priceSource: (fastLoopPrice && fastLoopPrice > 0) ? existingQuote.priceSource || 'polygon-rest' : (livePrice ? 'polygon_live' : 'uw_historical')
+            });
 
             // FIX-3: Populate sector for Sector Tide signal (#27)
             var sectorName = null;

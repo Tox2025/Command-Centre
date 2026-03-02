@@ -3088,38 +3088,18 @@ async function scoreTickerSignals(ticker) {
 async function fetchTickerData(ticker, tier) {
     var callCount = 0;
     try {
-        // ── HOT tier (every cycle) ──
-        // A8: Company metadata — prefer Polygon (free), fall back to UW
+        // ── HOT tier (every cycle) — UW calls only ──
+        // Company metadata from Polygon cache (no API call)
         var quoteInfo = {};
-        var pDetails = polygonClient.getDetails(ticker);  // cached from getTickerDetails
+        var pDetails = polygonClient.getDetails(ticker);
         if (pDetails) {
             quoteInfo = { ticker: pDetails.ticker, name: pDetails.name, market_cap: pDetails.market_cap, exchange: pDetails.exchange, sic_description: pDetails.sic_description };
         } else {
-            try {
-                pDetails = await polygonClient.getTickerDetails(ticker);
-                if (pDetails) quoteInfo = { ticker: pDetails.ticker, name: pDetails.name, market_cap: pDetails.market_cap, exchange: pDetails.exchange, sic_description: pDetails.sic_description };
-            } catch (e) { /* Polygon details failed — use ticker only */ }
-            if (!quoteInfo.ticker) {
-                quoteInfo = { ticker: ticker }; // Minimal info — Polygon snapshot provides price
-            }
+            quoteInfo = { ticker: ticker };
         }
 
-        // Options volume levels — use Polygon options snapshot (no UW call)
-        var optVolData = null;
-        try {
-            var optSnap = await polygonClient.getOptionsSnapshot(ticker, { limit: 20 });
-            if (optSnap && optSnap.length > 0) {
-                optVolData = optSnap.map(function (o) {
-                    return {
-                        strike: o.details?.strike_price,
-                        type: o.details?.contract_type,
-                        volume: o.day?.volume || 0,
-                        open_interest: o.open_interest || 0,
-                        iv: o.implied_volatility || 0
-                    };
-                });
-            }
-        } catch (e) { /* Polygon options snapshot failed, optVolData stays null */ }
+        // Options volume from fast Polygon loop cache (no API call here)
+        var optVolData = (state.optionVolume || {})[ticker] || null;
 
         // Dark pool (store as flat array — BUG-3 fix)
         const dp = await uw.getDarkPoolLevels(ticker);
@@ -3131,30 +3111,8 @@ async function fetchTickerData(ticker, tier) {
         if (gex?.data) state.gex[ticker] = Array.isArray(gex.data) ? gex.data : [gex.data];
         callCount++;
 
-        // A9: Historical candles — prefer Polygon getAggregates (free), fall back to UW
-        var histCandles = [];
-        try {
-            var toDate = new Date().toISOString().split('T')[0];
-            var fromDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            histCandles = await polygonClient.getAggregates(ticker, 1, 'day', fromDate, toDate);
-        } catch (e) { /* Polygon failed */ }
-        if (histCandles.length < 30) {
-            // Fallback to UW historical if Polygon returned insufficient data
-            try {
-                const hist = await uw.getHistoricalPrice(ticker);
-                if (hist?.data && Array.isArray(hist.data) && hist.data.length > 0) {
-                    histCandles = hist.data.map(d => ({
-                        date: d.date || d.timestamp,
-                        open: parseFloat(d.open),
-                        high: parseFloat(d.high),
-                        low: parseFloat(d.low),
-                        close: parseFloat(d.close),
-                        volume: parseFloat(d.volume || 0)
-                    }));
-                }
-                callCount++;
-            } catch (e) { /* both failed */ }
-        }
+        // Historical candles — from fast Polygon loop cache (no API call here)
+        var histCandles = (state.historicalCandles || {})[ticker] || [];
         if (histCandles.length > 0) {
             const candles = histCandles;
             const analysis = TechnicalAnalysis.analyze(candles);
@@ -3256,61 +3214,7 @@ async function fetchTickerData(ticker, tier) {
 
         // ── WARM tier (every 5th cycle) ──
         if (tier === 'WARM' || tier === 'COLD') {
-            // IV Rank — derive from Polygon options snapshot (no UW call)
-            try {
-                var ivSnap = await polygonClient.getOptionsSnapshot(ticker, { limit: 5 });
-                if (ivSnap && ivSnap.length > 0) {
-                    var ivValues = ivSnap.filter(function (o) { return o.implied_volatility > 0; }).map(function (o) { return o.implied_volatility; });
-                    var avgIV = ivValues.length > 0 ? ivValues.reduce(function (a, b) { return a + b; }, 0) / ivValues.length : 0;
-                    state.ivRank[ticker] = { iv: avgIV, iv_rank: avgIV * 100, source: 'polygon' };
-                }
-            } catch (e) { /* Polygon IV failed */ }
-
-            // Max Pain — calculate from Polygon options OI (no UW call)
-            try {
-                var chainForMP = await polygonClient.getOptionsContracts(ticker, { limit: 100, expired: false });
-                if (chainForMP && chainForMP.length > 0) {
-                    // Group by strike, sum OI × volume to find max pain
-                    var strikeOI = {};
-                    chainForMP.forEach(function (c) {
-                        var s = c.strike_price;
-                        if (!strikeOI[s]) strikeOI[s] = 0;
-                        strikeOI[s] += (c.open_interest || 0);
-                    });
-                    var maxOI = 0, mpStrike = 0;
-                    Object.keys(strikeOI).forEach(function (s) {
-                        if (strikeOI[s] > maxOI) { maxOI = strikeOI[s]; mpStrike = parseFloat(s); }
-                    });
-                    if (mpStrike > 0) state.maxPain[ticker] = { price: mpStrike, total_oi: maxOI, source: 'polygon' };
-                }
-            } catch (e) { /* Polygon max pain failed */ }
-
-            // OI Change — use Polygon options contracts OI (no UW call)
-            try {
-                var chainForOI = await polygonClient.getOptionsContracts(ticker, { limit: 50, expired: false });
-                if (chainForOI && chainForOI.length > 0) {
-                    var totalOI = chainForOI.reduce(function (sum, c) { return sum + (c.open_interest || 0); }, 0);
-                    state.oiChange[ticker] = { total_oi: totalOI, contracts: chainForOI.length, source: 'polygon' };
-                }
-            } catch (e) { /* Polygon OI failed */ }
-
-            // Greeks — from Polygon options snapshot (no UW call)
-            try {
-                var greekSnap = await polygonClient.getOptionsSnapshot(ticker, { limit: 10 });
-                if (greekSnap && greekSnap.length > 0) {
-                    var greekData = greekSnap.filter(function (o) { return o.greeks; }).map(function (o) {
-                        return {
-                            strike: o.details?.strike_price,
-                            type: o.details?.contract_type,
-                            delta: o.greeks?.delta || 0,
-                            gamma: o.greeks?.gamma || 0,
-                            theta: o.greeks?.theta || 0,
-                            vega: o.greeks?.vega || 0
-                        };
-                    });
-                    state.greeks[ticker] = greekData;
-                }
-            } catch (e) { /* Polygon greeks failed */ }
+            // IV, max pain, OI, greeks — all handled by fast Polygon loop now
 
             // Greek Flow (delta/gamma shifts) — WARM
             try {
@@ -3405,39 +3309,11 @@ async function fetchTickerData(ticker, tier) {
             if (si?.data) state.shortInterest[ticker] = si.data;
             callCount++;
 
-            // Stock State — use Polygon ticker details (no UW call)
-            try {
-                var polyDetails = await polygonClient.getTickerDetails(ticker);
-                if (polyDetails) {
-                    state.stockState[ticker] = {
-                        ticker: polyDetails.ticker, name: polyDetails.name,
-                        market_cap: polyDetails.market_cap, sic_description: polyDetails.sic_description,
-                        shares_outstanding: polyDetails.share_class_shares_outstanding,
-                        source: 'polygon'
-                    };
-                }
-            } catch (e) { /* Polygon details failed */ }
+            // Stock state, earnings — handled by fast Polygon loop now
 
             const ins = await uw.getInsiderByTicker(ticker);
             if (ins?.data) state.insiderData[ticker] = ins.data;
             callCount++;
-
-            // Earnings — use Polygon financials (no UW call, already fetched below)
-            // Polygon financials endpoint is called later in COLD tier
-            // Just skip the UW earnings call — data comes from getFinancials
-            try {
-                var fins = await polygonClient.getFinancials(ticker, 4);
-                if (fins && fins.length > 0) {
-                    state.earnings[ticker] = fins.map(function (f) {
-                        return {
-                            date: f.filing_date || f.period_of_report_date,
-                            revenue: f.financials?.income_statement?.revenues?.value,
-                            eps: f.financials?.income_statement?.basic_earnings_per_share?.value,
-                            source: 'polygon'
-                        };
-                    });
-                }
-            } catch (e) { /* Polygon earnings failed */ }
 
             // Short Volume & Ratio (squeeze detection) — COLD
             try {
@@ -3530,29 +3406,7 @@ async function fetchTickerData(ticker, tier) {
                 callCount++;
             } catch (e) { /* optional */ }
 
-            // Phase C: Polygon Financials (quarterly data)
-            try {
-                const fins = await polygonClient.getFinancials(ticker, 4);
-                if (fins.length > 0) { state.financials = state.financials || {}; state.financials[ticker] = fins; }
-            } catch (e) { /* optional */ }
-
-            // Phase C: Related Companies (sympathy play detection)
-            try {
-                const rels = await polygonClient.getRelatedCompanies(ticker);
-                if (rels.length > 0) { state.relatedCompanies = state.relatedCompanies || {}; state.relatedCompanies[ticker] = rels; }
-            } catch (e) { /* optional */ }
-
-            // Phase C: Splits (prevent false signals)
-            try {
-                const spl = await polygonClient.getSplits(ticker, 3);
-                if (spl.length > 0) { state.splits = state.splits || {}; state.splits[ticker] = spl; }
-            } catch (e) { /* optional */ }
-
-            // Phase C: Dividends (prevent false signals)
-            try {
-                const divs = await polygonClient.getDividends(ticker, 3);
-                if (divs.length > 0) { state.dividends = state.dividends || {}; state.dividends[ticker] = divs; }
-            } catch (e) { /* optional */ }
+            // Financials, related companies, splits, dividends — handled by fast Polygon loop now
 
             // Phase F: Expiry Breakdown (where options activity is concentrated) — COLD
             try {
@@ -4779,11 +4633,114 @@ function startPolygonPriceRefresh() {
                             var volData = optSnap.map(function (o) {
                                 return { strike: o.details?.strike_price, type: o.details?.contract_type, volume: o.day?.volume || 0, open_interest: o.open_interest || 0, iv: o.implied_volatility || 0 };
                             });
-                            if (volData.length > 0) state.optionVolume = state.optionVolume || {}, state.optionVolume[optTicker] = volData;
+                            if (volData.length > 0) { state.optionVolume = state.optionVolume || {}; state.optionVolume[optTicker] = volData; }
                         }
                     } catch (optErr) { /* individual ticker options failed, continue */ }
                 }
             } catch (optBatchErr) { /* options batch failed */ }
+
+            // ── Fast Polygon Candles (180-day historical for technicals) ──
+            // Staggered: 3 tickers per cycle
+            try {
+                if (!polygonTick._candleIdx) polygonTick._candleIdx = 0;
+                var wl = state.tickers || [];
+                for (var ci = 0; ci < 3 && wl.length > 0; ci++) {
+                    var cTicker = wl[polygonTick._candleIdx % wl.length];
+                    polygonTick._candleIdx++;
+                    try {
+                        var toDate = new Date().toISOString().split('T')[0];
+                        var fromDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        var candles = await polygonClient.getAggregates(cTicker, 1, 'day', fromDate, toDate);
+                        if (candles && candles.length > 0) {
+                            state.historicalCandles = state.historicalCandles || {};
+                            state.historicalCandles[cTicker] = candles;
+                        }
+                    } catch (e) { /* candle fetch failed */ }
+                }
+            } catch (e) { /* candles batch failed */ }
+
+            // ── Fast Polygon Max Pain + OI (options contracts) ──
+            // Staggered: 2 tickers per cycle
+            try {
+                if (!polygonTick._mpIdx) polygonTick._mpIdx = 0;
+                var wl2 = state.tickers || [];
+                for (var mi = 0; mi < 2 && wl2.length > 0; mi++) {
+                    var mpTicker = wl2[polygonTick._mpIdx % wl2.length];
+                    polygonTick._mpIdx++;
+                    try {
+                        var chain = await polygonClient.getOptionsContracts(mpTicker, { limit: 100, expired: false });
+                        if (chain && chain.length > 0) {
+                            // Max pain
+                            var strikeOI = {};
+                            chain.forEach(function (c) {
+                                var s = c.strike_price;
+                                if (!strikeOI[s]) strikeOI[s] = 0;
+                                strikeOI[s] += (c.open_interest || 0);
+                            });
+                            var maxOI = 0, mpStrike = 0;
+                            Object.keys(strikeOI).forEach(function (s) {
+                                if (strikeOI[s] > maxOI) { maxOI = strikeOI[s]; mpStrike = parseFloat(s); }
+                            });
+                            if (mpStrike > 0) state.maxPain[mpTicker] = { price: mpStrike, total_oi: maxOI, source: 'polygon-fast' };
+                            // OI
+                            var totalOI = chain.reduce(function (sum, c) { return sum + (c.open_interest || 0); }, 0);
+                            state.oiChange[mpTicker] = { total_oi: totalOI, contracts: chain.length, source: 'polygon-fast' };
+                        }
+                    } catch (e) { /* max pain failed */ }
+                }
+            } catch (e) { /* max pain batch failed */ }
+
+            // ── Slow Polygon Data (financials, stock state, splits, dividends, related) ──
+            // 1 ticker every 10th cycle — this data changes daily or less
+            if (!polygonTick._slowIdx) polygonTick._slowIdx = 0;
+            if (!polygonTick._slowCycle) polygonTick._slowCycle = 0;
+            polygonTick._slowCycle++;
+            if (polygonTick._slowCycle % 10 === 0) {
+                var wl3 = state.tickers || [];
+                if (wl3.length > 0) {
+                    var slowTicker = wl3[polygonTick._slowIdx % wl3.length];
+                    polygonTick._slowIdx++;
+                    try {
+                        // Ticker details (stock state)
+                        var details = await polygonClient.getTickerDetails(slowTicker);
+                        if (details) {
+                            state.stockState[slowTicker] = {
+                                ticker: details.ticker, name: details.name,
+                                market_cap: details.market_cap, sic_description: details.sic_description,
+                                shares_outstanding: details.share_class_shares_outstanding,
+                                source: 'polygon-fast'
+                            };
+                        }
+                    } catch (e) { /* optional */ }
+                    try {
+                        // Financials + Earnings
+                        var fins = await polygonClient.getFinancials(slowTicker, 4);
+                        if (fins && fins.length > 0) {
+                            state.financials = state.financials || {}; state.financials[slowTicker] = fins;
+                            state.earnings[slowTicker] = fins.map(function (f) {
+                                return {
+                                    date: f.filing_date || f.period_of_report_date,
+                                    revenue: f.financials?.income_statement?.revenues?.value,
+                                    eps: f.financials?.income_statement?.basic_earnings_per_share?.value,
+                                    source: 'polygon-fast'
+                                };
+                            });
+                        }
+                    } catch (e) { /* optional */ }
+                    try {
+                        var rels = await polygonClient.getRelatedCompanies(slowTicker);
+                        if (rels && rels.length > 0) { state.relatedCompanies = state.relatedCompanies || {}; state.relatedCompanies[slowTicker] = rels; }
+                    } catch (e) { /* optional */ }
+                    try {
+                        var spl = await polygonClient.getSplits(slowTicker, 3);
+                        if (spl && spl.length > 0) { state.splits = state.splits || {}; state.splits[slowTicker] = spl; }
+                    } catch (e) { /* optional */ }
+                    try {
+                        var divs = await polygonClient.getDividends(slowTicker, 3);
+                        if (divs && divs.length > 0) { state.dividends = state.dividends || {}; state.dividends[slowTicker] = divs; }
+                    } catch (e) { /* optional */ }
+                }
+            }
 
             // Polygon WebSocket override for watchlist tickers (real-time > REST)
             var polygonOverrideCount = 0;

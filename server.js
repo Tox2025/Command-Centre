@@ -3724,20 +3724,7 @@ async function refreshAll() {
         return;
     }
 
-    // ML training — runs every cycle (uses Polygon only, no UW budget impact)
-    if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
-        try {
-            var mlStatus = mlTrainingScheduler.getStatus();
-            if (mlStatus.remaining > 0) {
-                var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
-                if (newSamples > 0) {
-                    console.log('📊 ML training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
-                }
-            }
-        } catch (e) {
-            console.error('ML training error:', e.message);
-        }
-    }
+    // ML training — moved to fast Polygon loop (polygonTick)
 
     // UW blackout — no UW calls from 11 PM to 7:30 AM EST
     if (!scheduler.isUWActive()) {
@@ -4795,8 +4782,23 @@ function startPolygonPriceRefresh() {
                 tradeJournal.updatePaperPnL(state.quotes);
                 tradeJournal.checkOutcomes(state.quotes);
 
+                // ML training — runs on fast Polygon loop (uses Polygon only)
+                if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
+                    try {
+                        var mlStatus = mlTrainingScheduler.getStatus();
+                        if (mlStatus.remaining > 0) {
+                            var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
+                            if (newSamples > 0) {
+                                console.log('📊 ML training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
+                            }
+                        }
+                    } catch (e) {
+                        console.error('ML training error:', e.message);
+                    }
+                }
+
                 // During market hours, run multi-TF analysis for watchlist tickers
-                var isActive = ['OPEN', 'PRE_MARKET', 'MIDDAY', 'AFTERNOON'].includes(scheduler.getSessionName());
+                var isActive = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(scheduler.getSessionName());
                 if (isActive) {
                     try {
                         var siMap = {};

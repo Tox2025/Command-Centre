@@ -12,6 +12,6 @@ data/state-cache.json
 data/earnings-cache.json
 
 # Keep these tracked (needed across deploys):
-# data/watchlist.json
+data/watchlist.json
 # data/ml-model-*.json
 # data/signal-versions.json

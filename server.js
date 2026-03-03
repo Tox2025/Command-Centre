@@ -3743,6 +3743,14 @@ async function refreshAll() {
 
     // ML training — moved to fast Polygon loop (polygonTick)
 
+    // Proactive daily budget reset — ensures counter resets even during blackout
+    var todayDate = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+    if (todayDate !== scheduler.lastResetDate) {
+        console.log('📊 API budget reset — yesterday used: ' + scheduler.dailyCallCount + ' calls');
+        scheduler.dailyCallCount = 0;
+        scheduler.lastResetDate = todayDate;
+    }
+
     // UW blackout — no UW calls from 11 PM to 7:30 AM EST
     if (!scheduler.isUWActive()) {
         if (!refreshAll._lastBlackoutLog || Date.now() - refreshAll._lastBlackoutLog > 3600000) {

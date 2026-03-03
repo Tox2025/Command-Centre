@@ -4577,45 +4577,41 @@ function startPolygonPriceRefresh() {
             var allTickers = getAllCommandCentreTickers();
             if (allTickers.length === 0) { schedulePolygonRefresh(); return; }
 
-            // Batch fetch Polygon snapshots (single API call for all tickers)
+            // Batch fetch ALL Polygon snapshots (SINGLE API call for all tickers)
             var updatedCount = 0;
             try {
-                // Fetch individual snapshots for each ticker (Polygon REST)
-                var snapPromises = allTickers.map(function (t) {
-                    return polygonClient.getTickerSnapshot(t).catch(function () { return null; });
-                });
-                var snaps = await Promise.all(snapPromises);
+                await polygonClient.getSnapshot(); // Updates snapshotCache for ALL tickers
+                var cache = polygonClient.snapshotCache || {};
 
                 for (var si = 0; si < allTickers.length; si++) {
                     var t = allTickers[si];
-                    var snap = snaps[si];
+                    var snap = cache[t];
                     if (!snap) continue;
 
                     if (!state.quotes[t]) state.quotes[t] = {};
                     var q = state.quotes[t];
 
-                    // Price data
-                    if (snap.lastTrade && snap.lastTrade.p > 0) {
-                        q.last = snap.lastTrade.p;
-                        q.price = snap.lastTrade.p;
-                    } else if (snap.day && snap.day.c > 0) {
-                        q.last = snap.day.c;
-                        q.price = snap.day.c;
+                    // Price from snapshot (always fresh)
+                    if (snap.lastTradePrice && snap.lastTradePrice > 0) {
+                        q.last = snap.lastTradePrice;
+                        q.price = snap.lastTradePrice;
+                    } else if (snap.price && snap.price > 0) {
+                        q.last = snap.price;
+                        q.price = snap.price;
                     }
 
                     // Day OHLCV
-                    if (snap.day) {
-                        q.open = snap.day.o || q.open;
-                        q.high = snap.day.h || q.high;
-                        q.low = snap.day.l || q.low;
-                        q.volume = snap.day.v || q.volume;
-                        q.vwap = snap.day.vw || q.vwap;
-                    }
+                    q.open = snap.open || q.open;
+                    q.high = snap.high || q.high;
+                    q.low = snap.low || q.low;
+                    q.volume = snap.volume || q.volume;
+                    q.vwap = snap.vwap || q.vwap;
 
                     // Previous close (for gap analysis)
-                    if (snap.prevDay && snap.prevDay.c > 0) {
-                        q.prev_close = snap.prevDay.c;
-                        q.previousClose = snap.prevDay.c;
+                    if (snap.prevClose && snap.prevClose > 0) {
+                        q.prev_close = snap.prevClose;
+                        q.previousClose = snap.prevClose;
+                        q.prevClose = snap.prevClose;
                     }
 
                     // Change calculations
@@ -4625,7 +4621,12 @@ function startPolygonPriceRefresh() {
                         q.changePercent = q.changePct;
                     }
 
+                    // Bid/ask from snapshot
+                    if (snap.bid > 0) q.bid = snap.bid;
+                    if (snap.ask > 0) q.ask = snap.ask;
+
                     q.priceSource = 'polygon-rest';
+                    q.polygonUpdatedAt = snap.updatedAt || new Date().toISOString();
                     updatedCount++;
                 }
 
@@ -4853,7 +4854,16 @@ function startPolygonPriceRefresh() {
                 broadcast({ type: 'full_state', data: getSerializableState() });
             }
         } catch (e) {
-            // Silent — price refresh is best-effort
+            console.error('❌ Polygon price refresh error:', e.message);
+        }
+
+        // Log price updates every 5th cycle
+        if (!polygonTick._logCount) polygonTick._logCount = 0;
+        polygonTick._logCount++;
+        if (polygonTick._logCount % 5 === 1) {
+            var sampleTicker = (state.tickers || [])[0] || 'N/A';
+            var samplePrice = (state.quotes[sampleTicker] || {}).last || '?';
+            console.log('📡 Polygon prices: ' + updatedCount + '/' + allTickers.length + ' updated (sample: ' + sampleTicker + ' $' + samplePrice + ')');
         }
         schedulePolygonRefresh();
     }

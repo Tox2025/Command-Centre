@@ -5045,14 +5045,10 @@ if (cachedState) {
 }
 
 // Initial fetch — COLD only on first boot of the day, HOT on restarts
-var todayEST = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-var cacheIsToday = cachedState && cachedState.lastUpdate &&
-    new Date(cachedState.lastUpdate).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === todayEST;
-
-if (cacheIsToday) {
-    // Same-day restart: skip COLD burst, start with HOT (saves ~780 UW calls)
-    scheduler.cycleCount = 0;
-    console.log('🔄 Same-day restart detected — skipping COLD burst (cached data from today)');
+// loadState() already restores cycleCount on same-day restarts
+if (scheduler.cycleCount > 0) {
+    // Same-day restart: loadState restored the cycle count, skip COLD burst
+    console.log('🔄 Same-day restart detected — skipping COLD burst (cycle #' + scheduler.cycleCount + ', ' + scheduler.dailyCallCount + ' calls used)');
 } else {
     // First boot of the day: full COLD fetch
     scheduler.cycleCount = 14; // next getDataTier() call returns COLD

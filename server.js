@@ -3111,8 +3111,20 @@ async function fetchTickerData(ticker, tier) {
         if (gex?.data) state.gex[ticker] = Array.isArray(gex.data) ? gex.data : [gex.data];
         callCount++;
 
-        // Historical candles — from fast Polygon loop cache (no API call here)
+        // Historical candles — from fast Polygon loop cache, with on-demand fallback
         var histCandles = (state.historicalCandles || {})[ticker] || [];
+        // On-demand fetch if cache empty (non-watchlist tickers like scanner discoveries)
+        if (histCandles.length === 0) {
+            try {
+                var toDate = new Date().toISOString().split('T')[0];
+                var fromDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                histCandles = await polygonClient.getAggregates(ticker, 1, 'day', fromDate, toDate);
+                if (histCandles && histCandles.length > 0) {
+                    state.historicalCandles = state.historicalCandles || {};
+                    state.historicalCandles[ticker] = histCandles; // cache for next time
+                }
+            } catch (e) { /* Polygon candle fetch failed */ }
+        }
         if (histCandles.length > 0) {
             const candles = histCandles;
             const analysis = TechnicalAnalysis.analyze(candles);

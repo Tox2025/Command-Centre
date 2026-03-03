@@ -3872,6 +3872,8 @@ async function refreshAll() {
     // Check API budget before UW fetching
     if (!scheduler.isWithinBudget()) {
         console.log('⚠️  API budget limit reached (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — skipping UW fetch cycle (Polygon scanner still running)');
+        state.lastUpdate = new Date().toISOString();
+        scheduler.saveState(getSerializableState()); // Persist so same-day restarts skip COLD
         return;
     }
 

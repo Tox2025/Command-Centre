@@ -5044,8 +5044,20 @@ if (cachedState) {
     console.log('📂 Dashboard preloaded with cached data');
 }
 
-// Initial fetch (COLD tier to populate everything)
-scheduler.cycleCount = 14; // next getDataTier() call returns COLD
+// Initial fetch — COLD only on first boot of the day, HOT on restarts
+var todayEST = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+var cacheIsToday = cachedState && cachedState.lastUpdate &&
+    new Date(cachedState.lastUpdate).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) === todayEST;
+
+if (cacheIsToday) {
+    // Same-day restart: skip COLD burst, start with HOT (saves ~780 UW calls)
+    scheduler.cycleCount = 0;
+    console.log('🔄 Same-day restart detected — skipping COLD burst (cached data from today)');
+} else {
+    // First boot of the day: full COLD fetch
+    scheduler.cycleCount = 14; // next getDataTier() call returns COLD
+    console.log('🆕 First boot today — running full COLD tier fetch');
+}
 refreshAll().then(() => {
     console.log('\n⏱️  Dynamic scheduling active — interval adjusts per market session');
     console.log('📊 Session: ' + scheduler.getSessionName() + ' | Interval: ' + (scheduler.getSessionInterval() / 1000) + 's');

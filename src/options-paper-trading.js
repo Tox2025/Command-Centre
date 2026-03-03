@@ -391,7 +391,7 @@ class OptionsPaperTrading {
     autoEnterFromSignal(ticker, signalResult, stockPrice, quote) {
         if (!ticker || !signalResult || !stockPrice || stockPrice <= 0) return null;
         if (!signalResult.direction || signalResult.direction === 'NEUTRAL') return null;
-        if ((signalResult.confidence || 0) < 60) return null; // Only trade high-conf signals
+        if ((signalResult.confidence || 0) < 51) return null; // Trade signals 51%+
 
         // Cooldown: max 1 options trade per ticker per 2 hours
         var now = Date.now();

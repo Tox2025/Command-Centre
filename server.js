@@ -3760,9 +3760,100 @@ async function refreshAll() {
         return;
     }
 
-    // Check API budget before fetching
+    // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
+    // Runs BEFORE budget check — uses Polygon only, no UW calls
+    try {
+        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        if (activeForPolyScan) {
+            var gainers = await polygonClient.getGainers().catch(function () { return []; });
+            var losers = await polygonClient.getLosers().catch(function () { return []; });
+            var polyMovers = (gainers || []).concat(losers || []);
+
+            var etfExcludeSet = { SPY: 1, QQQ: 1, IWM: 1, DIA: 1, VIX: 1, UVXY: 1, SQQQ: 1, TQQQ: 1, SH: 1, PSQ: 1, SPXU: 1, SDOW: 1 };
+            var polyNewCount = 0;
+            var polyNow = Date.now();
+            var polyCooldownMs = 15 * 60 * 1000; // 15 min cooldown
+
+            if (!state.polygonMoverCooldown) state.polygonMoverCooldown = {};
+            if (!state.polygonMovers) state.polygonMovers = {};
+
+            for (var pm = 0; pm < polyMovers.length && pm < 30; pm++) {
+                var m = polyMovers[pm];
+                var mTicker = (m.ticker || '').toUpperCase();
+                if (!mTicker || mTicker.length > 5 || !/^[A-Z]{1,5}$/.test(mTicker)) continue;
+                if (etfExcludeSet[mTicker]) continue;
+                if (state.tickers.includes(mTicker)) continue; // skip watchlist
+                if (state.volatilityRunners[mTicker]) continue; // already caught
+                if (state.polygonMoverCooldown[mTicker] && polyNow - state.polygonMoverCooldown[mTicker] < polyCooldownMs) continue;
+
+                var mChangePct = Math.abs(m.changePercent || 0);
+                var mVolume = m.volume || 0;
+
+                // Filter: >5% move + >100K volume
+                if (mChangePct < 5 || mVolume < 100000) continue;
+
+                state.polygonMovers[mTicker] = {
+                    ticker: mTicker,
+                    changePct: m.changePercent || 0,
+                    price: m.price || 0,
+                    volume: mVolume,
+                    vwap: m.vwap || 0,
+                    discoveredAt: new Date().toISOString(),
+                    source: 'polygon-movers'
+                };
+                state.polygonMoverCooldown[mTicker] = polyNow;
+                polyNewCount++;
+
+                console.log('📈 Polygon Mover Found: ' + mTicker +
+                    ' | Change ' + (m.changePercent || 0).toFixed(1) + '% | Vol ' + (mVolume / 1000).toFixed(0) + 'K' +
+                    ' | Price $' + (m.price || 0).toFixed(2));
+
+                // Telegram alert — always fires for big movers regardless of budget
+                try {
+                    var moverMsg = '📈 *Big Mover: ' + mTicker + '*\n';
+                    moverMsg += 'Change: ' + (m.changePercent || 0).toFixed(1) + '%\n';
+                    moverMsg += 'Price: $' + (m.price || 0).toFixed(2) + '\n';
+                    moverMsg += 'Volume: ' + (mVolume / 1000).toFixed(0) + 'K';
+                    notifier._sendTelegram(moverMsg);
+                } catch (ne) { /* optional */ }
+            }
+
+            // Score top 3 Polygon movers through full signal pipeline
+            if (polyNewCount > 0) {
+                console.log('📈 Polygon Movers: ' + polyNewCount + ' new movers found (' + Object.keys(state.polygonMovers).length + ' total)');
+                var moverTickers = Object.keys(state.polygonMovers).slice(-polyNewCount);
+                for (var mi = 0; mi < Math.min(moverTickers.length, 3); mi++) {
+                    try {
+                        var mSnap = await polygonClient.getTickerSnapshot(moverTickers[mi]).catch(function () { return null; });
+                        if (mSnap && (mSnap.day || mSnap.lastTrade)) {
+                            state.quotes[moverTickers[mi]] = state.quotes[moverTickers[mi]] || {};
+                            state.quotes[moverTickers[mi]].price = (mSnap.lastTrade && mSnap.lastTrade.p > 0) ? mSnap.lastTrade.p : (mSnap.day ? mSnap.day.c : 0);
+                            state.quotes[moverTickers[mi]].last = state.quotes[moverTickers[mi]].price;
+                            state.quotes[moverTickers[mi]].volume = mSnap.day ? mSnap.day.v : 0;
+                            state.quotes[moverTickers[mi]].changePercent = mSnap.todaysChangePerc || 0;
+                        }
+                        var mScore = await scoreDiscoveredTicker(moverTickers[mi], 'PolygonMover');
+                        trackDiscovery(moverTickers[mi], 'PolygonMover', mScore, {
+                            price: mScore ? mScore.price : 0,
+                            changePct: state.polygonMovers[moverTickers[mi]]?.changePct || 0,
+                            volume: state.polygonMovers[moverTickers[mi]]?.volume || 0
+                        });
+                        if (mScore && mScore.confidence >= 51) {
+                            var msMsg = '🎯 *Mover Signal: ' + moverTickers[mi] + '*\n';
+                            msMsg += (mScore.direction === 'BULLISH' ? '🟢' : '🔴') + ' ' + mScore.direction + ' — ' + mScore.confidence + '% confidence\n';
+                            if (mScore.mlConfidence) msMsg += 'ML Score: ' + mScore.mlConfidence + '%\n';
+                            msMsg += 'Signals: ' + mScore.signals.slice(0, 5).map(function (s) { return s.name; }).join(', ');
+                            notifier._sendTelegram(msMsg);
+                        }
+                    } catch (msErr) { /* optional */ }
+                }
+            }
+        }
+    } catch (e) { console.error('Polygon mover scanner error:', e.message); }
+
+    // Check API budget before UW fetching
     if (!scheduler.isWithinBudget()) {
-        console.log('⚠️  API budget limit reached (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — skipping fetch cycle');
+        console.log('⚠️  API budget limit reached (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — skipping UW fetch cycle (Polygon scanner still running)');
         return;
     }
 
@@ -3918,96 +4009,7 @@ async function refreshAll() {
         }
     } catch (e) { console.error('Volatility scanner pipeline error:', e.message); }
 
-    // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
-    try {
-        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
-        if (activeForPolyScan) {
-            var gainers = await polygonClient.getGainers().catch(function () { return []; });
-            var losers = await polygonClient.getLosers().catch(function () { return []; });
-            var polyMovers = (gainers || []).concat(losers || []);
-
-            var etfExcludeSet = { SPY: 1, QQQ: 1, IWM: 1, DIA: 1, VIX: 1, UVXY: 1, SQQQ: 1, TQQQ: 1, SH: 1, PSQ: 1, SPXU: 1, SDOW: 1 };
-            var polyNewCount = 0;
-            var polyNow = Date.now();
-            var polyCooldownMs = 15 * 60 * 1000; // 15 min cooldown
-
-            if (!state.polygonMoverCooldown) state.polygonMoverCooldown = {};
-            if (!state.polygonMovers) state.polygonMovers = {};
-
-            for (var pm = 0; pm < polyMovers.length && pm < 30; pm++) {
-                var m = polyMovers[pm];
-                var mTicker = (m.ticker || '').toUpperCase();
-                if (!mTicker || mTicker.length > 5 || !/^[A-Z]{1,5}$/.test(mTicker)) continue;
-                if (etfExcludeSet[mTicker]) continue;
-                if (state.tickers.includes(mTicker)) continue; // skip watchlist
-                if (state.volatilityRunners[mTicker]) continue; // already caught
-                if (state.polygonMoverCooldown[mTicker] && polyNow - state.polygonMoverCooldown[mTicker] < polyCooldownMs) continue;
-
-                var mChangePct = Math.abs(m.changePercent || 0);
-                var mVolume = m.volume || 0;
-
-                // Filter: >5% move + >100K volume
-                if (mChangePct < 5 || mVolume < 100000) continue;
-
-                state.polygonMovers[mTicker] = {
-                    ticker: mTicker,
-                    changePct: m.changePercent || 0,
-                    price: m.price || 0,
-                    volume: mVolume,
-                    vwap: m.vwap || 0,
-                    discoveredAt: new Date().toISOString(),
-                    source: 'polygon-movers'
-                };
-                state.polygonMoverCooldown[mTicker] = polyNow;
-                polyNewCount++;
-
-                console.log('📈 Polygon Mover Found: ' + mTicker +
-                    ' | Change ' + (m.changePercent || 0).toFixed(1) + '% | Vol ' + (mVolume / 1000).toFixed(0) + 'K' +
-                    ' | Price $' + (m.price || 0).toFixed(2));
-
-                // Telegram alert
-                try {
-                    var moverMsg = '📈 *Big Mover: ' + mTicker + '*\n';
-                    moverMsg += 'Change: ' + (m.changePercent || 0).toFixed(1) + '%\n';
-                    moverMsg += 'Price: $' + (m.price || 0).toFixed(2) + '\n';
-                    moverMsg += 'Volume: ' + (mVolume / 1000).toFixed(0) + 'K';
-                    notifier._sendTelegram(moverMsg);
-                } catch (ne) { /* optional */ }
-            }
-
-            // Score top 3 Polygon movers through full signal pipeline
-            if (polyNewCount > 0) {
-                console.log('📈 Polygon Movers: ' + polyNewCount + ' new movers found (' + Object.keys(state.polygonMovers).length + ' total)');
-                var moverTickers = Object.keys(state.polygonMovers).slice(-polyNewCount);
-                for (var mi = 0; mi < Math.min(moverTickers.length, 3); mi++) {
-                    try {
-                        // Fetch Polygon snapshot for quote data
-                        var mSnap = await polygonClient.getTickerSnapshot(moverTickers[mi]).catch(function () { return null; });
-                        if (mSnap && (mSnap.day || mSnap.lastTrade)) {
-                            state.quotes[moverTickers[mi]] = state.quotes[moverTickers[mi]] || {};
-                            state.quotes[moverTickers[mi]].price = (mSnap.lastTrade && mSnap.lastTrade.p > 0) ? mSnap.lastTrade.p : (mSnap.day ? mSnap.day.c : 0);
-                            state.quotes[moverTickers[mi]].last = state.quotes[moverTickers[mi]].price;
-                            state.quotes[moverTickers[mi]].volume = mSnap.day ? mSnap.day.v : 0;
-                            state.quotes[moverTickers[mi]].changePercent = mSnap.todaysChangePerc || 0;
-                        }
-                        var mScore = await scoreDiscoveredTicker(moverTickers[mi], 'PolygonMover');
-                        trackDiscovery(moverTickers[mi], 'PolygonMover', mScore, {
-                            price: mScore ? mScore.price : 0,
-                            changePct: state.polygonMovers[moverTickers[mi]]?.changePct || 0,
-                            volume: state.polygonMovers[moverTickers[mi]]?.volume || 0
-                        });
-                        if (mScore && mScore.confidence >= 55) {
-                            var msMsg = '🎯 *Mover Signal: ' + moverTickers[mi] + '*\n';
-                            msMsg += (mScore.direction === 'BULLISH' ? '🟢' : '🔴') + ' ' + mScore.direction + ' — ' + mScore.confidence + '% confidence\n';
-                            if (mScore.mlConfidence) msMsg += 'ML Score: ' + mScore.mlConfidence + '%\n';
-                            msMsg += 'Signals: ' + mScore.signals.slice(0, 5).map(function (s) { return s.name; }).join(', ');
-                            notifier._sendTelegram(msMsg);
-                        }
-                    } catch (msErr) { /* optional */ }
-                }
-            }
-        }
-    } catch (e) { console.error('Polygon mover scanner error:', e.message); }
+    // (Polygon scanner moved above budget check to always run)
 
     // ── Market Scanner (deferred 60s to avoid rate limit overlap) ──
     // NOTE: Polygon snapshot already fetched earlier (FIX-1), no need to re-fetch here

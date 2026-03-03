@@ -4866,6 +4866,143 @@ function startPolygonPriceRefresh() {
                     } catch (mtfErr) {
                         // Multi-TF is best-effort
                     }
+
+                    // ── Technical Setup Scanner: find setups from 12K+ Polygon snapshots ──
+                    // Runs every 5 minutes, scans for volume spikes, momentum, reversals
+                    if (!polygonTick._lastTechScan) polygonTick._lastTechScan = 0;
+                    var techScanInterval = 5 * 60 * 1000; // 5 minutes
+                    if (Date.now() - polygonTick._lastTechScan > techScanInterval) {
+                        polygonTick._lastTechScan = Date.now();
+                        try {
+                            var snapCache = polygonClient.snapshotCache || {};
+                            var snapTickers = Object.keys(snapCache);
+                            var candidates = [];
+
+                            // Known tickers to skip
+                            var skipSet = {};
+                            (state.tickers || []).forEach(function (t) { skipSet[t] = true; });
+                            Object.keys(state.volatilityRunners || {}).forEach(function (t) { skipSet[t] = true; });
+                            Object.keys(state.polygonMovers || {}).forEach(function (t) { skipSet[t] = true; });
+                            var etfSkip = { SPY: 1, QQQ: 1, IWM: 1, DIA: 1, VIX: 1, UVXY: 1, SQQQ: 1, TQQQ: 1, SH: 1, PSQ: 1, SPXU: 1, SDOW: 1, XLF: 1, XLK: 1, XLE: 1, XLV: 1, XLI: 1, XLP: 1, XLU: 1, XLB: 1, XLRE: 1, XLC: 1, XLY: 1 };
+
+                            for (var sti = 0; sti < snapTickers.length; sti++) {
+                                var stk = snapTickers[sti];
+                                if (skipSet[stk] || etfSkip[stk]) continue;
+                                if (!stk || stk.length > 5 || !/^[A-Z]{1,5}$/.test(stk)) continue;
+
+                                var ss = snapCache[stk];
+                                if (!ss || !ss.price || ss.price <= 0) continue;
+
+                                // Filter: $5-$2000 stocks only (skip penny stocks and outliers)
+                                if (ss.price < 5 || ss.price > 2000) continue;
+
+                                var changePct = Math.abs(ss.changePercent || 0);
+                                var volume = ss.volume || 0;
+                                var vwap = ss.vwap || 0;
+                                var high = ss.high || 0;
+                                var low = ss.low || 0;
+                                var open = ss.open || 0;
+
+                                // Skip very low volume
+                                if (volume < 200000) continue;
+
+                                var score = 0;
+                                var reasons = [];
+
+                                // 1. Volume spike: >1M shares with modest price move (2-5%) = accumulation
+                                if (volume > 1000000 && changePct >= 2 && changePct < 5) {
+                                    score += 3;
+                                    reasons.push('Vol ' + (volume / 1e6).toFixed(1) + 'M');
+                                }
+
+                                // 2. VWAP divergence: price >2% from VWAP = momentum
+                                if (vwap > 0) {
+                                    var vwapDiv = Math.abs(ss.price - vwap) / vwap * 100;
+                                    if (vwapDiv > 2) {
+                                        score += 2;
+                                        reasons.push('VWAP div ' + vwapDiv.toFixed(1) + '%');
+                                    }
+                                }
+
+                                // 3. Intraday reversal: price recovering >50% of intraday range from low
+                                if (high > low && (high - low) / low * 100 > 3) {
+                                    var rangeRecovery = (ss.price - low) / (high - low);
+                                    if (rangeRecovery > 0.7 && changePct < 0) {
+                                        score += 3;
+                                        reasons.push('Reversal ' + (rangeRecovery * 100).toFixed(0) + '%');
+                                    }
+                                    if (rangeRecovery < 0.3 && changePct > 0) {
+                                        score += 3;
+                                        reasons.push('Rejection ' + (rangeRecovery * 100).toFixed(0) + '%');
+                                    }
+                                }
+
+                                // 4. Breakout: price within 1% of day high with >500K volume
+                                if (high > 0 && volume > 500000) {
+                                    var nearHigh = (high - ss.price) / high * 100;
+                                    if (nearHigh < 1 && changePct > 1.5) {
+                                        score += 2;
+                                        reasons.push('Near HOD');
+                                    }
+                                }
+
+                                // 5. Dollar volume filter: significant $ traded
+                                var dollarVol = volume * ss.price;
+                                if (dollarVol > 50000000) {
+                                    score += 1;
+                                    reasons.push('$' + (dollarVol / 1e6).toFixed(0) + 'M traded');
+                                }
+
+                                if (score >= 4) {
+                                    candidates.push({
+                                        ticker: stk,
+                                        score: score,
+                                        price: ss.price,
+                                        changePct: ss.changePercent || 0,
+                                        volume: volume,
+                                        reasons: reasons
+                                    });
+                                }
+                            }
+
+                            // Sort by score, score top 3
+                            candidates.sort(function (a, b) { return b.score - a.score; });
+                            var topCandidates = candidates.slice(0, 3);
+
+                            if (topCandidates.length > 0) {
+                                console.log('🔍 Tech scanner: ' + candidates.length + ' candidates, scoring top ' + topCandidates.length);
+                            }
+
+                            // Cooldown tracker
+                            if (!state.techScanCooldown) state.techScanCooldown = {};
+                            var techNow = Date.now();
+                            var techCooldownMs = 30 * 60 * 1000; // 30 min cooldown per ticker
+
+                            for (var tci = 0; tci < topCandidates.length; tci++) {
+                                var tc = topCandidates[tci];
+                                if (state.techScanCooldown[tc.ticker] && techNow - state.techScanCooldown[tc.ticker] < techCooldownMs) continue;
+                                state.techScanCooldown[tc.ticker] = techNow;
+
+                                try {
+                                    var tcScore = await scoreDiscoveredTicker(tc.ticker, 'TechScan');
+                                    console.log('🔍 Tech scan scored: ' + tc.ticker +
+                                        ' | ' + tc.reasons.join(', ') +
+                                        ' | Signal: ' + (tcScore ? tcScore.direction + ' ' + tcScore.confidence + '%' : 'N/A'));
+
+                                    // Telegram alert for tech scan discoveries
+                                    var tcMsg = '🔍 *Tech Scan: ' + tc.ticker + '*\n';
+                                    tcMsg += 'Price: $' + tc.price.toFixed(2) + ' (' + (tc.changePct >= 0 ? '+' : '') + tc.changePct.toFixed(1) + '%)\n';
+                                    tcMsg += 'Setup: ' + tc.reasons.join(' | ') + '\n';
+                                    if (tcScore) {
+                                        tcMsg += (tcScore.direction === 'BULLISH' ? '🟢' : '🔴') + ' ' + tcScore.direction + ' — ' + tcScore.confidence + '% conf';
+                                    }
+                                    notifier._sendTelegram(tcMsg);
+                                } catch (tce) { /* tech scan scoring optional */ }
+                            }
+                        } catch (tsErr) {
+                            console.error('Tech scanner error:', tsErr.message);
+                        }
+                    }
                 }
 
                 // Broadcast fresh prices to all clients

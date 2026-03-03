@@ -3556,6 +3556,24 @@ async function fetchMarketData(tier) {
             if (congress?.data) {
                 const raw = Array.isArray(congress.data) ? congress.data.slice(0, 30) : [];
                 state.congressTrades = enrichCongressTrades(raw);
+
+                // Auto-score congressional trade tickers not already on watchlist
+                try {
+                    var congTickers = {};
+                    raw.forEach(function (c) {
+                        var ct = (c.ticker || c.symbol || '').toUpperCase();
+                        if (ct && /^[A-Z]{1,5}$/.test(ct) && !state.tickers.includes(ct) && !congTickers[ct]) {
+                            congTickers[ct] = true;
+                        }
+                    });
+                    var congTickerList = Object.keys(congTickers).slice(0, 3); // Score top 3
+                    for (var ci = 0; ci < congTickerList.length; ci++) {
+                        try {
+                            await scoreDiscoveredTicker(congTickerList[ci], 'Congress');
+                            console.log('🏛️ Congressional discovery scored: ' + congTickerList[ci]);
+                        } catch (ce) { /* scoring optional */ }
+                    }
+                } catch (e) { /* congressional scoring non-critical */ }
             }
             callCount++;
 

@@ -6,7 +6,8 @@ const path = require('path');
 
 // Session definitions (all times in EST minutes from midnight)
 const SESSIONS = [
-    { name: 'OVERNIGHT', start: 1021, end: 509, intervalMs: 3600000 }, // 5:01 PM – 8:29 AM, 60 min
+    { name: 'OVERNIGHT', start: 1021, end: 449, intervalMs: 3600000 }, // 5:01 PM – 7:29 AM, 60 min
+    { name: 'EARLY_PRE', start: 450, end: 509, intervalMs: 600000 }, // 7:30 – 8:29 AM, 10 min
     { name: 'PRE_MARKET', start: 510, end: 540, intervalMs: 600000 }, // 8:30 – 9:00 AM, 10 min
     { name: 'OPEN_RUSH', start: 541, end: 560, intervalMs: 300000 }, // 9:01 – 9:20 AM, 5 min
     { name: 'POWER_OPEN', start: 561, end: 600, intervalMs: 300000 }, // 9:21 – 10:00 AM, 5 min
@@ -107,7 +108,7 @@ class SessionScheduler {
         if (!this.isMarketDay()) return false;
         var session = this.getSessionName();
         // Only trade during active sessions, NOT overnight
-        return ['PRE_MARKET', 'OPEN_RUSH', 'POWER_OPEN', 'MIDDAY', 'POWER_HOUR', 'AFTER_HOURS'].indexOf(session) >= 0;
+        return ['EARLY_PRE', 'PRE_MARKET', 'OPEN_RUSH', 'POWER_OPEN', 'MIDDAY', 'POWER_HOUR', 'AFTER_HOURS'].indexOf(session) >= 0;
     }
 
     // ── Data Tiering ──────────────────────────────────────

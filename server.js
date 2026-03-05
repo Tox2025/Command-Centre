@@ -3734,26 +3734,10 @@ async function fetchMarketData(tier) {
 }
 
 async function refreshAll() {
-    // Weekend gate — market is closed Sat/Sun (before Sunday 8PM), use this time for ML training only
+    // Weekend gate — market is closed Sat/Sun (before Sunday 8PM)
     if (!scheduler.isMarketDay()) {
-        // Run ML sector training instead of idling
-        if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
-            try {
-                var mlStatus = mlTrainingScheduler.getStatus();
-                if (mlStatus.remaining > 0) {
-                    var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
-                    if (newSamples > 0) {
-                        console.log('📊 ML weekend training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
-                    }
-                } else if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
-                    console.log('📅 Weekend — all ' + mlStatus.total + ' sector tickers trained. Next refresh in ' + Math.round((7 * 24 * 3600000 - (Date.now() - new Date(mlTrainingScheduler.progress.startedAt).getTime())) / 3600000) + 'h');
-                    refreshAll._lastWeekendLog = Date.now();
-                }
-            } catch (e) {
-                console.error('ML weekend training error:', e.message);
-            }
-        } else if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
-            console.log('📅 Weekend/non-market day — ML training idle');
+        if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
+            console.log('📅 Weekend/non-market day — UW data paused (ML grinding in background)');
             refreshAll._lastWeekendLog = Date.now();
         }
         return;
@@ -3781,7 +3765,7 @@ async function refreshAll() {
     // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
     // Runs BEFORE budget check — uses Polygon only, no UW calls
     try {
-        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR', 'EARLY_PRE'].includes(state.session);
         if (activeForPolyScan) {
             var gainers = await polygonClient.getGainers().catch(function () { return []; });
             var losers = await polygonClient.getLosers().catch(function () { return []; });
@@ -4517,10 +4501,11 @@ var POLYGON_REFRESH_INTERVALS = {
     'OPEN_RUSH': 10000,  // 10s — fastest during open
     'POWER_OPEN': 10000, // 10s — fast for day trade entries
     'PRE_MARKET': 15000,  // 15s — pre-market gaps changing fast
+    'EARLY_PRE': 15000,   // 15s — pre-pre-market start
     'MIDDAY': 15000,  // 15s — still active, just slower
     'POWER_HOUR': 15000,  // 15s — closing momentum
     'AFTER_HOURS': 30000,  // 30s — after hours
-    'OVERNIGHT': 60000   // 60s — overnight, minimal movement
+    'OVERNIGHT': 30000   // 30s — overnight, minimal movement (REDUCED from 60s)
 };
 
 function getPolygonRefreshInterval() {
@@ -4830,23 +4815,9 @@ function startPolygonPriceRefresh() {
                 tradeJournal.updatePaperPnL(state.quotes);
                 tradeJournal.checkOutcomes(state.quotes);
 
-                // ML training — runs on fast Polygon loop (uses Polygon only)
-                if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
-                    try {
-                        var mlStatus = mlTrainingScheduler.getStatus();
-                        if (mlStatus.remaining > 0) {
-                            var newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
-                            if (newSamples > 0) {
-                                console.log('📊 ML training: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers done)');
-                            }
-                        }
-                    } catch (e) {
-                        console.error('ML training error:', e.message);
-                    }
-                }
 
                 // During market hours, run multi-TF analysis for watchlist tickers
-                var isActive = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(scheduler.getSessionName());
+                var isActive = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'EARLY_PRE', 'MIDDAY', 'POWER_HOUR'].includes(scheduler.getSessionName());
                 if (isActive) {
                     try {
                         var siMap = {};
@@ -5181,6 +5152,37 @@ async function runBacktest() {
     };
 }
 
+// ── ML Autonomous Background Worker ─────────────────────
+// Truly 24/7 training loop decoupled from market sessions
+let mlGrindTimer = null;
+async function startMLBackgroundGrind() {
+    if (mlGrindTimer) clearTimeout(mlGrindTimer);
+
+    async function grindCycle() {
+        try {
+            // Respect the isRunning flag inside the scheduler to prevent overlap
+            if (mlTrainingScheduler && !mlTrainingScheduler.isRunning) {
+                const mlStatus = mlTrainingScheduler.getStatus();
+                if (mlStatus.remaining > 0) {
+                    const newSamples = await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
+                    if (newSamples > 0) {
+                        console.log('🧠 [24/7 ML] Batch complete: +' + newSamples + ' samples (' + mlStatus.completed + '/' + mlStatus.total + ' tickers)');
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('🧠 [24/7 ML] Cycle error:', e.message);
+        }
+
+        // Schedule next batch immediately (5s rest to prevent CPU pinning)
+        mlGrindTimer = setTimeout(grindCycle, 5000);
+    }
+
+    console.log('🧠 ML Autonomous Background Worker: STARTED (24/7 grind active)');
+    grindCycle();
+}
+
 console.log(`\n\u23F3 Starting Trading Dashboard...`);
 console.log(`\uD83D\uDCCA Tickers: ${TICKERS.join(', ')}`);
 console.log(`\u23F1\uFE0F  Session: ${scheduler.getSessionName()} | Interval: ${scheduler.getSessionInterval() / 1000}s`);
+startMLBackgroundGrind();

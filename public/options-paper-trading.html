@@ -335,6 +335,19 @@
                 <span class="logo-text">COMMAND CENTER</span>
             </div>
             <div class="session-badge" id="sessionBadge">LOADING</div>
+            <div style="margin-left: 20px; display: flex; align-items: center; gap: 8px;">
+                <label
+                    style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Version:</label>
+                <select id="versionSelector"
+                    style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; font-family: var(--font-mono); outline: none;">
+                    <option value="all">All Versions</option>
+                    <option value="v1.0">v1.0 (Baseline)</option>
+                    <option value="vML" selected>vML (AI Progressive)</option>
+                    <option value="v2.0">v2.0 (Trend Follower)</option>
+                    <option value="v3.0">v3.0 (Mean Reversion)</option>
+                    <option value="v4.0">v4.0 (Volatility)</option>
+                </select>
+            </div>
         </div>
         <div class="topbar-right">
             <span class="budget-badge" id="budgetBadge" title="API calls used today">⚡ --</span>
@@ -368,7 +381,7 @@
         <!-- Info Bar -->
         <div class="pt-info-bar">
             <strong>📋 Options Paper Trading</strong> — AI-powered options contract simulation with a
-            <strong>$100,000</strong> account.
+            <strong id="infoBalance">$25,000</strong> account.
             Auto-entry analyzes signals, IV rank, and multi-timeframe confluence to recommend optimal contracts.
             Premium P&L tracks theta decay. Trades auto-close at +100% gain or -50% stop.
         </div>

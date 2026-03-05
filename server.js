@@ -771,10 +771,20 @@ app.get('/api/paper-trades/stats', (req, res) => {
 
 // ── Options Paper Trading API ────────────────────────────
 app.get('/api/options-paper/trades', (req, res) => {
-    res.json(optionsPaper.getTrades());
+    const { version } = req.query;
+    let trades = optionsPaper.getTrades();
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+    res.json(trades);
 });
 app.get('/api/options-paper/open-positions', (req, res) => {
-    res.json(optionsPaper.getOpenTrades());
+    const { version } = req.query;
+    let trades = optionsPaper.getOpenTrades();
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+    res.json(trades);
 });
 app.post('/api/options-paper/open', async (req, res) => {
     try {
@@ -801,7 +811,8 @@ app.post('/api/options-paper/close', (req, res) => {
     }
 });
 app.get('/api/options-paper/stats', (req, res) => {
-    res.json(optionsPaper.getStats());
+    const { version } = req.query;
+    res.json(optionsPaper.getStats(version));
 });
 app.get('/api/options-paper/training-data', (req, res) => {
     res.json(optionsPaper.getTrainingData());
@@ -2611,11 +2622,15 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                     console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + t + ' @ $' + price.toFixed(2) + ' (' + (at.features || []).length + ' features)');
                     try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
                 });
-                // Auto-enter options paper trade for discoveries
+                // Auto-enter options paper trade for each active version
                 if (abTrades.length > 0) {
-                    try {
-                        optionsPaper.autoEnterFromSignal(t, signalResult, price, state.quotes[t]);
-                    } catch (oe) { /* options auto-entry is optional */ }
+                    abTrades.forEach(function (at) {
+                        try {
+                            // Find the signal result for this specific version from abResults
+                            var vResult = abResults ? abResults[at.signalVersion] : signalResult;
+                            optionsPaper.autoEnterFromSignal(t, vResult || signalResult, price, state.quotes[t], at.signalVersion);
+                        } catch (oe) { /* options auto-entry is optional */ }
+                    });
                 }
             } else {
                 // Fallback: single version
@@ -3058,7 +3073,13 @@ async function scoreTickerSignals(ticker) {
                     // Auto-enter options paper trade for watchlist
                     if (abTrades.length > 0) {
                         try {
-                            optionsPaper.autoEnterFromSignal(ticker, signalResult, price, state.quotes[ticker]);
+                            // Auto-enter options for each version
+                            abTrades.forEach(function (at) {
+                                try {
+                                    var vResult = abResults ? abResults[at.signalVersion] : signalResult;
+                                    optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, price, state.quotes[ticker], at.signalVersion);
+                                } catch (oe) { /* optional */ }
+                            });
                         } catch (oe) { /* options auto-entry is optional */ }
                     }
                 } else {

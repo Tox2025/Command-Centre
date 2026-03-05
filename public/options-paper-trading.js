@@ -1,6 +1,7 @@
 // Options Paper Trading Client JS
 var $ = function (id) { return document.getElementById(id); };
 var ws = null, state = { tickers: [], quotes: {} };
+var activeVersion = 'vML';
 var ptChart = null;
 var sColors = { PRE_MARKET: '#f59e0b', OPEN: '#10b981', MIDDAY: '#3b82f6', POWER_HOUR: '#8b5cf6', POST_MARKET: '#f59e0b', CLOSED: '#64748b', LOADING: '#64748b' };
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };
@@ -82,6 +83,11 @@ function loadChart(ticker, interval) {
 }
 
 function refreshTrades() {
+    activeVersion = $('versionSelector') ? $('versionSelector').value : 'vML';
+    // Update balance text in info bar
+    if ($('infoBalance')) {
+        $('infoBalance').textContent = activeVersion === 'all' ? '$125,000' : '$25,000';
+    }
     fetchStats();
     fetchOpenPositions();
     fetchTradeHistory();
@@ -89,10 +95,11 @@ function refreshTrades() {
 
 // ── Stats ────────────────────────────────────────────
 function fetchStats() {
-    fetch('/api/options-paper/stats').then(function (r) { return r.json(); }).then(function (s) {
-        var acctValue = 100000 + s.totalPnl + s.unrealizedPnl;
+    fetch('/api/options-paper/stats?version=' + activeVersion).then(function (r) { return r.json(); }).then(function (s) {
+        var budget = activeVersion === 'all' ? 125000 : 25000;
+        var acctValue = budget + s.totalPnl + s.unrealizedPnl;
         $('statAccount').textContent = '$' + acctValue.toLocaleString('en-US', { minimumFractionDigits: 0 });
-        $('statAccount').className = 'stat-value' + (acctValue >= 100000 ? ' positive' : ' negative');
+        $('statAccount').className = 'stat-value' + (acctValue >= budget ? ' positive' : ' negative');
 
         $('statTotalPnl').textContent = (s.totalPnl >= 0 ? '+' : '') + '$' + s.totalPnl.toFixed(2);
         $('statTotalPnl').className = 'stat-value' + (s.totalPnl >= 0 ? ' positive' : ' negative');
@@ -208,7 +215,7 @@ function fetchStats() {
 
 // ── Open Positions ───────────────────────────────────
 function fetchOpenPositions() {
-    fetch('/api/options-paper/trades').then(function (r) { return r.json(); }).then(function (trades) {
+    fetch('/api/options-paper/trades?version=' + activeVersion).then(function (r) { return r.json(); }).then(function (trades) {
         var open = trades.filter(function (t) { return t.status === 'OPEN'; });
         $('openCount').textContent = open.length + ' position' + (open.length !== 1 ? 's' : '');
 
@@ -370,7 +377,8 @@ function manualEntry() {
             dte: dte,
             premium: premium,
             contracts: contracts,
-            stockPrice: 0
+            stockPrice: 0,
+            signalVersion: activeVersion || 'v1.0'
         })
     })
         .then(function (r) { return r.json(); })
@@ -408,6 +416,15 @@ function viewOnChart(ticker) {
 // Init
 connect();
 loadChart('TSLA', 'D');
+
+// Handle version selector change
+if ($('versionSelector')) {
+    $('versionSelector').addEventListener('change', function () {
+        activeVersion = this.value;
+        refreshTrades();
+    });
+}
+
 refreshTrades();
 
 // Chart controls

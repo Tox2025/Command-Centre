@@ -77,8 +77,9 @@ class OptionsPaperTrading {
             closeTime: null,
             status: 'OPEN',            // OPEN, WIN, LOSS, EXPIRED, CLOSED
             outcome: null,
-            // Auto-trading settings
+            // auto-trading settings
             autoEntry: params.autoEntry || false,
+            signalVersion: params.signalVersion || 'v1.0',
             // ML features at entry
             features: params.features || {}
         };
@@ -266,9 +267,15 @@ class OptionsPaperTrading {
     }
 
     // ── Stats ────────────────────────────────────────────
-    getStats() {
+    getStats(version) {
         var open = this.getOpenTrades();
         var closed = this.getClosedTrades();
+
+        if (version && version !== 'all') {
+            open = open.filter(function (t) { return t.signalVersion === version; });
+            closed = closed.filter(function (t) { return t.signalVersion === version; });
+        }
+
         var wins = closed.filter(function (t) { return t.status === 'WIN'; });
         var losses = closed.filter(function (t) { return t.status === 'LOSS'; });
 
@@ -388,15 +395,17 @@ class OptionsPaperTrading {
 
     // ── Auto-enter from signal engine ────────────────────
     // Called automatically when A/B paper trades are created
-    autoEnterFromSignal(ticker, signalResult, stockPrice, quote) {
+    autoEnterFromSignal(ticker, signalResult, stockPrice, quote, explicitVersion) {
         if (!ticker || !signalResult || !stockPrice || stockPrice <= 0) return null;
         if (!signalResult.direction || signalResult.direction === 'NEUTRAL') return null;
         if ((signalResult.confidence || 0) < 51) return null; // Trade signals 51%+
 
-        // Cooldown: max 1 options trade per ticker per 2 hours
+        var version = explicitVersion || 'v1.0';
+
+        // Cooldown: max 1 options trade per ticker per version per 2 hours
         var now = Date.now();
         var recent = this.trades.find(function (t) {
-            return t.ticker === ticker && t.status === 'OPEN'
+            return t.ticker === ticker && t.status === 'OPEN' && t.signalVersion === version
                 && (now - new Date(t.openTime).getTime()) < 2 * 60 * 60 * 1000;
         });
         if (recent) return null;
@@ -438,12 +447,13 @@ class OptionsPaperTrading {
             signals: (signalResult.signals || []).slice(0, 5).map(function (s) { return s.name || s; }),
             features: signalResult.features || [],
             autoEntry: true,
+            signalVersion: version,
             session: 'AUTO',
             horizon: 'day_trade'
         });
 
         if (trade) {
-            console.log('📋 Auto options paper: ' + optionType.toUpperCase() + ' ' + ticker + ' $' + strike + ' x' + contracts + ' @ $' + estimatedPremium + ' (conf: ' + signalResult.confidence + '%)');
+            console.log('📋 Auto options paper [' + version + ']: ' + optionType.toUpperCase() + ' ' + ticker + ' $' + strike + ' x' + contracts + ' @ $' + estimatedPremium + ' (conf: ' + signalResult.confidence + '%)');
         }
         return trade;
     }

@@ -17,17 +17,21 @@ class TradeJournal {
         this._migrateUnknownToV1();
     }
 
-    // One-time migration: tag old 'unknown' trades as v1.0 (same baseline weights)
+    // One-time migration: tag old 'unknown' or untagged trades as v1.0
     _migrateUnknownToV1() {
         var migrated = 0;
+        var self = this;
         this.trades.forEach(function (t) {
-            if (t.signalVersion === 'unknown' || !t.signalVersion) {
-                t.signalVersion = 'v1.0';
-                migrated++;
+            // If it's a paper trade (starts with PT- or has paper=true) and lacks a version, tag as v1.0
+            if (t.paper === true || (t.id && t.id.startsWith('PT-'))) {
+                if (!t.signalVersion || t.signalVersion === 'unknown') {
+                    t.signalVersion = 'v1.0';
+                    migrated++;
+                }
             }
         });
         if (migrated > 0) {
-            console.log('📦 Migrated ' + migrated + ' unknown trades → v1.0');
+            console.log('📦 Migrated ' + migrated + ' untagged paper trades → v1.0');
             this._save();
         }
     }

@@ -302,6 +302,19 @@
                 <span class="logo-text">COMMAND CENTER</span>
             </div>
             <div class="session-badge" id="sessionBadge">LOADING</div>
+            <div style="margin-left: 20px; display: flex; align-items: center; gap: 8px;">
+                <label
+                    style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Version:</label>
+                <select id="versionSelector"
+                    style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; font-family: var(--font-mono); outline: none;">
+                    <option value="all">All Versions</option>
+                    <option value="v1.0">v1.0 (Baseline)</option>
+                    <option value="v1.1">v1.1 (Momentum)</option>
+                    <option value="v1.2">v1.2 (Mean Rev)</option>
+                    <option value="v2.1">v2.1 (Ensemble)</option>
+                    <option value="vML" selected>vML (Progressive AI)</option>
+                </select>
+            </div>
         </div>
         <div class="topbar-right">
             <span class="budget-badge" id="budgetBadge" title="API calls used today">⚡ --</span>
@@ -330,8 +343,9 @@
     <main class="pt-layout">
 
         <!-- Info Bar -->
-        <div class="pt-info-bar">
-            <strong>📄 Paper Trading</strong> — Simulated trading with a <strong>$100,000</strong> account.
+        <div class="pt-info-bar" id="ptInfoBar">
+            <strong>📄 Paper Trading</strong> — Simulated trading with a <strong id="infoBalance">$25,000</strong>
+            version-specific budget.
             Take trades from the Dashboard's Trade Setup panel, or add trades here.
             Live P&L updates with each data refresh. Trades are logged and tracked for model training.
         </div>

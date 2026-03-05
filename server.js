@@ -599,7 +599,14 @@ app.get('/api/ab-results', (req, res) => {
 });
 
 app.get('/api/paper-trades', (req, res) => {
-    const trades = tradeJournal.getPaperTrades().map(t => {
+    const { version } = req.query;
+    let trades = tradeJournal.getPaperTrades();
+
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+
+    const enrichedTrades = trades.map(t => {
         // Compute missing fields for old trades
         if (t.status !== 'PENDING' && t.pnlPoints === undefined) {
             var exit = t.exitPrice || t.outcome || t.entry;
@@ -619,7 +626,7 @@ app.get('/api/paper-trades', (req, res) => {
         }
         return t;
     });
-    res.json(trades);
+    res.json(enrichedTrades);
 });
 app.post('/api/paper-trades', async (req, res) => {
     try {
@@ -656,8 +663,14 @@ app.post('/api/paper-trades/close', (req, res) => {
     }
 });
 app.get('/api/paper-trades/stats', (req, res) => {
+    const { version } = req.query;
+    let trades = tradeJournal.getPaperTrades();
 
-    const trades = tradeJournal.getPaperTrades().map(t => {
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+
+    trades = trades.map(t => {
         // Ensure pnl field exists (some old trades only have pnlPct)
         if (t.pnl === undefined && t.pnlPct !== undefined && t.pnlPct !== null) {
             t.pnl = t.pnlPct;
@@ -737,7 +750,7 @@ app.get('/api/paper-trades/stats', (req, res) => {
     const worstTrade = sortedByPnl[sortedByPnl.length - 1] || null;
 
     res.json({
-        accountSize: 100000,
+        accountSize: (version && version !== 'all') ? 25000 : 125000,
         totalTrades: trades.length,
         openTrades: open.length,
         closedTrades: closed.length,

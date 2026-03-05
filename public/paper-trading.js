@@ -84,13 +84,21 @@ function loadChart(ticker, interval) {
 }
 
 function refreshTrades() {
-    fetchStats();
-    fetchOpenPositions();
-    fetchTradeHistory();
+    var version = $('versionSelector') ? $('versionSelector').value : 'all';
+
+    // Update Info Bar text
+    if ($('infoBalance')) {
+        $('infoBalance').textContent = version === 'all' ? '$125,000' : '$25,000';
+    }
+
+    fetchStats(version);
+    fetchOpenPositions(version);
+    fetchTradeHistory(version);
 }
 
-function fetchStats() {
-    fetch('/api/paper-trades/stats').then(function (r) { return r.json(); }).then(function (s) {
+function fetchStats(version) {
+    version = version || 'all';
+    fetch('/api/paper-trades/stats?version=' + version).then(function (r) { return r.json(); }).then(function (s) {
         var acctValue = s.accountSize + (s.totalPnlDollar || 0) + (s.unrealizedPnlDollar || 0);
         $('statAccount').textContent = '$' + acctValue.toLocaleString('en-US', { minimumFractionDigits: 0 });
         $('statAccount').className = 'stat-value' + (acctValue >= s.accountSize ? ' positive' : ' negative');
@@ -186,8 +194,9 @@ function fetchStats() {
     }).catch(function (e) { console.error('Stats error:', e); });
 }
 
-function fetchOpenPositions() {
-    fetch('/api/paper-trades').then(function (r) { return r.json(); }).then(function (trades) {
+function fetchOpenPositions(version) {
+    version = version || 'all';
+    fetch('/api/paper-trades?version=' + version).then(function (r) { return r.json(); }).then(function (trades) {
         var open = trades.filter(function (t) { return t.status === 'PENDING'; });
         $('openCount').textContent = open.length + ' position' + (open.length !== 1 ? 's' : '');
 
@@ -251,8 +260,9 @@ function fetchOpenPositions() {
     }).catch(function (e) { console.error('Open positions error:', e); });
 }
 
-function fetchTradeHistory() {
-    fetch('/api/paper-trades').then(function (r) { return r.json(); }).then(function (trades) {
+function fetchTradeHistory(version) {
+    version = version || 'all';
+    fetch('/api/paper-trades?version=' + version).then(function (r) { return r.json(); }).then(function (trades) {
         var closed = trades.filter(function (t) { return t.status !== 'PENDING'; });
         $('historyCount').textContent = closed.length + ' trade' + (closed.length !== 1 ? 's' : '');
 
@@ -415,3 +425,10 @@ $('ptChartInterval').addEventListener('change', function () {
 
 // Auto-refresh trades every 15s
 setInterval(refreshTrades, 15000);
+
+// Version selector listener
+if ($('versionSelector')) {
+    $('versionSelector').addEventListener('change', function () {
+        refreshTrades();
+    });
+}

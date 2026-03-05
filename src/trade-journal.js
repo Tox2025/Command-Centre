@@ -5,8 +5,8 @@ const path = require('path');
 const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
 const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
 const EXPIRY_DAYS = 5; // Max days to track a trade before marking expired
-const ACCOUNT_BALANCE = 100000; // Paper trading account size
-const VERSION_BUDGET = 25000;   // Per-version budget ($100K / 4 versions)
+const ACCOUNT_BALANCE = 125000; // Paper trading account size ($25k * 5 versions)
+const VERSION_BUDGET = 25000;   // Per-version budget
 const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
 
 class TradeJournal {

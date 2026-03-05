@@ -20,18 +20,25 @@ class ABTester {
     _loadVersions() {
         var keys = SignalEngine.getVersionKeys();
         var loaded = 0;
+        var newEngines = {};
         for (var i = 0; i < keys.length; i++) {
             var engine = SignalEngine.loadVersion(keys[i]);
             if (engine) {
-                this.engines[keys[i]] = engine;
+                newEngines[keys[i]] = engine;
                 loaded++;
             }
         }
+        this.engines = newEngines;
         var versionCount = Object.keys(this.engines).length;
         console.log('🔬 A/B Tester: Loaded ' + loaded + ' signal versions — ' + Object.keys(this.engines).join(', '));
         // Calculate per-version budget
         this.perVersionBudget = versionCount > 0 ? Math.floor(100000 / versionCount) : 100000;
         console.log('💰 A/B Tester: $' + this.perVersionBudget + ' budget per version (' + versionCount + ' versions)');
+    }
+
+    refreshVersions() {
+        console.log('🔬 A/B Tester: Refreshing signal versions...');
+        this._loadVersions();
     }
 
     // Score a ticker with ALL versions simultaneously

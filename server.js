@@ -5227,7 +5227,44 @@ async function startMLBackgroundGrind() {
     grindCycle();
 }
 
+// ── ML Weight Synchronization ───────────────────────────
+// Periodically updates the vML signal version with AI-suggested weights
+async function syncMLWeights() {
+    try {
+        if (!mlCalibrator) return;
+        const suggestions = mlCalibrator.getSuggestedWeights('dayTrade');
+        if (!suggestions || Object.keys(suggestions).length === 0) return;
+
+        const versionsPath = path.join(__dirname, 'data', 'signal-versions.json');
+        if (require('fs').existsSync(versionsPath)) {
+            const config = JSON.parse(require('fs').readFileSync(versionsPath, 'utf8'));
+            if (config.versions && config.versions.vML) {
+                // Apply suggestions to vML weights
+                config.versions.vML.weights = Object.assign({}, config.versions.vML.weights, suggestions);
+                config.versions.vML.date = new Date().toISOString().split('T')[0];
+                config.versions.vML.performance.notes = "Auto-synced from MLCalibrator at " + new Date().toISOString();
+
+                require('fs').writeFileSync(versionsPath, JSON.stringify(config, null, 2));
+
+                // Tell abTester to reload versions from disk
+                if (abTester && typeof abTester.refreshVersions === 'function') {
+                    abTester.refreshVersions();
+                }
+                console.log('🧠 [ML Sync] Signal version vML updated with ' + Object.keys(suggestions).length + ' suggested weight adjustments');
+            }
+        }
+    } catch (e) {
+        console.error('🧠 [ML Sync] Error:', e.message);
+    }
+}
+
+// Initial sync after 30s to allow models to load/train
+setTimeout(syncMLWeights, 30000);
+// Every 30 minutes
+setInterval(syncMLWeights, 30 * 60 * 1000);
+
 console.log(`\n\u23F3 Starting Trading Dashboard...`);
 console.log(`\uD83D\uDCCA Tickers: ${TICKERS.join(', ')}`);
 console.log(`\u23F1\uFE0F  Session: ${scheduler.getSessionName()} | Interval: ${scheduler.getSessionInterval() / 1000}s`);
 startMLBackgroundGrind();
+syncMLWeights(); // and run once immediately

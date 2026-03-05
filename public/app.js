@@ -57,7 +57,8 @@ function renderSqueeze() {
         var sq = getSqueezeScore(t);
         // Get SI data
         var siRaw = state.shortInterest && state.shortInterest[t];
-        var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+        var siArr = Array.isArray(siRaw) ? siRaw : (siRaw ? [siRaw] : []);
+        var siObj = siArr.length > 0 ? siArr[siArr.length - 1] : null; // Use LATEST, not oldest [0]
         var siPct = 0;
         if (siObj) {
             siPct = parseFloat(siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_returned || siObj.short_percent_of_float || 0);
@@ -65,13 +66,13 @@ function renderSqueeze() {
                 siPct = parseFloat(siObj.short_interest);
             }
         }
-        var utilization = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || 0) : 0;
-        var dtc = siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || 0) : 0;
+        var utilization = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || siObj.util || 0) : 0;
+        var dtc = siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || siObj.short_interest_ratio || 0) : 0;
         // Short volume ratio
         var svRaw = state.shortVolume && state.shortVolume[t];
-        var svArr = Array.isArray(svRaw) ? svRaw : [];
+        var svArr = Array.isArray(svRaw) ? svRaw : (svRaw ? [svRaw] : []);
         var lastSV = svArr.length > 0 ? svArr[svArr.length - 1] : null;
-        var svRatio = lastSV ? parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0) : 0;
+        var svRatio = lastSV ? parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || lastSV.sv_ratio || lastSV.short_volume_pct || 0) : 0;
         // FTDs
         var ftdRaw = state.failsToDeliver && state.failsToDeliver[t];
         var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
@@ -97,19 +98,20 @@ function renderSqueeze() {
                 var sq = getSqueezeScore(t);
                 var q = state.quotes[t] || {};
                 var siRaw = state.shortInterest && state.shortInterest[t];
-                var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+                var siArr = Array.isArray(siRaw) ? siRaw : (siRaw ? [siRaw] : []);
+                var siObj = siArr.length > 0 ? siArr[siArr.length - 1] : null;
                 var ftdRaw = state.failsToDeliver && state.failsToDeliver[t];
-                var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
+                var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : (ftdRaw ? [ftdRaw] : []);
                 var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
 
                 rows.push({
                     ticker: t,
                     score: Math.max(3, sq),
                     siPct: siObj ? parseFloat(siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_returned || 0) : ssSI,
-                    svRatio: parseFloat(ss.short_volume_ratio || ss.short_ratio || 0),
+                    svRatio: lastSV ? parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || lastSV.sv_ratio || 0) : parseFloat(ss.short_volume_ratio || ss.short_ratio || ss.sv_ratio || 0),
                     ftdQty: lastFTD ? parseFloat(lastFTD.quantity || lastFTD.fails || 0) : 0,
-                    utilization: siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || 0) : parseFloat(ss.utilization || 0),
-                    dtc: siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || 0) : parseFloat(ss.days_to_cover || 0),
+                    utilization: siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || siObj.util || 0) : parseFloat(ss.utilization || ss.borrow_utilization || ss.util || 0),
+                    dtc: siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || siObj.short_interest_ratio || 0) : parseFloat(ss.days_to_cover || ss.dtc || 0),
                     price: q.last || q.price || parseFloat(ss.price || 0),
                     chg: q.changePercent || q.change_percent || parseFloat(ss.change_percent || 0),
                     discovered: true

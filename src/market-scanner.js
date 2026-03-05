@@ -326,24 +326,25 @@ class MarketScanner {
         // Short Volume Ratio
         var svData = (shortVol?.data) || [];
         if (Array.isArray(svData) && svData.length > 0) {
-            var lastSV = svData[svData.length - 1];
-            var svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || 0);
+            var lastSV = svData[svData.length - 1]; // Use LATEST, not oldest
+            var svRatio = parseFloat(lastSV.short_volume_ratio || lastSV.short_ratio || lastSV.sv_ratio || 0);
             if (svRatio > 0.5) { sqScore += 2; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
             else if (svRatio > 0.4) { sqScore += 1; sqDetail.push('SV=' + (svRatio * 100).toFixed(0) + '%'); }
         }
         // Fails to Deliver
         var ftdData = (ftds?.data) || [];
         if (Array.isArray(ftdData) && ftdData.length > 0) {
-            var lastFTD = ftdData[ftdData.length - 1];
+            var lastFTD = ftdData[ftdData.length - 1]; // Use LATEST
             var ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0);
             if (ftdQty > 1000000) { sqScore += 2; sqDetail.push('FTD=' + (ftdQty / 1e6).toFixed(1) + 'M'); }
             else if (ftdQty > 500000) { sqScore += 1; sqDetail.push('FTD=' + (ftdQty / 1e3).toFixed(0) + 'K'); }
         }
         // Borrow Utilization
-        var siScanData = (shortInt?.data) || {};
-        if (!Array.isArray(siScanData)) siScanData = [siScanData];
-        if (siScanData.length > 0 && siScanData[0]) {
-            var utilPct = parseFloat(siScanData[0].utilization || siScanData[0].borrow_utilization || 0);
+        var siScanRaw = (shortInt?.data) || {};
+        var siScanArr = Array.isArray(siScanRaw) ? siScanRaw : [siScanRaw];
+        if (siScanArr.length > 0) {
+            var lastSI = siScanArr[siScanArr.length - 1]; // Use LATEST
+            var utilPct = parseFloat(lastSI.utilization || lastSI.borrow_utilization || lastSI.util || 0);
             if (utilPct > 90) { sqScore += 2; sqDetail.push('Util=' + utilPct.toFixed(0) + '%'); }
             else if (utilPct > 70) { sqScore += 1; sqDetail.push('Util=' + utilPct.toFixed(0) + '%'); }
         }

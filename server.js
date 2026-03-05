@@ -3008,8 +3008,10 @@ async function scoreTickerSignals(ticker) {
                     var ftdArr = Array.isArray(state.failsToDeliver[ticker]) ? state.failsToDeliver[ticker] : [];
                     var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
                     if (lastFTD) { sqData.ftdQty = parseFloat(lastFTD.quantity || lastFTD.fails || 0); if (sqData.ftdQty > 1000000) sqData.score += 2; else if (sqData.ftdQty > 500000) sqData.score += 1; }
-                    var siObj = Array.isArray(state.shortInterest[ticker]) ? state.shortInterest[ticker][0] : state.shortInterest[ticker];
-                    if (siObj) { sqData.utilPct = parseFloat(siObj.utilization || siObj.borrow_utilization || 0); if (sqData.utilPct > 90) sqData.score += 2; else if (sqData.utilPct > 70) sqData.score += 1; }
+                    var siRaw = state.shortInterest[ticker];
+                    var siArr = Array.isArray(siRaw) ? siRaw : (siRaw ? [siRaw] : []);
+                    var siObj = siArr.length > 0 ? siArr[siArr.length - 1] : null; // Use LATEST, not oldest [0]
+                    if (siObj) { sqData.utilPct = parseFloat(siObj.utilization || siObj.borrow_utilization || siObj.util || 0); if (sqData.utilPct > 90) sqData.score += 2; else if (sqData.utilPct > 70) sqData.score += 1; }
 
                     state.squeezeScores = state.squeezeScores || {};
                     state.squeezeScores[ticker] = sqData;

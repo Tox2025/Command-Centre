@@ -20,9 +20,14 @@ function getSqueezeScore(ticker) {
     var siRaw = state.shortInterest && state.shortInterest[ticker];
     var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
     if (siObj) {
-        // UW doesn't return utilization — use SI% of float as proxy
-        var siPct = parseFloat(siObj.percent_returned || siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_of_float || 0);
-        if (siPct > 100) siPct = 0; // bad data guard
+        // Prioritize percentage fields to avoid raw share count confusion
+        var siPct = parseFloat(siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_returned || siObj.percent_of_float || 0);
+        // Fallback to short_interest ONLY if it's a small number (likely a pre-calculated %)
+        if (siPct === 0 && siObj.short_interest) {
+            var rawSI = parseFloat(siObj.short_interest);
+            if (rawSI < 100) siPct = rawSI;
+        }
+        if (siPct > 100) siPct = 0; // Guard against raw share counts leaking in
         if (siPct > 20) score += 2; else if (siPct > 10) score += 1;
     }
     return score;
@@ -36,8 +41,13 @@ function squeezeBadge(ticker) {
 function renderSqueeze() {
     var tb = $('squeezeBody');
     if (!tb) return;
-    // Collect all tickers: watchlist + discoveries
+    // Collect all tickers: watchlist + discoveries (from server refresh loop)
     var allTickers = (state.tickers || []).slice();
+    if (state.discoveryTickers) {
+        state.discoveryTickers.forEach(function (t) {
+            if (allTickers.indexOf(t) < 0) allTickers.push(t);
+        });
+    }
     (state.liveDiscoveries || []).forEach(function (d) {
         if (d.ticker && allTickers.indexOf(d.ticker) < 0) allTickers.push(d.ticker);
     });
@@ -48,7 +58,13 @@ function renderSqueeze() {
         // Get SI data
         var siRaw = state.shortInterest && state.shortInterest[t];
         var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
-        var siPct = siObj ? parseFloat(siObj.short_interest || siObj.si_pct_float || siObj.short_percent_of_float || 0) : 0;
+        var siPct = 0;
+        if (siObj) {
+            siPct = parseFloat(siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_returned || siObj.short_percent_of_float || 0);
+            if (siPct === 0 && siObj.short_interest && parseFloat(siObj.short_interest) < 100) {
+                siPct = parseFloat(siObj.short_interest);
+            }
+        }
         var utilization = siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || 0) : 0;
         var dtc = siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || 0) : 0;
         // Short volume ratio
@@ -76,7 +92,28 @@ function renderSqueeze() {
             if (!t) return;
             var exists = rows.find(function (r) { return r.ticker === t; });
             if (!exists) {
-                rows.push({ ticker: t, score: 3, siPct: parseFloat(ss.short_interest || 0), svRatio: parseFloat(ss.short_volume_ratio || 0), ftdQty: 0, utilization: parseFloat(ss.utilization || 0), dtc: parseFloat(ss.days_to_cover || 0), price: parseFloat(ss.price || 0), chg: parseFloat(ss.change_percent || 0), discovered: true });
+                var ssSI = parseFloat(ss.short_interest_pct || ss.si_pct_float || ss.short_interest || 0);
+                if (ssSI > 100) ssSI = 0; // Guard
+                var sq = getSqueezeScore(t);
+                var q = state.quotes[t] || {};
+                var siRaw = state.shortInterest && state.shortInterest[t];
+                var siObj = Array.isArray(siRaw) ? siRaw[0] : siRaw;
+                var ftdRaw = state.failsToDeliver && state.failsToDeliver[t];
+                var ftdArr = Array.isArray(ftdRaw) ? ftdRaw : [];
+                var lastFTD = ftdArr.length > 0 ? ftdArr[ftdArr.length - 1] : null;
+
+                rows.push({
+                    ticker: t,
+                    score: Math.max(3, sq),
+                    siPct: siObj ? parseFloat(siObj.si_pct_float || siObj.short_interest_pct || siObj.percent_returned || 0) : ssSI,
+                    svRatio: parseFloat(ss.short_volume_ratio || ss.short_ratio || 0),
+                    ftdQty: lastFTD ? parseFloat(lastFTD.quantity || lastFTD.fails || 0) : 0,
+                    utilization: siObj ? parseFloat(siObj.utilization || siObj.borrow_utilization || 0) : parseFloat(ss.utilization || 0),
+                    dtc: siObj ? parseFloat(siObj.days_to_cover || siObj.dtc || 0) : parseFloat(ss.days_to_cover || 0),
+                    price: q.last || q.price || parseFloat(ss.price || 0),
+                    chg: q.changePercent || q.change_percent || parseFloat(ss.change_percent || 0),
+                    discovered: true
+                });
             }
         });
         rows.sort(function (a, b) { return b.score - a.score || b.siPct - a.siPct; });

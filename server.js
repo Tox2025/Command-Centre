@@ -196,6 +196,7 @@ const state = {
     multiTF: {},
     hotOpportunities: [],
     liveDiscoveries: [],       // Active discoveries for dashboard (runners, halts, scanner)
+    discoveryTickers: [],      // Ephemeral tickers for background fetching (Squeeze Scanner)
     discoveryHistory: [],      // Performance tracking log
     // Phase 1 API Enhancement data
     netPremium: {},
@@ -3542,6 +3543,34 @@ async function fetchMarketData(tier) {
                     callCount++;
                 }
             } catch (e) { /* optional */ }
+
+            // Short Screener — MOVED to WARM for faster discovery (was COLD)
+            try {
+                const ss = await uw.getShortScreener({ min_short_interest: 10, limit: 30 }); // Lowered threshold from 20 to 10
+                if (ss?.data) {
+                    state.shortScreener = Array.isArray(ss.data) ? ss.data : [];
+
+                    // Update discoveryTickers set (tickers from scanner not on watchlist)
+                    var currentDiscoveries = state.shortScreener.map(function (s) { return s.ticker || s.symbol; }).filter(Boolean);
+                    var newDiscoveries = [];
+                    currentDiscoveries.forEach(function (t) {
+                        if (!state.tickers.includes(t) && !state.discoveryTickers.includes(t)) {
+                            newDiscoveries.push(t);
+                        }
+                    });
+
+                    // Update the global set
+                    state.discoveryTickers = currentDiscoveries.filter(function (t) { return !state.tickers.includes(t); });
+
+                    // Trigger immediate COLD fetch for brand new discoveries to fill SI/SV/FTD columns instantly
+                    for (var ndi = 0; ndi < newDiscoveries.length; ndi++) {
+                        var nt = newDiscoveries[ndi];
+                        console.log('🔍 New squeeze discovery: ' + nt + ' — triggering immediate COLD fetch');
+                        fetchTickerData(nt, 'COLD').catch(function (e) { console.error('Immediate fetch error for ' + nt + ':', e.message); });
+                    }
+                }
+                callCount++;
+            } catch (e) { /* optional */ }
         }
 
         // ── COLD tier (every 15th cycle) ──
@@ -3685,12 +3714,7 @@ async function fetchMarketData(tier) {
                 }
             } catch (e) { /* optional */ }
 
-            // Short Screener (auto-discover squeeze candidates) — COLD (NEW)
-            try {
-                const ss = await uw.getShortScreener({ min_short_interest: 20, limit: 30 });
-                if (ss?.data) state.shortScreener = Array.isArray(ss.data) ? ss.data : [];
-                callCount++;
-            } catch (e) { /* optional */ }
+            // Short Screener (auto-discover squeeze candidates) — MOVED TO WARM
 
             // Insider Sector Flow (sector-level insider sentiment) — COLD (NEW)
             try {
@@ -3893,8 +3917,9 @@ async function refreshAll() {
     console.log(`\n🔄 Refreshing [${tier}] — ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} EST`);
     state.session = AlertEngine.getCurrentSession();
 
-    // Fetch each ticker (tiered)
-    for (const ticker of state.tickers) {
+    // Fetch each ticker (tiered) — Watchlist + Active Discoveries
+    var allT = state.tickers.concat(state.discoveryTickers || []);
+    for (const ticker of allT) {
         totalCalls += await fetchTickerData(ticker, tier);
     }
 
@@ -4978,8 +5003,7 @@ function startPolygonPriceRefresh() {
                     }
                 }
 
-                // Broadcast fresh prices to all clients
-                broadcast({ type: 'full_state', data: getSerializableState() });
+                // Broadcast fresh prices to all clients — REMOVED (Decoupled to startLiveDashboardBroadcast)
             }
         } catch (e) {
             console.error('❌ Polygon price refresh error:', e.message);
@@ -5027,11 +5051,30 @@ if (scheduler.cycleCount > 0) {
     scheduler.cycleCount = 14; // next getDataTier() call returns COLD
     console.log('🆕 First boot today — running full COLD tier fetch');
 }
+// ── Live Dashboard Broadcast ──────────────────────────
+// Runs every 5 seconds to ensure UI stays fresh regardless of API lag
+var broadcastTimer = null;
+function startLiveDashboardBroadcast() {
+    if (broadcastTimer) clearTimeout(broadcastTimer);
+
+    function tick() {
+        try {
+            // Heartbeat for diagnostic transparency
+            state.lastBroadcast = new Date().toISOString();
+            broadcast({ type: 'full_state', data: getSerializableState() });
+        } catch (e) { console.error('Broadcast loop error:', e.message); }
+        broadcastTimer = setTimeout(tick, 5000);
+    }
+    tick();
+    console.log('📡 Autonomous dashboard broadcast pulse started (5s interval)');
+}
+
 refreshAll().then(() => {
     console.log('\n⏱️  Dynamic scheduling active — interval adjusts per market session');
     console.log('📊 Session: ' + scheduler.getSessionName() + ' | Interval: ' + (scheduler.getSessionInterval() / 1000) + 's');
     scheduleNext();
     startPolygonPriceRefresh();
+    startLiveDashboardBroadcast();
     startHaltRefresh();
     console.log('📈 Polygon price refresh active — session-aware (' + (getPolygonRefreshInterval() / 1000) + 's current, covers all command centre tickers)');
     console.log('🛑 Halt detection active — checking every ' + (HALT_REFRESH_MS / 1000) + 's');

@@ -169,7 +169,7 @@ class PolygonTickClient {
         // D3: Filter low-quality trades (odd lots, avg price, contingent, prior ref)
         var conditions = msg.c || msg.conditions || [];
         if (Array.isArray(conditions) && conditions.length > 0) {
-            var excludeConditions = [15, 16, 37, 52];
+            var excludeConditions = [15, 37, 52]; // 16 (Odd Lot) removed to ensure live price updates
             for (var ci = 0; ci < conditions.length; ci++) {
                 if (excludeConditions.indexOf(conditions[ci]) !== -1) return;
             }
@@ -767,8 +767,9 @@ class PolygonTickClient {
     // Filters out trades with questionable condition codes (odd lots, average price, etc.)
     filterQualityTrades(trades) {
         if (!trades || !Array.isArray(trades)) return trades;
-        // Condition codes to exclude: 15=avg price, 16=odd lot, 37=contingent, 52=prior ref price
-        var excludeConditions = [15, 16, 37, 52];
+        // Condition codes to exclude: 15=avg price, 37=contingent, 52=prior ref price
+        // Removed 16 (Odd Lot) to ensure live price telemetry
+        var excludeConditions = [15, 37, 52];
         return trades.filter(function (t) {
             var conds = t.conditions || t.c || [];
             if (!Array.isArray(conds) || conds.length === 0) return true;

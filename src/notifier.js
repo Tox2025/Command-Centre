@@ -272,6 +272,12 @@ class Notifier {
     async _sendTelegram(text) {
         if (!this.telegramToken || !this.telegramChatId) return;
 
+        // Telegram has a 4096 character limit per message.
+        // Truncate to 4000 to be safe after HTML conversion.
+        if (text.length > 4000) {
+            text = text.substring(0, 3990) + '... [truncated]';
+        }
+
         // Convert Markdown bold (*text*) to HTML bold (<b>text</b>)
         // HTML parse mode is more forgiving with special characters
         var htmlText = text

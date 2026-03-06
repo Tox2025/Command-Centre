@@ -346,7 +346,7 @@ class OptionsPaperTrading {
         var tickerBreakdown = Object.values(byTicker).sort(function (a, b) { return b.pnl - a.pnl; });
 
         return {
-            totalTrades: this.trades.length,
+            totalTrades: open.length + closed.length,
             openPositions: open.length,
             closedTrades: closed.length,
             wins: wins.length,
@@ -401,8 +401,8 @@ class OptionsPaperTrading {
         if ((signalResult.confidence || 0) < 51) return null; // Trade signals 51%+
 
         var version = explicitVersion || 'v1.0';
-        // Pruning: only allow v1.0 and vML for options auto-entry
-        if (version !== 'v1.0' && version !== 'vML') return null;
+        // Allow any version that matches our naming patterns (vX.X or vML)
+        if (!version.startsWith('v')) return null;
 
         // Cooldown: max 1 options trade per ticker per version per 2 hours
         var now = Date.now();

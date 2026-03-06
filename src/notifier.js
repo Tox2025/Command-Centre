@@ -24,8 +24,25 @@ class Notifier {
     }
 
     // ── Trade Alert ─────────────────────────────────────────
+    isMarketHours() {
+        const now = new Date();
+        const estStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const est = new Date(estStr);
+        const day = est.getDay(); // 0=Sun, 6=Sat
+        const hour = est.getHours();
+        const min = est.getMinutes();
+        const mins = hour * 60 + min;
+
+        // Market open: 9:30 AM (570) to 4:00 PM (960)
+        // Sunday after 8 PM (1200) we allow PRE-MARKETprep, but for alerts we'll stick to 8:30 AM (510) to 5:00 PM (1020)
+        const isWeekday = day >= 1 && day <= 5;
+        const isTimeMatch = mins >= 510 && mins <= 1020; // 8:30 AM - 5:00 PM ET
+        return isWeekday && isTimeMatch;
+    }
+
     async alert(setup, extra) {
         if (!this.enabled) return;
+        if (!this.isMarketHours()) return; // Gating nocturnal alerts
         extra = extra || {};
 
         // Custom message alerts (e.g. squeeze alerts) bypass confidence threshold

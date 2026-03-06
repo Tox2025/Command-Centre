@@ -231,9 +231,10 @@ class SignalEngine {
     constructor(weights, options) {
         options = options || {};
         this.weights = weights || { ...SIGNAL_WEIGHTS };
-        this.weightsScalp = options.weightsScalp || SIGNAL_WEIGHTS_SCALP;
-        this.weightsDay = options.weightsDay || SIGNAL_WEIGHTS_DAY;
-        this.weightsSwing = options.weightsSwing || SIGNAL_WEIGHTS_SWING;
+        // Use provided horizon weights or fallback to base weights (instead of global shared state)
+        this.weightsScalp = options.weightsScalp || null;
+        this.weightsDay = options.weightsDay || null;
+        this.weightsSwing = options.weightsSwing || null;
         this.tickerOverrides = options.tickerOverrides || SIGNAL_TICKER_OVERRIDES;
         this.gating = options.gating || SIGNAL_GATING;
         this.versionName = options.versionName || SIGNAL_VERSION;

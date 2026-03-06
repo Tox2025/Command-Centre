@@ -163,6 +163,8 @@ const state = {
     morningBrief: {},
     // Phase 1 new data
     shortInterest: {},
+    shortVolume: {},      // NEW: Initialize to prevent crashes
+    failsToDeliver: {},   // NEW: Initialize to prevent crashes
     ivRank: {},
     maxPain: {},
     oiChange: {},
@@ -177,16 +179,23 @@ const state = {
     totalOptionsVol: null,
     marketOIChange: null,
     marketInsiderBuySells: null,
+    // Dashboard support fields
+    sectorTide: {},       // NEW
+    etfFlows: {},         // NEW
+    economicCalendar: [],  // NEW
+    fdaCalendar: [],      // NEW
+    correlationRisk: {},  // NEW
+    kellySizing: {},      // NEW
+    signalScores: {},     // NEW
+    analystRatings: {},    // NEW
+    institutionActivity: {}, // NEW
     lastUpdate: null,
     session: 'LOADING',
-    signalScores: {},
+    marketRegime: { regime: 'UNKNOWN', label: 'LOADING...' },
     journalStats: {},
     mlStatus: {},
     earningsRisk: {},
-    marketRegime: null,
     sentiment: {},
-    correlationRisk: {},
-    kellySizing: {},
     notifierStatus: {},
     scannerResults: {},
     topNetImpact: [],
@@ -240,22 +249,31 @@ function getSerializableState() {
     // Strip non-serializable and large cache fields
     safe.chatHistory = undefined;
     safe.polygonSnapshots = undefined;
-    // Cap unbounded arrays to prevent memory bloat
-    if (Array.isArray(safe.optionsFlow) && safe.optionsFlow.length > 200) safe.optionsFlow = safe.optionsFlow.slice(-200);
-    if (Array.isArray(safe.alerts) && safe.alerts.length > 300) safe.alerts = safe.alerts.slice(-300);
-    if (Array.isArray(safe.darkPoolRecent) && safe.darkPoolRecent.length > 100) safe.darkPoolRecent = safe.darkPoolRecent.slice(-100);
-    if (Array.isArray(safe.news) && safe.news.length > 100) safe.news = safe.news.slice(-100);
-    if (Array.isArray(safe.congressTrades) && safe.congressTrades.length > 100) safe.congressTrades = safe.congressTrades.slice(-100);
-    if (Array.isArray(safe.insiderTransactions) && safe.insiderTransactions.length > 100) safe.insiderTransactions = safe.insiderTransactions.slice(-100);
-    if (Array.isArray(safe.xAlerts) && safe.xAlerts.length > 50) safe.xAlerts = safe.xAlerts.slice(-50);
-    if (Array.isArray(safe.halts) && safe.halts.length > 50) safe.halts = safe.halts.slice(-50);
-    if (Array.isArray(safe.gapAnalysis) && safe.gapAnalysis.length > 50) safe.gapAnalysis = safe.gapAnalysis.slice(-50);
-    if (Array.isArray(safe.hotOpportunities) && safe.hotOpportunities.length > 50) safe.hotOpportunities = safe.hotOpportunities.slice(-50);
-    if (Array.isArray(safe.liveDiscoveries) && safe.liveDiscoveries.length > 50) safe.liveDiscoveries = safe.liveDiscoveries.slice(-50);
-    if (Array.isArray(safe.discoveryHistory) && safe.discoveryHistory.length > 200) safe.discoveryHistory = safe.discoveryHistory.slice(-200);
-    if (Array.isArray(safe.unusualOptions) && safe.unusualOptions.length > 50) safe.unusualOptions = safe.unusualOptions.slice(-50);
-    if (Array.isArray(safe.economicCalendar) && safe.economicCalendar.length > 50) safe.economicCalendar = safe.economicCalendar.slice(-50);
-    if (Array.isArray(safe.topNetImpact) && safe.topNetImpact.length > 50) safe.topNetImpact = safe.topNetImpact.slice(-50);
+
+    // CAP 1: Unbounded arrays to prevent memory bloat
+    if (Array.isArray(safe.optionsFlow) && safe.optionsFlow.length > 100) safe.optionsFlow = safe.optionsFlow.slice(-100);
+    if (Array.isArray(safe.alerts) && safe.alerts.length > 100) safe.alerts = safe.alerts.slice(-100);
+    if (Array.isArray(safe.darkPoolRecent) && safe.darkPoolRecent.length > 50) safe.darkPoolRecent = safe.darkPoolRecent.slice(-50);
+    if (Array.isArray(safe.news) && safe.news.length > 50) safe.news = safe.news.slice(-50);
+
+    // CAP 2: Massive per-ticker historical data (CRITICAL for dashboard speed)
+    // Only send the last 5 records per ticker to the client
+    var historicalKeys = ['shortInterest', 'shortVolume', 'failsToDeliver', 'insiderFlow', 'institutionActivity', 'shortVolumesByExchange', 'termStructure', 'realizedVol', 'ivSkew', 'volStats'];
+    historicalKeys.forEach(function (key) {
+        if (safe[key]) {
+            var prunedKey = {};
+            Object.keys(safe[key]).forEach(function (ticker) {
+                var arr = safe[key][ticker];
+                if (Array.isArray(arr)) {
+                    prunedKey[ticker] = arr.slice(-5);
+                } else {
+                    prunedKey[ticker] = arr;
+                }
+            });
+            safe[key] = prunedKey;
+        }
+    });
+
     return safe;
 }
 
@@ -3139,11 +3157,13 @@ async function fetchTickerData(ticker, tier) {
         var optVolData = (state.optionVolume || {})[ticker] || null;
 
         // Dark pool (store as flat array — BUG-3 fix)
+        if (!scheduler.isWithinBudget()) return callCount;
         const dp = await uw.getDarkPoolLevels(ticker);
         if (dp?.data) state.darkPool[ticker] = Array.isArray(dp.data) ? dp.data : [dp.data];
         callCount++;
 
         // GEX (store as flat array — BUG-4 fix)
+        if (!scheduler.isWithinBudget()) return callCount;
         const gex = await uw.getGEXByStrike(ticker);
         if (gex?.data) state.gex[ticker] = Array.isArray(gex.data) ? gex.data : [gex.data];
         callCount++;
@@ -3239,6 +3259,7 @@ async function fetchTickerData(ticker, tier) {
         callCount++;
 
         // Options flow
+        if (!scheduler.isWithinBudget()) return callCount;
         const flow = await uw.getFlowByTicker(ticker);
         if (flow?.data) {
             const flowAlerts = alertEngine.evaluateFlowAlerts(flow, ticker);
@@ -3248,6 +3269,7 @@ async function fetchTickerData(ticker, tier) {
 
         // Net Premium Ticks (smart money direction) — HOT
         try {
+            if (!scheduler.isWithinBudget()) return callCount;
             const netPrem = await uw.getNetPremium(ticker);
             if (netPrem?.data) state.netPremium[ticker] = netPrem.data;
             callCount++;
@@ -3255,6 +3277,7 @@ async function fetchTickerData(ticker, tier) {
 
         // Flow Per Strike (magnetic price levels) — HOT
         try {
+            if (!scheduler.isWithinBudget()) return callCount;
             const fps = await uw.getFlowPerStrike(ticker);
             if (fps?.data) state.flowPerStrike[ticker] = fps.data;
             callCount++;
@@ -3272,6 +3295,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Greek Flow (delta/gamma shifts) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const gf = await uw.getGreekFlow(ticker);
                 if (gf?.data) state.greekFlow[ticker] = gf.data;
                 callCount++;
@@ -3279,6 +3303,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Spot Exposures (pinning detection) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const spot = await uw.getSpotExposures(ticker);
                 if (spot?.data) state.spotExposures[ticker] = spot.data;
                 callCount++;
@@ -3286,6 +3311,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Flow Per Expiry (trade horizon) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const fpe = await uw.getFlowPerExpiry(ticker);
                 if (fpe?.data) state.flowPerExpiry[ticker] = fpe.data;
                 callCount++;
@@ -3293,6 +3319,7 @@ async function fetchTickerData(ticker, tier) {
 
             // NOPE — Net Options Pricing Effect (directional predictor) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const nope = await uw.getNOPE(ticker);
                 if (nope?.data) state.nope[ticker] = nope.data;
                 callCount++;
@@ -3300,6 +3327,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Intraday Strike Flow (real-time magnetic levels) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const isf = await uw.getFlowPerStrikeIntraday(ticker);
                 if (isf?.data) state.flowPerStrikeIntraday[ticker] = isf.data;
                 callCount++;
@@ -3307,6 +3335,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Phase E: OI Per Strike (S/R from open interest) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const oiStrike = await uw.getOIPerStrike(ticker);
                 if (oiStrike?.data) { state.oiPerStrike = state.oiPerStrike || {}; state.oiPerStrike[ticker] = oiStrike.data; }
                 callCount++;
@@ -3314,6 +3343,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Phase E: OI Per Expiry (activity concentration by expiry) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const oiExp = await uw.getOIPerExpiry(ticker);
                 if (oiExp?.data) { state.oiPerExpiry = state.oiPerExpiry || {}; state.oiPerExpiry[ticker] = oiExp.data; }
                 callCount++;
@@ -3321,6 +3351,7 @@ async function fetchTickerData(ticker, tier) {
 
             // Tier 2: Lit Flow (lit vs dark routing split) — WARM
             try {
+                if (!scheduler.isWithinBudget()) return callCount;
                 const litf = await uw.getLitFlow(ticker);
                 if (litf?.data) { state.litFlow = state.litFlow || {}; state.litFlow[ticker] = litf.data; }
                 callCount++;
@@ -3334,6 +3365,7 @@ async function fetchTickerData(ticker, tier) {
                     var sortedExp = oiExpData.slice().sort(function (a, b) { return (b.volume || 0) - (a.volume || 0); });
                     var nearestExpiry = sortedExp[0].expiry || sortedExp[0].expiration_date;
                     if (nearestExpiry) {
+                        if (!scheduler.isWithinBudget()) return callCount;
                         const atm = await uw.getATMChains(ticker, nearestExpiry);
                         if (atm?.data) { state.atmChains = state.atmChains || {}; state.atmChains[ticker] = atm.data; }
                         callCount++;
@@ -3598,11 +3630,11 @@ async function fetchMarketData(tier) {
                     // Update the global set
                     state.discoveryTickers = currentDiscoveries.filter(function (t) { return !state.tickers.includes(t); });
 
-                    // Trigger immediate COLD fetch for brand new discoveries to fill SI/SV/FTD columns instantly
+                    // NEW: Restricted immediate fetch for brand new discoveries (HOT only to save budget)
                     for (var ndi = 0; ndi < newDiscoveries.length; ndi++) {
                         var nt = newDiscoveries[ndi];
-                        console.log('🔍 New squeeze discovery: ' + nt + ' — triggering immediate COLD fetch');
-                        fetchTickerData(nt, 'COLD').catch(function (e) { console.error('Immediate fetch error for ' + nt + ':', e.message); });
+                        console.log('🔍 New squeeze discovery: ' + nt + ' — triggering immediate HOT fetch');
+                        fetchTickerData(nt, 'HOT').catch(function (e) { console.error('Immediate fetch error for ' + nt + ':', e.message); });
                     }
                 }
                 callCount++;
@@ -3953,10 +3985,18 @@ async function refreshAll() {
     console.log(`\n🔄 Refreshing [${tier}] — ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' })} EST`);
     state.session = AlertEngine.getCurrentSession();
 
-    // Fetch each ticker (tiered) — Watchlist + Active Discoveries
+    // Fetch each ticker (tiered) — Watchlist (Full) + Active Discoveries (HOT-only)
     var allT = state.tickers.concat(state.discoveryTickers || []);
     for (const ticker of allT) {
-        totalCalls += await fetchTickerData(ticker, tier);
+        // Micro-budgeting: Check before EVERY ticker fetch
+        if (!scheduler.isWithinBudget()) {
+            console.log('⚠️ Budget hit during ticker loop — stopping fetch cycle early');
+            break;
+        }
+
+        // Enforce HOT_ONLY for discovery tickers to preserve budget for watchlist SI/FTD/GEX deep-dives
+        var effectiveTier = state.tickers.includes(ticker) ? tier : 'HOT';
+        totalCalls += await fetchTickerData(ticker, effectiveTier);
     }
 
     // Fetch market-wide data (tiered)
@@ -4034,9 +4074,12 @@ async function refreshAll() {
         }
     }
 
-    // Run signal engine scoring for each ticker (uses shared scoreTickerSignals helper)
-    for (const ticker of state.tickers) {
-        await scoreTickerSignals(ticker);
+    // Run signal engine scoring for each ticker (in parallel with concurrency limit)
+    // Parallelizing this prevents the system from "stalling" on sequential REST calls
+    const concurrencyLimit = 3;
+    for (let i = 0; i < state.tickers.length; i += concurrencyLimit) {
+        const batch = state.tickers.slice(i, i + concurrencyLimit);
+        await Promise.all(batch.map(ticker => scoreTickerSignals(ticker)));
     }
     // Correlation guard check across all setups
     state.correlationRisk = correlationGuard.checkConcentration(state.tradeSetups);

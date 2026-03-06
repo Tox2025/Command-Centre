@@ -88,7 +88,7 @@ function refreshTrades() {
 
     // Update Info Bar text
     if ($('infoBalance')) {
-        $('infoBalance').textContent = version === 'all' ? '$125,000' : '$25,000';
+        $('infoBalance').textContent = version === 'all' ? '$150,000' : '$25,000';
     }
 
     fetchStats(version);

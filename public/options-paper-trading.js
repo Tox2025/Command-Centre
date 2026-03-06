@@ -86,7 +86,7 @@ function refreshTrades() {
     activeVersion = $('versionSelector') ? $('versionSelector').value : 'vML';
     // Update balance text in info bar
     if ($('infoBalance')) {
-        $('infoBalance').textContent = activeVersion === 'all' ? '$125,000' : '$25,000';
+        $('infoBalance').textContent = activeVersion === 'all' ? '$50,000' : '$25,000';
     }
     fetchStats();
     fetchOpenPositions();
@@ -96,7 +96,7 @@ function refreshTrades() {
 // ── Stats ────────────────────────────────────────────
 function fetchStats() {
     fetch('/api/options-paper/stats?version=' + activeVersion).then(function (r) { return r.json(); }).then(function (s) {
-        var budget = activeVersion === 'all' ? 125000 : 25000;
+        var budget = activeVersion === 'all' ? 50000 : 25000;
         var acctValue = budget + s.totalPnl + s.unrealizedPnl;
         $('statAccount').textContent = '$' + acctValue.toLocaleString('en-US', { minimumFractionDigits: 0 });
         $('statAccount').className = 'stat-value' + (acctValue >= budget ? ' positive' : ' negative');

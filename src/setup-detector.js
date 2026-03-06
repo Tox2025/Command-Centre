@@ -106,15 +106,32 @@ class SetupDetector {
             });
         }
 
-        // MACD_BEARISH_CROSS — 44.1% base, with flow = tradeable
-        if (hist < 0 && macdSlope < -0.001 && emaBias === 'BEARISH' &&
-            rsi > 40 && rsi < 60 && hasVolSpike) {
-            const flowBoost = flowDir === 'BEARISH' ? 0.2 : 0;
-            if (flowBoost > 0) { // Only fire if flow confirms
+        // TECHNICAL_CONFLUENCE_LONG — 65%+ estimated (replicated from options logic)
+        if (adxVal > 25 && emaBias === 'BULLISH' && macdSlope > 0) {
+            const rsiDiv = ta.rsiDivergence || [];
+            const hasBullDiv = rsiDiv.some(d => d.direction === 'BULL' && d.strength > 0.5);
+            const mtf = (ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
+
+            if (hasBullDiv || mtf) {
                 setups.push({
-                    setup: 'MACD_BEARISH_CROSS', direction: 'BEARISH',
-                    strength: +(0.60 + flowBoost).toFixed(2),
-                    detail: `MACD cross down + EMA bear + PUT flow confirm`
+                    setup: 'TECHNICAL_CONFLUENCE_LONG', direction: 'BULLISH',
+                    strength: mtf ? 0.90 : 0.75,
+                    detail: `ADX=${adxVal} + ${mtf ? 'MTF Confluence' : 'Bull Div'} + EMA Bull`
+                });
+            }
+        }
+
+        // TECHNICAL_CONFLUENCE_SHORT — 65%+ estimated
+        if (adxVal > 25 && emaBias === 'BEARISH' && macdSlope < 0) {
+            const rsiDiv = ta.rsiDivergence || [];
+            const hasBearDiv = rsiDiv.some(d => d.direction === 'BEAR' && d.strength > 0.5);
+            const mtf = (ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
+
+            if (hasBearDiv || mtf) {
+                setups.push({
+                    setup: 'TECHNICAL_CONFLUENCE_SHORT', direction: 'BEARISH',
+                    strength: mtf ? 0.90 : 0.75,
+                    detail: `ADX=${adxVal} + ${mtf ? 'MTF Confluence' : 'Bear Div'} + EMA Bear`
                 });
             }
         }

@@ -5,7 +5,7 @@ const path = require('path');
 const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
 const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
 const EXPIRY_DAYS = 5; // Max days to track a trade before marking expired
-const ACCOUNT_BALANCE = 125000; // Paper trading account size ($25k * 5 versions)
+const ACCOUNT_BALANCE = 150000; // Paper trading account size ($25k * 6 versions)
 const VERSION_BUDGET = 25000;   // Per-version budget
 const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
 
@@ -352,7 +352,7 @@ class TradeJournal {
         return results;
     }
     // Kelly Criterion Position Sizing — per-version budget
-    // 4 versions × $25,000 = $100K total paper account
+    // 6 versions × $25,000 = $150K total paper account
     calculateKellySize(confidence, accountSize) {
         accountSize = accountSize || VERSION_BUDGET; // $25K per version
         var closed = this.trades.filter(function (t) { return t.status !== 'PENDING' && t.status !== 'EXPIRED'; });
@@ -439,7 +439,7 @@ class TradeJournal {
         var minShares = entryPrice < 100 ? 10 : entryPrice < 500 ? 5 : 2;
         if (tentativeShares < minShares) tentativeShares = minShares;
 
-        // ── Per-version exposure cap — ≤ $25K per version, ≤ $100K total ──
+        // ── Per-version exposure cap — ≤ $25K per version, ≤ $150K total ──
         var newNotional = entryPrice * tentativeShares;
         var versionCap = VERSION_BUDGET;
         if (exposure.versionTotal + newNotional > versionCap) {

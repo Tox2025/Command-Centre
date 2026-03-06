@@ -750,7 +750,7 @@ app.get('/api/paper-trades/stats', (req, res) => {
     const worstTrade = sortedByPnl[sortedByPnl.length - 1] || null;
 
     res.json({
-        accountSize: (version && version !== 'all') ? 25000 : 125000,
+        accountSize: (version && version !== 'all') ? 25000 : 150000,
         totalTrades: trades.length,
         openTrades: open.length,
         closedTrades: closed.length,

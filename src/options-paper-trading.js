@@ -401,6 +401,8 @@ class OptionsPaperTrading {
         if ((signalResult.confidence || 0) < 51) return null; // Trade signals 51%+
 
         var version = explicitVersion || 'v1.0';
+        // Pruning: only allow v1.0 and vML for options auto-entry
+        if (version !== 'v1.0' && version !== 'vML') return null;
 
         // Cooldown: max 1 options trade per ticker per version per 2 hours
         var now = Date.now();

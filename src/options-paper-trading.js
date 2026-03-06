@@ -253,28 +253,28 @@ class OptionsPaperTrading {
         return trade;
     }
 
-    // ── Get all trades ───────────────────────────────────
-    getTrades() {
-        return this.trades;
+    // ── Get trades ─────────────────────────────────────────
+    getTrades(version) {
+        if (!version || version === 'all') return this.trades;
+        return this.trades.filter(function (t) { return t.signalVersion === version; });
     }
 
-    getOpenTrades() {
-        return this.trades.filter(function (t) { return t.status === 'OPEN'; });
+    getOpenTrades(version) {
+        var open = this.trades.filter(function (t) { return t.status === 'OPEN'; });
+        if (!version || version === 'all') return open;
+        return open.filter(function (t) { return t.signalVersion === version; });
     }
 
-    getClosedTrades() {
-        return this.trades.filter(function (t) { return t.status !== 'OPEN'; });
+    getClosedTrades(version) {
+        var closed = this.trades.filter(function (t) { return t.status !== 'OPEN'; });
+        if (!version || version === 'all') return closed;
+        return closed.filter(function (t) { return t.signalVersion === version; });
     }
 
     // ── Stats ────────────────────────────────────────────
     getStats(version) {
-        var open = this.getOpenTrades();
-        var closed = this.getClosedTrades();
-
-        if (version && version !== 'all') {
-            open = open.filter(function (t) { return t.signalVersion === version; });
-            closed = closed.filter(function (t) { return t.signalVersion === version; });
-        }
+        var open = this.getOpenTrades(version);
+        var closed = this.getClosedTrades(version);
 
         var wins = closed.filter(function (t) { return t.status === 'WIN'; });
         var losses = closed.filter(function (t) { return t.status === 'LOSS'; });

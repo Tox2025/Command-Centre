@@ -274,7 +274,9 @@ class SignalEngine {
         try {
             var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
             if (!fs.existsSync(versionsPath)) return [];
-            var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+            var raw = fs.readFileSync(versionsPath, 'utf8');
+            if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+            var config = JSON.parse(raw);
             return Object.keys(config.versions || {});
         } catch (e) { return []; }
     }

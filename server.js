@@ -5121,6 +5121,24 @@ if (cachedState) {
         }
     });
     console.log('📂 Dashboard preloaded with cached data');
+
+    // 🛡️ State Guard: Prune discoveryTickers if too many (stale discovery explosion)
+    if (state.discoveryTickers && state.discoveryTickers.length > 50) {
+        const originalCount = state.discoveryTickers.length;
+        state.discoveryTickers = state.discoveryTickers.slice(-50); // Keep only most recent 50
+        console.log('🧹 [State Guard] Pruned ' + (originalCount - 50) + ' stale discovery tickers (Total: 50)');
+        // Also prune from other state objects to free memory
+        const currentDiscoverySet = new Set(state.discoveryTickers);
+        ['signalScores', 'tradeSetups', 'quotes', 'technicals', 'darkPool', 'gex', 'news'].forEach(key => {
+            if (state[key]) {
+                Object.keys(state[key]).forEach(ticker => {
+                    if (!TICKERS.includes(ticker) && !currentDiscoverySet.has(ticker)) {
+                        delete state[key][ticker];
+                    }
+                });
+            }
+        });
+    }
 }
 
 // Initial fetch — COLD only on first boot of the day, HOT on restarts
@@ -5317,7 +5335,9 @@ async function syncMLWeights() {
 
         const versionsPath = path.join(__dirname, 'data', 'signal-versions.json');
         if (require('fs').existsSync(versionsPath)) {
-            const config = JSON.parse(require('fs').readFileSync(versionsPath, 'utf8'));
+            let raw = require('fs').readFileSync(versionsPath, 'utf8');
+            if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+            const config = JSON.parse(raw);
             if (config.versions && config.versions.vML) {
                 // Apply suggestions to vML weights
                 config.versions.vML.weights = Object.assign({}, config.versions.vML.weights, suggestions);

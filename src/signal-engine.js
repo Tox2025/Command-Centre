@@ -83,7 +83,9 @@ var SIGNAL_TICKER_OVERRIDES = {};
 try {
     var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
     if (fs.existsSync(versionsPath)) {
-        var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+        var raw = fs.readFileSync(versionsPath, 'utf8');
+        if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+        var config = JSON.parse(raw);
         var activeVer = config.activeVersion || 'default';
         if (config.versions && config.versions[activeVer]) {
             var ver = config.versions[activeVer];
@@ -246,7 +248,9 @@ class SignalEngine {
         try {
             var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
             if (!fs.existsSync(versionsPath)) return null;
-            var config = JSON.parse(fs.readFileSync(versionsPath, 'utf8'));
+            var raw = fs.readFileSync(versionsPath, 'utf8');
+            if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+            var config = JSON.parse(raw);
             if (!config.versions || !config.versions[versionKey]) return null;
             var ver = config.versions[versionKey];
             var weights = Object.assign({}, DEFAULT_WEIGHTS, ver.weights || {});

@@ -212,18 +212,33 @@ class TradeJournal {
         const PURGE_THRESHOLD_DAYS = 10;
         let purged = 0;
         let pendingCount = 0;
+        let oldestPending = null;
+        let newestPending = null;
 
         console.log('🧹 TradeJournal: Starting zombie purge check (threshold: ' + PURGE_THRESHOLD_DAYS + ' days)...');
 
         this.trades.forEach(trade => {
             if (trade.status !== 'PENDING') return;
             pendingCount++;
-            const tradeAgeDays = (now - new Date(trade.openTime).getTime()) / (1000 * 60 * 60 * 24);
-            if (tradeAgeDays > PURGE_THRESHOLD_DAYS) {
+
+            const openTime = trade.openTime || trade.timestamp; // Fallback if name differs
+            if (!openTime) return;
+
+            const ageMs = now - new Date(openTime).getTime();
+            const ageDays = ageMs / (1000 * 60 * 60 * 24);
+
+            if (!oldestPending || ageDays > oldestPending.age) oldestPending = { age: ageDays, date: openTime };
+            if (!newestPending || ageDays < newestPending.age) newestPending = { age: ageDays, date: openTime };
+
+            if (ageDays > PURGE_THRESHOLD_DAYS) {
                 this._closeTrade(trade, 'EXPIRED', trade.paperEntry || trade.entry || 0);
                 purged++;
             }
         });
+
+        if (oldestPending) {
+            console.log('🧹 Pending stats: Oldest=' + oldestPending.age.toFixed(1) + ' days (' + oldestPending.date + '), Newest=' + newestPending.age.toFixed(1) + ' days (' + newestPending.date + ')');
+        }
 
         if (purged > 0) {
             this._recalcStats();

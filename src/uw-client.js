@@ -38,6 +38,15 @@ class UWClient {
     return this._waitForCapacity();
   }
 
+  // Estimate how long we have to wait for the next request
+  getRateLimitWait() {
+    const now = Date.now();
+    const windowTimestamps = this._requestTimestamps.filter(ts => now - ts < this._rateWindow);
+    if (windowTimestamps.length < this._rateLimit) return 0;
+    const oldest = windowTimestamps[0];
+    return Math.max(0, (oldest + this._rateWindow) - now + 50);
+  }
+
   async _fetch(endpoint, params = {}) {
     await this._waitForCapacity();
 

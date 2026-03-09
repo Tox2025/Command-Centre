@@ -3143,6 +3143,12 @@ async function scoreTickerSignals(ticker) {
 // ── Data Fetching ─────────────────────────────────────────
 
 async function fetchTickerData(ticker, tier) {
+    // 🛡️ Discovery Bypass: Skip if API is congested AND ticker is not on main watchlist
+    if (!TICKERS.includes(ticker) && uw.getRateLimitWait() > 5000) {
+        // console.log('⏩ [Discovery Bypass] Skipping ' + ticker + ' due to API congestion');
+        return 0;
+    }
+
     console.log('📡 Fetching [' + (tier || 'HOT') + '] data for ' + ticker + '...');
     var callCount = 0;
     try {
@@ -5122,19 +5128,15 @@ if (cachedState) {
     });
     console.log('📂 Dashboard preloaded with cached data');
 
-    // 🛡️ State Guard: Prune discoveryTickers if too many (stale discovery explosion)
-    if (state.discoveryTickers && state.discoveryTickers.length > 50) {
-        const originalCount = state.discoveryTickers.length;
-        state.discoveryTickers = state.discoveryTickers.slice(-50); // Keep only most recent 50
-        console.log('🧹 [State Guard] Pruned ' + (originalCount - 50) + ' stale discovery tickers (Total: 50)');
-        // Also prune from other state objects to free memory
-        const currentDiscoverySet = new Set(state.discoveryTickers);
+    // 🛡️ [State Guard] Recovery: Clear discovery backlog on startup to ensure priority for watchlist
+    if (state.discoveryTickers && state.discoveryTickers.length > 0) {
+        console.log('🧹 [State Guard] Clearing ' + state.discoveryTickers.length + ' stale discovery tickers for fresh start');
+        state.discoveryTickers = [];
+        // Clean up metadata
         ['signalScores', 'tradeSetups', 'quotes', 'technicals', 'darkPool', 'gex', 'news'].forEach(key => {
             if (state[key]) {
                 Object.keys(state[key]).forEach(ticker => {
-                    if (!TICKERS.includes(ticker) && !currentDiscoverySet.has(ticker)) {
-                        delete state[key][ticker];
-                    }
+                    if (!TICKERS.includes(ticker)) delete state[key][ticker];
                 });
             }
         });
@@ -5336,8 +5338,11 @@ async function syncMLWeights() {
         const versionsPath = path.join(__dirname, 'data', 'signal-versions.json');
         if (require('fs').existsSync(versionsPath)) {
             let raw = require('fs').readFileSync(versionsPath, 'utf8');
+            // Super Clean: Strip BOM and any non-JSON prefix/suffix
             if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-            const config = JSON.parse(raw);
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("No valid JSON found in file");
+            const config = JSON.parse(jsonMatch[0]);
             if (config.versions && config.versions.vML) {
                 // Apply suggestions to vML weights
                 config.versions.vML.weights = Object.assign({}, config.versions.vML.weights, suggestions);

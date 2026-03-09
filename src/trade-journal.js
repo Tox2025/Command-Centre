@@ -150,18 +150,26 @@ class TradeJournal {
             if (trade.status !== 'PENDING') return;
 
             // Grace period: don't check trades until they're at least 5 min old
-            // Prevents instant-close bug where stale session low/high triggers false outcomes
             const tradeAge = now - new Date(trade.openTime).getTime();
             if (tradeAge < GRACE_PERIOD_MS) return;
+
+            const ageDays = tradeAge / (1000 * 60 * 60 * 24);
+
+            // ── FIX: Expire based on time REGARDLESS of price availability ──
+            if (ageDays > EXPIRY_DAYS) {
+                const q = quotes[trade.ticker];
+                const current = q ? parseFloat(q.last || q.price || q.close || 0) : (trade.paperEntry || trade.entry || 0);
+                this._closeTrade(trade, 'EXPIRED', current);
+                updated++;
+                return;
+            }
 
             const q = quotes[trade.ticker];
             if (!q) return;
 
-            // Use CURRENT price only — not session high/low which include prices from before trade opened
+            // Use CURRENT price only
             const current = parseFloat(q.last || q.price || q.close || 0);
             if (current === 0) return;
-
-            const ageDays = tradeAge / (1000 * 60 * 60 * 24);
 
             if (trade.direction === 'LONG') {
                 if (current <= trade.stop) {
@@ -172,9 +180,6 @@ class TradeJournal {
                     updated++;
                 } else if (current >= trade.target1) {
                     this._closeTrade(trade, 'WIN_T1', current);
-                    updated++;
-                } else if (ageDays > EXPIRY_DAYS) {
-                    this._closeTrade(trade, 'EXPIRED', current);
                     updated++;
                 }
             } else { // SHORT
@@ -187,9 +192,6 @@ class TradeJournal {
                 } else if (current <= trade.target1) {
                     this._closeTrade(trade, 'WIN_T1', current);
                     updated++;
-                } else if (ageDays > EXPIRY_DAYS) {
-                    this._closeTrade(trade, 'EXPIRED', current);
-                    updated++;
                 }
             }
         });
@@ -199,6 +201,29 @@ class TradeJournal {
             this._save();
         }
         return updated;
+    }
+
+    // One-time purge of extremely stale trades (> 10 days) to free up budget
+    purgeStaleTrades() {
+        const now = Date.now();
+        const PURGE_THRESHOLD_DAYS = 10;
+        let purged = 0;
+
+        this.trades.forEach(trade => {
+            if (trade.status !== 'PENDING') return;
+            const tradeAgeDays = (now - new Date(trade.openTime).getTime()) / (1000 * 60 * 60 * 24);
+            if (tradeAgeDays > PURGE_THRESHOLD_DAYS) {
+                this._closeTrade(trade, 'EXPIRED', trade.paperEntry || trade.entry || 0);
+                purged++;
+            }
+        });
+
+        if (purged > 0) {
+            this._recalcStats();
+            this._save();
+            console.log('🧹 Purged ' + purged + ' stale zombie trades from journal.');
+        }
+        return purged;
     }
 
     _closeTrade(trade, status, exitPrice) {

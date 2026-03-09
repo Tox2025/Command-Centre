@@ -62,6 +62,7 @@ const uwWS = new UWWebSocketClient(process.env.UW_API_KEY);  // D1/D2: Lit + Off
 const alertEngine = new AlertEngine();
 const signalEngine = new SignalEngine();
 const tradeJournal = new TradeJournal();
+tradeJournal.purgeStaleTrades(); // One-time purge of 10d+ zombie trades to free up budget
 const mlCalibrator = new MLCalibrator();
 const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler assigned after init
 const mlTrainingScheduler = new MLTrainingScheduler(process.env.POLYGON_API_KEY || '');

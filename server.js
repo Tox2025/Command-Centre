@@ -2806,6 +2806,7 @@ setInterval(checkDiscoveryPerformance, 30 * 60 * 1000);
 
 // ── Score a single ticker: signal engine + ML ensemble + trade setup ──
 async function scoreTickerSignals(ticker) {
+    console.log('🎯 Scoring signals for ' + ticker + '...');
     try {
         // ── Inject fresh Polygon prices into state.quotes BEFORE scoring ──
         try {
@@ -3142,6 +3143,7 @@ async function scoreTickerSignals(ticker) {
 // ── Data Fetching ─────────────────────────────────────────
 
 async function fetchTickerData(ticker, tier) {
+    console.log('📡 Fetching [' + (tier || 'HOT') + '] data for ' + ticker + '...');
     var callCount = 0;
     try {
         // ── HOT tier (every cycle) — UW calls only ──

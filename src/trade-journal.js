@@ -206,10 +206,10 @@ class TradeJournal {
         return updated;
     }
 
-    // One-time purge of extremely stale trades (> 10 days) to free up budget
+    // One-time purge of stale trades (> 2 days) to free up budget for tomorrow's open
     purgeStaleTrades() {
         const now = Date.now();
-        const PURGE_THRESHOLD_DAYS = 10;
+        const PURGE_THRESHOLD_DAYS = 2; // Aggressive purge to restore budget
         let purged = 0;
         let pendingCount = 0;
         let oldestPending = null;

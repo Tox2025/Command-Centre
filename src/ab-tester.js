@@ -61,6 +61,7 @@ class ABTester {
                     result.mlConfidence = ensemble.mlConfidence || null;
                     result.blendedConfidence = ensemble.confidence;
                     result.ensemble = ensemble;
+                    console.log('?? ABTester [' + version + '] ' + ticker + ': Tech=' + result.confidence + '% ML=' + (result.mlConfidence || 0) + '% Blend=' + result.blendedConfidence + '% (' + result.direction + ')');
                 }
                 results[version] = result;
             } catch (e) {

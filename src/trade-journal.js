@@ -45,6 +45,9 @@ class TradeJournal {
                 const data = JSON.parse(raw);
                 this.trades = data.trades || [];
                 this.stats = data.stats || this.stats;
+                console.log('📖 TradeJournal: Loaded ' + this.trades.length + ' trades from ' + JOURNAL_PATH);
+            } else {
+                console.log('📖 TradeJournal: No existing journal found at ' + JOURNAL_PATH);
             }
         } catch (e) {
             console.error('TradeJournal load error:', e.message);
@@ -208,9 +211,13 @@ class TradeJournal {
         const now = Date.now();
         const PURGE_THRESHOLD_DAYS = 10;
         let purged = 0;
+        let pendingCount = 0;
+
+        console.log('🧹 TradeJournal: Starting zombie purge check (threshold: ' + PURGE_THRESHOLD_DAYS + ' days)...');
 
         this.trades.forEach(trade => {
             if (trade.status !== 'PENDING') return;
+            pendingCount++;
             const tradeAgeDays = (now - new Date(trade.openTime).getTime()) / (1000 * 60 * 60 * 24);
             if (tradeAgeDays > PURGE_THRESHOLD_DAYS) {
                 this._closeTrade(trade, 'EXPIRED', trade.paperEntry || trade.entry || 0);
@@ -222,6 +229,8 @@ class TradeJournal {
             this._recalcStats();
             this._save();
             console.log('🧹 Purged ' + purged + ' stale zombie trades from journal.');
+        } else {
+            console.log('🧹 No zombie trades found to purge (Pending found: ' + pendingCount + ')');
         }
         return purged;
     }

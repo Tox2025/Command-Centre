@@ -84,21 +84,25 @@ try {
     var versionsPath = path.join(__dirname, '..', 'data', 'signal-versions.json');
     if (fs.existsSync(versionsPath)) {
         var raw = fs.readFileSync(versionsPath, 'utf8');
+        // Super Clean: Strip BOM and any non-JSON prefix/suffix
         if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-        var config = JSON.parse(raw);
-        var activeVer = config.activeVersion || 'default';
-        if (config.versions && config.versions[activeVer]) {
-            var ver = config.versions[activeVer];
-            SIGNAL_WEIGHTS = Object.assign({}, DEFAULT_WEIGHTS, ver.weights);
-            SIGNAL_VERSION = activeVer;
-            SIGNAL_GATING = ver.gating || {};
-            // Load horizon-specific weight profiles
-            if (ver.weights_scalp) SIGNAL_WEIGHTS_SCALP = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_scalp);
-            if (ver.weights_day) SIGNAL_WEIGHTS_DAY = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_day);
-            if (ver.weights_swing) SIGNAL_WEIGHTS_SWING = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_swing);
-            SIGNAL_TICKER_OVERRIDES = ver.ticker_overrides || {};
-            var profiles = [ver.weights_scalp ? 'scalp' : null, ver.weights_day ? 'day' : null, ver.weights_swing ? 'swing' : null].filter(Boolean);
-            console.log('📊 Signal Engine loaded version: ' + activeVer + ' — "' + ver.label + '" (profiles: ' + (profiles.length > 0 ? profiles.join('/') : 'default') + ')');
+        var jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            var config = JSON.parse(jsonMatch[0]);
+            var activeVer = config.activeVersion || 'default';
+            if (config.versions && config.versions[activeVer]) {
+                var ver = config.versions[activeVer];
+                SIGNAL_WEIGHTS = Object.assign({}, DEFAULT_WEIGHTS, ver.weights);
+                SIGNAL_VERSION = activeVer;
+                SIGNAL_GATING = ver.gating || {};
+                // Load horizon-specific weight profiles
+                if (ver.weights_scalp) SIGNAL_WEIGHTS_SCALP = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_scalp);
+                if (ver.weights_day) SIGNAL_WEIGHTS_DAY = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_day);
+                if (ver.weights_swing) SIGNAL_WEIGHTS_SWING = Object.assign({}, DEFAULT_WEIGHTS, ver.weights_swing);
+                SIGNAL_TICKER_OVERRIDES = ver.ticker_overrides || {};
+                var profiles = [ver.weights_scalp ? 'scalp' : null, ver.weights_day ? 'day' : null, ver.weights_swing ? 'swing' : null].filter(Boolean);
+                console.log('📊 Signal Engine loaded version: ' + activeVer + ' — "' + ver.label + '" (profiles: ' + (profiles.length > 0 ? profiles.join('/') : 'default') + ')');
+            }
         }
     }
 } catch (e) {
@@ -250,7 +254,9 @@ class SignalEngine {
             if (!fs.existsSync(versionsPath)) return null;
             var raw = fs.readFileSync(versionsPath, 'utf8');
             if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-            var config = JSON.parse(raw);
+            var jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) return null;
+            var config = JSON.parse(jsonMatch[0]);
             if (!config.versions || !config.versions[versionKey]) return null;
             var ver = config.versions[versionKey];
             var weights = Object.assign({}, DEFAULT_WEIGHTS, ver.weights || {});
@@ -276,7 +282,9 @@ class SignalEngine {
             if (!fs.existsSync(versionsPath)) return [];
             var raw = fs.readFileSync(versionsPath, 'utf8');
             if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-            var config = JSON.parse(raw);
+            var jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) return [];
+            var config = JSON.parse(jsonMatch[0]);
             return Object.keys(config.versions || {});
         } catch (e) { return []; }
     }

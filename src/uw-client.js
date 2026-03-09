@@ -47,6 +47,13 @@ class UWClient {
     return Math.max(0, (oldest + this._rateWindow) - now + 50);
   }
 
+  // Get current request count in the window
+  getRateLimitCount() {
+    const now = Date.now();
+    this._requestTimestamps = this._requestTimestamps.filter(ts => now - ts < this._rateWindow);
+    return this._requestTimestamps.length;
+  }
+
   async _fetch(endpoint, params = {}) {
     await this._waitForCapacity();
 

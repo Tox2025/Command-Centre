@@ -3143,8 +3143,8 @@ async function scoreTickerSignals(ticker) {
 // ── Data Fetching ─────────────────────────────────────────
 
 async function fetchTickerData(ticker, tier) {
-    // 🛡️ Discovery Bypass: Skip if API is congested AND ticker is not on main watchlist
-    if (!TICKERS.includes(ticker) && uw.getRateLimitWait() > 5000) {
+    // 🛡️ Discovery Bypass: Skip if API is congested (>80 calls or >3s wait) AND ticker is not on main watchlist
+    if (!TICKERS.includes(ticker) && (uw.getRateLimitWait() > 3000 || uw.getRateLimitCount() > 80)) {
         // console.log('⏩ [Discovery Bypass] Skipping ' + ticker + ' due to API congestion');
         return 0;
     }
@@ -5128,10 +5128,15 @@ if (cachedState) {
     });
     console.log('📂 Dashboard preloaded with cached data');
 
-    // 🛡️ [State Guard] Recovery: Clear discovery backlog on startup to ensure priority for watchlist
-    if (state.discoveryTickers && state.discoveryTickers.length > 0) {
-        console.log('🧹 [State Guard] Clearing ' + state.discoveryTickers.length + ' stale discovery tickers for fresh start');
+    // 🛡️ [State Guard] Recovery: Clear discovery backlog & runners on startup to ensure priority for watchlist
+    if ((state.discoveryTickers && state.discoveryTickers.length > 0) || (state.volatilityRunners && Object.keys(state.volatilityRunners).length > 0)) {
+        const dCount = (state.discoveryTickers || []).length;
+        const rCount = Object.keys(state.volatilityRunners || {}).length;
+        console.log('🧹 [State Guard] Clearing ' + dCount + ' discovery and ' + rCount + ' runner tickers for fresh start');
+
         state.discoveryTickers = [];
+        state.volatilityRunners = {};
+
         // Clean up metadata
         ['signalScores', 'tradeSetups', 'quotes', 'technicals', 'darkPool', 'gex', 'news'].forEach(key => {
             if (state[key]) {

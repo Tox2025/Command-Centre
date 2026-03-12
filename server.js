@@ -3081,29 +3081,9 @@ async function scoreTickerSignals(ticker) {
                     }
                 } catch (sqErr) { /* squeeze alert is optional */ }
 
-                // ── Auto Paper Trade: A/B version testing ─────────────────────
-                if (abTester.getVersionCount() > 1) {
-                    var abResults = abTester.scoreAll(ticker, data, state.session);
-                    abTester.logComparison(ticker, abResults);
-                    var abTrades = abTester.createTrades(ticker, abResults, price, setup);
-                    abTrades.forEach(function (at) {
-                        console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (' + (at.features || []).length + ' features)');
-                        try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
-                    });
-                    // Auto-enter options paper trade for watchlist
-                    if (abTrades.length > 0) {
-                        try {
-                            // Auto-enter options for each version
-                            abTrades.forEach(function (at) {
-                                try {
-                                    var vResult = abResults ? abResults[at.signalVersion] : signalResult;
-                                    optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, price, state.quotes[ticker], at.signalVersion);
-                                } catch (oe) { /* optional */ }
-                            });
-                        } catch (oe) { /* options auto-entry is optional */ }
-                    }
-                } else {
-                    // Fallback: single version
+                // ── Auto Paper Trade: single version fallback ─────────────────────
+                // (A/B testing now runs independently after this block)
+                if (abTester.getVersionCount() <= 1) {
                     var maxConsecLosses = 3;
                     var consecLosses = tradeJournal.getConsecutiveLosses(ticker, dir);
                     if (consecLosses < maxConsecLosses) {
@@ -3133,6 +3113,52 @@ async function scoreTickerSignals(ticker) {
                         earnings: setup.earningsWarning || ''
                     });
                 } catch (e) { /* notifier optional */ }
+            }
+        }
+
+        // ── A/B Tester: Independent scoring for ALL versions ──────────────────
+        // Runs REGARDLESS of v2.1's direction → each version decides independently
+        // This ensures vML, v6.0 etc can place trades even when v2.1 says NEUTRAL
+        if (abTester.getVersionCount() > 1 && state.technicals[ticker]) {
+            try {
+                var abPrice = parseFloat((state.quotes[ticker] || {}).last || (state.quotes[ticker] || {}).price || 0);
+                if (abPrice > 0) {
+                    var abResults = abTester.scoreAll(ticker, data, state.session);
+                    abTester.logComparison(ticker, abResults);
+
+                    // Build minimal setup if v2.1 was NEUTRAL (no setup was created above)
+                    var abSetup = state.tradeSetups[ticker];
+                    if (!abSetup) {
+                        var abTA = state.technicals[ticker] || {};
+                        var abATR = abTA.atr || 1;
+                        abSetup = {
+                            ticker: ticker,
+                            direction: 'LONG', // placeholder — each version picks its own direction
+                            entry: abPrice,
+                            target1: +(abPrice + abATR).toFixed(2),
+                            target2: +(abPrice + abATR * 2).toFixed(2),
+                            stop: +(abPrice - abATR * 0.75).toFixed(2),
+                            riskReward: 1.33,
+                            session: state.session,
+                            horizon: 'Day Trade'
+                        };
+                    }
+                    var abTrades = abTester.createTrades(ticker, abResults, abPrice, abSetup);
+                    abTrades.forEach(function (at) {
+                        console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + abPrice.toFixed(2) + ' (' + (at.features || []).length + ' features)');
+                        try { notifier.sendPaperTrade(at, 'ENTRY'); } catch (ne) { /* optional */ }
+                    });
+                    if (abTrades.length > 0) {
+                        abTrades.forEach(function (at) {
+                            try {
+                                var vResult = abResults ? abResults[at.signalVersion] : signalResult;
+                                optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, abPrice, state.quotes[ticker], at.signalVersion);
+                            } catch (oe) { /* optional */ }
+                        });
+                    }
+                }
+            } catch (abErr) {
+                console.log('⚠️ A/B tester error for ' + ticker + ':', abErr.message);
             }
         }
     } catch (e) {

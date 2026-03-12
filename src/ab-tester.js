@@ -88,11 +88,15 @@ class ABTester {
         for (var i = 0; i < versionKeys.length; i++) {
             var version = versionKeys[i];
             var result = results[version];
-            if (!result || !result.direction) continue;
+            if (!result) continue;
 
-            // Skip low confidence
+            // For paper trading, accept any non-NEUTRAL direction
+            // We need data from ALL conditions to train ML properly
+            if (!result.direction || result.direction === 'NEUTRAL') continue;
+
+            // Low confidence gate — paper trades need broad coverage, use 40% floor
             var conf = result.blendedConfidence || result.confidence || 0;
-            if (conf < 50) continue;
+            if (conf < 40) continue;
 
             // Build version-specific setup WITH features for ML training
             var vSetup = Object.assign({}, setup, {

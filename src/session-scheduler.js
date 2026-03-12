@@ -11,7 +11,7 @@ const SESSIONS = [
     { name: 'PRE_MARKET', start: 510, end: 540, intervalMs: 600000 }, // 8:30 – 9:00 AM, 10 min
     { name: 'OPEN_RUSH', start: 541, end: 560, intervalMs: 300000 }, // 9:01 – 9:20 AM, 5 min
     { name: 'POWER_OPEN', start: 561, end: 600, intervalMs: 300000 }, // 9:21 – 10:00 AM, 5 min
-    { name: 'MIDDAY', start: 601, end: 900, intervalMs: 600000 }, // 10:01 AM – 3:00 PM, 10 min
+    { name: 'MIDDAY', start: 601, end: 900, intervalMs: 900000 }, // 10:01 AM – 3:00 PM, 15 min
     { name: 'POWER_HOUR', start: 901, end: 975, intervalMs: 300000 }, // 3:01 – 4:15 PM, 5 min
     { name: 'AFTER_HOURS', start: 976, end: 1020, intervalMs: 600000 }, // 4:16 – 5:00 PM, 10 min
 ];

@@ -1,5 +1,6 @@
 // Trading Dashboard V2 Client
-var state = { tickers: [], quotes: {}, technicals: {}, optionsFlow: [], darkPool: {}, gex: {}, marketTide: null, congressTrades: [], tradeSetups: {}, alerts: [], morningBrief: {}, lastUpdate: null, session: 'LOADING', nope: {}, flowPerStrikeIntraday: {}, analystRatings: {}, institutionActivity: {}, fdaCalendar: [] };
+var state = { tickers: [], quotes: {}, technicals: {}, optionsFlow: [], darkPool: {}, gex: {}, marketTide: {}, sectorTide: {}, etfFlows: {}, alerts: [], news: [], darkPoolRecent: [], congressTrades: [], tradeSetups: {}, signalScores: {}, ivRank: {}, maxPain: {}, oiChange: {}, greeks: {}, shortInterest: {}, insiderData: {}, earnings: {}, earningsToday: [], stockState: {}, session: 'OVERNIGHT', lastUpdate: '', morningBrief: null, marketRegime: null, correlationRisk: null, halts: [], xAlerts: [], newsPulse: [], historicalCandles: {} };
+var _pendingRemovals = {};
 var ws = null, activeFilter = 'all', tvWidget = null;
 var $ = function (id) { return document.getElementById(id); };
 function fmt(n) { return n == null ? '--' : Number(n).toFixed(2); }
@@ -276,7 +277,15 @@ function connect() {
     ws.onclose = function () { $('statusDot').className = 'status-dot'; $('lastUpdate').textContent = 'Reconnecting...'; setTimeout(connect, 3000); };
     ws.onmessage = function (e) {
         var msg = JSON.parse(e.data);
-        if (msg.type === 'full_state') { state = msg.data; renderAll(); }
+        if (msg.type === 'full_state') {
+            // Preserve pending ticker removals — don't let broadcast restore deleted tickers
+            var pendingKeys = Object.keys(_pendingRemovals);
+            state = msg.data;
+            if (pendingKeys.length > 0 && state.tickers) {
+                state.tickers = state.tickers.filter(function (t) { return !_pendingRemovals[t]; });
+            }
+            renderAll();
+        }
         else if (msg.type === 'alert') { state.alerts.unshift(msg.data); renderAlerts(); try { $('alertSound').play(); } catch (x) { } }
     };
 }
@@ -314,6 +323,8 @@ function addTicker() {
         });
 }
 function removeTicker(t) {
+    // Mark as pending removal to prevent WebSocket broadcast from restoring it
+    _pendingRemovals[t] = true;
     // Optimistic UI: remove immediately from local state for instant feedback
     state.tickers = state.tickers.filter(function (x) { return x !== t; });
     renderWatchlist();
@@ -321,10 +332,12 @@ function removeTicker(t) {
     fetch('/api/tickers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: t, action: 'remove' }) })
         .then(function (r) { return r.json(); })
         .then(function (data) {
+            delete _pendingRemovals[t];
             if (data.tickers) state.tickers = data.tickers;
             renderWatchlist();
         })
         .catch(function (err) {
+            delete _pendingRemovals[t];
             // Restore ticker on failure
             if (state.tickers.indexOf(t) < 0) state.tickers.push(t);
             renderWatchlist();

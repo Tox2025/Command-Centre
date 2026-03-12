@@ -320,45 +320,44 @@ class PolygonTickClient {
     async getSnapshot() {
         try {
             var result = await this._restGet('/v2/snapshot/locale/us/markets/stocks/tickers');
-            if (result && result.tickers) {
-                var self = this;
-                result.tickers.forEach(function (t) {
-                    if (t.ticker) {
-                        self.snapshotCache[t.ticker] = {
-                            price: (t.lastTrade && t.lastTrade.p > 0) ? t.lastTrade.p : (t.day ? t.day.c : 0),
-                            open: t.day ? t.day.o : 0,
-                            high: t.day ? t.day.h : 0,
-                            low: t.day ? t.day.l : 0,
-                            close: t.day ? t.day.c : 0,
-                            volume: t.day ? t.day.v : 0,
-                            vwap: t.day ? t.day.vw : 0,
-                            prevClose: t.prevDay ? t.prevDay.c : 0,
-                            changePercent: t.todaysChangePerc || 0,
-                            change: t.todaysChange || 0,
-                            bid: t.lastQuote ? t.lastQuote.P : 0,
-                            ask: t.lastQuote ? t.lastQuote.p : 0,
-                            bidSize: t.lastQuote ? t.lastQuote.S : 0,
-                            askSize: t.lastQuote ? t.lastQuote.s : 0,
-                            lastTradePrice: t.lastTrade ? t.lastTrade.p : 0,
-                            lastTradeSize: t.lastTrade ? t.lastTrade.s : 0,
-                            minBar: t.min || null,
-                            updatedAt: t.updated ? new Date(t.updated / 1e6).toISOString() : null,
-                            isMarketOpen: (function () { var h = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false })); var m = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', minute: 'numeric' })); return (h * 60 + m) >= 570; })()
-                        };
+            if (!result || !Array.isArray(result.tickers)) return 0;
+            var self = this;
+            var tickers = result.tickers;
+            tickers.forEach(function (t) {
+                if (t.ticker) {
+                    self.snapshotCache[t.ticker] = {
+                        price: (t.lastTrade && t.lastTrade.p > 0) ? t.lastTrade.p : (t.day ? t.day.c : 0),
+                        open: t.day ? t.day.o : 0,
+                        high: t.day ? t.day.h : 0,
+                        low: t.day ? t.day.l : 0,
+                        close: t.day ? t.day.c : 0,
+                        volume: t.day ? t.day.v : 0,
+                        vwap: t.day ? t.day.vw : 0,
+                        prevClose: t.prevDay ? t.prevDay.c : 0,
+                        changePercent: t.todaysChangePerc || 0,
+                        change: t.todaysChange || 0,
+                        bid: t.lastQuote ? t.lastQuote.P : 0,
+                        ask: t.lastQuote ? t.lastQuote.p : 0,
+                        bidSize: t.lastQuote ? t.lastQuote.S : 0,
+                        askSize: t.lastQuote ? t.lastQuote.s : 0,
+                        lastTradePrice: t.lastTrade ? t.lastTrade.p : 0,
+                        lastTradeSize: t.lastTrade ? t.lastTrade.s : 0,
+                        minBar: t.min || null,
+                        updatedAt: t.updated ? new Date(t.updated / 1e6).toISOString() : null,
+                        isMarketOpen: (function () { var h = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false })); var m = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', minute: 'numeric' })); return (h * 60 + m) >= 570; })()
+                    };
 
-                        // Update bid/ask for tick classification
-                        if (self.tickData[t.ticker]) {
-                            if (t.lastQuote) {
-                                self.tickData[t.ticker].lastBid = t.lastQuote.P || 0;
-                                self.tickData[t.ticker].lastAsk = t.lastQuote.p || 0;
-                            }
+                    // Update bid/ask for tick classification
+                    if (self.tickData[t.ticker]) {
+                        if (t.lastQuote) {
+                            self.tickData[t.ticker].lastBid = t.lastQuote.P || 0;
+                            self.tickData[t.ticker].lastAsk = t.lastQuote.p || 0;
                         }
                     }
-                });
-                this.snapshotAge = Date.now();
-                return result.tickers.length;
-            }
-            return 0;
+                }
+            });
+            this.snapshotAge = Date.now();
+            return tickers.length;
         } catch (e) {
             console.error('Polygon snapshot error:', e.message);
             return 0;

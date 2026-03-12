@@ -4711,6 +4711,7 @@ function startPolygonPriceRefresh() {
 
     async function polygonTick() {
         try {
+            if (!polygonClient) { schedulePolygonRefresh(); return; }
             var allTickers = getAllCommandCentreTickers();
             if (allTickers.length === 0) { schedulePolygonRefresh(); return; }
 
@@ -5171,6 +5172,11 @@ if (cachedState) {
 // loadState() already restores cycleCount on same-day restarts
 if (scheduler.cycleCount > 0) {
     // Same-day restart: loadState restored the cycle count, skip COLD burst
+    // But if API budget is over 90%, force reset to avoid blocking all UW calls
+    if (scheduler.dailyCallCount >= scheduler.dailyLimit * scheduler.safetyMargin) {
+        console.log('⚠️ API budget carry-over detected (' + scheduler.dailyCallCount + '/' + scheduler.dailyLimit + ') — resetting to 0 for fresh start');
+        scheduler.dailyCallCount = 0;
+    }
     console.log('🔄 Same-day restart detected — skipping COLD burst (cycle #' + scheduler.cycleCount + ', ' + scheduler.dailyCallCount + ' calls used)');
 } else {
     // First boot of the day: full COLD fetch

@@ -3603,21 +3603,30 @@ async function fetchMarketData(tier) {
 
             // Sector Tides (sector rotation) — WARM
             try {
-                var sectors = ['Technology', 'Healthcare', 'Financial', 'Energy', 'Consumer Cyclical', 'Industrials', 'Communication Services'];
+                var sectors = ['Technology', 'Healthcare', 'Financials', 'Energy', 'Consumer Cyclical', 'Industrials', 'Communication Services'];
                 for (var si = 0; si < sectors.length; si++) {
-                    var sectTide = await uw.getSectorTide(sectors[si]);
-                    if (sectTide?.data) state.sectorTide[sectors[si]] = sectTide.data;
-                    callCount++;
+                    try {
+                        var sectTide = await uw.getSectorTide(sectors[si]);
+                        if (sectTide?.data) state.sectorTide[sectors[si]] = sectTide.data;
+                        callCount++;
+                    } catch (se) {
+                        console.log('📊 Sector Tide ' + sectors[si] + ': ' + (se.message || 'no data'));
+                    }
                 }
             } catch (e) { /* optional */ }
 
-            // ETF Tides (macro direction) — WARM
+            // ETF Flows/Tides (macro direction) — WARM
+            // Store in etfFlows for frontend compatibility
             try {
-                var etfs = ['SPY', 'QQQ', 'IWM'];
+                var etfs = ['SPY', 'QQQ', 'IWM', 'XLF', 'XLE', 'XLK', 'XLV'];
                 for (var ei = 0; ei < etfs.length; ei++) {
-                    var eTide = await uw.getETFTide(etfs[ei]);
-                    if (eTide?.data) state.etfTide[etfs[ei]] = eTide.data;
-                    callCount++;
+                    try {
+                        var eTide = await uw.getETFTide(etfs[ei]);
+                        if (eTide?.data) state.etfFlows[etfs[ei]] = eTide.data;
+                        callCount++;
+                    } catch (ee) {
+                        console.log('📊 ETF Tide ' + etfs[ei] + ': ' + (ee.message || 'no data'));
+                    }
                 }
             } catch (e) { /* optional */ }
 
@@ -3827,7 +3836,6 @@ async function fetchMarketData(tier) {
     console.log('📊 Feed health: tide=' + (state.marketTide ? '✅' : '❌') +
         ' flow=' + (state.optionsFlow?.length || 0) +
         ' sectors=' + Object.keys(state.sectorTide || {}).length + '/7' +
-        ' etfTide=' + Object.keys(state.etfTide || {}).length + '/3' +
         ' etfFlows=' + Object.keys(state.etfFlows || {}).length + '/7' +
         ' spike=' + (state.marketSpike ? '✅' : '❌'));
 

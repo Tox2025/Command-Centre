@@ -1,4 +1,4 @@
-﻿// Trading Dashboard V2 Client
+// Trading Dashboard V2 Client
 var state = { tickers: [], quotes: {}, technicals: {}, optionsFlow: [], darkPool: {}, gex: {}, marketTide: null, congressTrades: [], tradeSetups: {}, alerts: [], morningBrief: {}, lastUpdate: null, session: 'LOADING', nope: {}, flowPerStrikeIntraday: {}, analystRatings: {}, institutionActivity: {}, fdaCalendar: [] };
 var ws = null, activeFilter = 'all', tvWidget = null;
 var $ = function (id) { return document.getElementById(id); };
@@ -1790,20 +1790,27 @@ function openTickerView(ticker) {
         }
     } catch (e) { console.error('Modal Options Flow error:', e); if ($('modalFlow')) $('modalFlow').innerHTML = '<div class="empty">Error loading flow: ' + e.message + '</div>'; }
 
-    // GEX in modal — with labels and summary
+    // GEX in modal — Interactive HTML chart with tooltips, hover effects, call/put split
     try {
         var gexData = state.gex[ticker];
-        var cv = $('modalGexChart');
+        var gexContainer = $('modalGexChart');
         var gexSummaryEl = $('modalGexSummary');
-        if (cv && gexData && Array.isArray(gexData) && gexData.length > 0) {
-            var ctx = cv.getContext('2d');
-            var W = cv.width, H = cv.height;
-            ctx.clearRect(0, 0, W, H);
-            ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, W, H);
-            var arr = gexData.map(function (x) { return { strike: parseFloat(x.strike), gex: parseFloat(x.call_gex || 0) + parseFloat(x.put_gex || 0) }; });
-            arr.sort(function (a, b) { return Math.abs(b.gex) - Math.abs(a.gex); }); arr = arr.slice(0, 20);
+        if (gexContainer && gexData && Array.isArray(gexData) && gexData.length > 0) {
+            var arr = gexData.map(function (x) {
+                return {
+                    strike: parseFloat(x.strike),
+                    gex: parseFloat(x.call_gex || 0) + parseFloat(x.put_gex || 0),
+                    callGex: parseFloat(x.call_gex || 0),
+                    putGex: parseFloat(x.put_gex || 0),
+                    callOI: parseFloat(x.call_open_interest || x.call_oi || 0),
+                    putOI: parseFloat(x.put_open_interest || x.put_oi || 0)
+                };
+            });
+            arr.sort(function (a, b) { return Math.abs(b.gex) - Math.abs(a.gex); });
+            arr = arr.slice(0, 25);
             arr.sort(function (a, b) { return a.strike - b.strike; });
-            var max = 0; arr.forEach(function (a) { if (Math.abs(a.gex) > max) max = Math.abs(a.gex); });
+            var max = 0;
+            arr.forEach(function (a) { if (Math.abs(a.gex) > max) max = Math.abs(a.gex); });
 
             // Summary stats
             var maxGammaStrike = arr.reduce(function (best, a) { return Math.abs(a.gex) > Math.abs(best.gex) ? a : best; }, arr[0]);
@@ -1812,36 +1819,111 @@ function openTickerView(ticker) {
             var putWall = arr.filter(function (a) { return a.gex < 0; }).sort(function (a, b) { return a.gex - b.gex; })[0];
 
             if (gexSummaryEl) {
-                var gs = '<strong>Max Gamma:</strong> $' + maxGammaStrike.strike + ' ';
-                gs += '| <strong>Net GEX:</strong> <span class="' + (netGex >= 0 ? 'text-bull' : 'text-bear') + '">' + (netGex >= 0 ? 'POSITIVE' : 'NEGATIVE') + '</span> ';
-                if (callWall) gs += '| <strong>Call Wall:</strong> $' + callWall.strike + ' ';
-                if (putWall) gs += '| <strong>Put Wall:</strong> $' + putWall.strike;
+                var gs = '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:8px 0">';
+                gs += '<div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:6px 12px"><span style="font-size:10px;color:#94a3b8">Max Gamma</span><br><strong style="color:#10b981;font-size:14px">$' + maxGammaStrike.strike + '</strong></div>';
+                gs += '<div style="background:' + (netGex >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)') + ';border:1px solid ' + (netGex >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)') + ';border-radius:8px;padding:6px 12px"><span style="font-size:10px;color:#94a3b8">Net GEX</span><br><strong style="color:' + (netGex >= 0 ? '#10b981' : '#ef4444') + ';font-size:14px">' + (netGex >= 0 ? '+ POSITIVE' : '− NEGATIVE') + '</strong></div>';
+                if (callWall) gs += '<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:6px 12px"><span style="font-size:10px;color:#94a3b8">Call Wall</span><br><strong style="color:#10b981;font-size:13px">$' + callWall.strike + '</strong></div>';
+                if (putWall) gs += '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:6px 12px"><span style="font-size:10px;color:#94a3b8">Put Wall</span><br><strong style="color:#ef4444;font-size:13px">$' + putWall.strike + '</strong></div>';
+                gs += '</div>';
                 gexSummaryEl.innerHTML = gs;
             }
 
             if (max > 0) {
-                var barW = Math.max(8, (W - 60) / arr.length - 3);
-                var labelH = 20; // space for labels
-                var chartH = H - labelH;
+                var curPrice = 0;
+                var q = state.quotes[ticker];
+                if (q) curPrice = parseFloat(q.last || q.price || q.close || 0);
+
+                // Find key levels
+                var sortedByGex = arr.slice().sort(function (a, b) { return b.gex - a.gex; });
+                var topSupport = sortedByGex.filter(function (a) { return a.gex > 0; }).slice(0, 2).map(function (a) { return a.strike; });
+                var topMagnet = sortedByGex.filter(function (a) { return a.gex < 0; }).slice(-2).map(function (a) { return a.strike; });
+
+                var h = '<div style="display:flex;flex-direction:column;gap:1px">';
+                // Legend
+                h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 8px">';
+                h += '<div style="display:flex;gap:12px;font-size:10px;color:#94a3b8">';
+                h += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#10b981;margin-right:4px"></span>Call GEX (Support)</span>';
+                h += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ef4444;margin-right:4px"></span>Put GEX (Magnet)</span>';
+                h += '<span><span style="display:inline-block;width:10px;height:3px;background:#f59e0b;margin-right:4px;vertical-align:middle"></span>Spot Price</span>';
+                h += '</div>';
+                h += '<span style="font-size:10px;color:#64748b">' + arr.length + ' strikes</span>';
+                h += '</div>';
+
                 arr.forEach(function (a, i) {
-                    var pct = a.gex / max;
-                    var bH = Math.abs(pct) * (chartH / 2 - 10);
-                    var x = 30 + i * (barW + 3);
-                    var y = pct >= 0 ? chartH / 2 - bH : chartH / 2;
-                    ctx.fillStyle = pct >= 0 ? '#10b981' : '#ef4444';
-                    ctx.fillRect(x, y, barW, bH);
-                    // Strike labels
-                    ctx.save();
-                    ctx.fillStyle = '#94a3b8';
-                    ctx.font = '9px Inter, sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('$' + a.strike, x + barW / 2, H - 3);
-                    ctx.restore();
+                    var pct = Math.abs(a.gex / max) * 100;
+                    var isPositive = a.gex >= 0;
+                    var barColor = isPositive ? '#10b981' : '#ef4444';
+                    var barBg = isPositive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
+                    var isSpot = curPrice > 0 && Math.abs(a.strike - curPrice) < (arr.length > 1 ? Math.abs(arr[1].strike - arr[0].strike) * 0.6 : 5);
+                    var isSupport = topSupport.indexOf(a.strike) >= 0;
+                    var isMagnet = topMagnet.indexOf(a.strike) >= 0;
+                    var isMaxGamma = a.strike === maxGammaStrike.strike;
+
+                    // Row styling
+                    var rowBg = isSpot ? 'rgba(245,158,11,0.12)' : (i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent');
+                    var borderLeft = isSpot ? '3px solid #f59e0b' : isMaxGamma ? '3px solid #a78bfa' : isSupport ? '3px solid #10b981' : isMagnet ? '3px solid #ef4444' : '3px solid transparent';
+
+                    h += '<div class="gex-row" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:' + rowBg + ';border-left:' + borderLeft + ';cursor:pointer;transition:all 0.15s" '
+                        + 'onmouseenter="this.style.background=\'rgba(99,102,241,0.12)\';this.querySelector(\'.gex-tooltip\').style.opacity=1" '
+                        + 'onmouseleave="this.style.background=\'' + rowBg + '\';this.querySelector(\'.gex-tooltip\').style.opacity=0">';
+
+                    // Strike label
+                    h += '<div style="min-width:60px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:' + (isSpot || isMaxGamma ? '700' : '400') + ';color:' + (isSpot ? '#f59e0b' : '#e2e8f0') + '">$' + a.strike + '</div>';
+
+                    // Bar container
+                    h += '<div style="flex:1;display:flex;align-items:center;gap:4px">';
+
+                    // Negative side (put GEX) - grows left
+                    h += '<div style="flex:1;display:flex;justify-content:flex-end">';
+                    if (a.putGex < 0) {
+                        var putPct = Math.abs(a.putGex / max) * 100;
+                        h += '<div style="width:' + Math.min(putPct, 100) + '%;height:16px;background:linear-gradient(270deg,#ef4444,#dc2626);border-radius:3px 0 0 3px;transition:width 0.5s ease;min-width:2px"></div>';
+                    }
+                    h += '</div>';
+
+                    // Center divider
+                    h += '<div style="width:1px;height:20px;background:#334155"></div>';
+
+                    // Positive side (call GEX) - grows right
+                    h += '<div style="flex:1">';
+                    if (a.callGex > 0) {
+                        var callPct = Math.abs(a.callGex / max) * 100;
+                        h += '<div style="width:' + Math.min(callPct, 100) + '%;height:16px;background:linear-gradient(90deg,#10b981,#059669);border-radius:0 3px 3px 0;transition:width 0.5s ease;min-width:2px"></div>';
+                    }
+                    h += '</div>';
+                    h += '</div>';
+
+                    // Net GEX value
+                    h += '<div style="min-width:55px;text-align:right;font-family:\'JetBrains Mono\',monospace;font-size:10px;color:' + barColor + '">' + (a.gex >= 0 ? '+' : '') + fmtK(a.gex) + '</div>';
+
+                    // Tags
+                    h += '<div style="min-width:65px;text-align:right">';
+                    if (isSpot) h += '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:#f59e0b;color:#000;font-weight:600">SPOT</span>';
+                    else if (isMaxGamma) h += '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:#a78bfa;color:#000;font-weight:600">MAX γ</span>';
+                    else if (isSupport) h += '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:600">SUPPORT</span>';
+                    else if (isMagnet) h += '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(239,68,68,0.2);color:#ef4444;font-weight:600">MAGNET</span>';
+                    h += '</div>';
+
+                    // Hover tooltip
+                    h += '<div class="gex-tooltip" style="opacity:0;position:absolute;right:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 12px;font-size:10px;z-index:10;pointer-events:none;transition:opacity 0.2s;box-shadow:0 4px 12px rgba(0,0,0,0.4);white-space:nowrap">';
+                    h += '<div style="font-weight:600;color:#e2e8f0;margin-bottom:4px">$' + a.strike + ' Strike</div>';
+                    h += '<div style="color:#10b981">Call GEX: ' + fmtK(a.callGex) + '</div>';
+                    h += '<div style="color:#ef4444">Put GEX: ' + fmtK(Math.abs(a.putGex)) + '</div>';
+                    h += '<div style="color:#94a3b8;margin-top:2px">Net: <strong style="color:' + barColor + '">' + fmtK(a.gex) + '</strong></div>';
+                    if (a.callOI > 0 || a.putOI > 0) {
+                        h += '<div style="color:#94a3b8;margin-top:2px;border-top:1px solid #334155;padding-top:2px">Call OI: ' + fmtK(a.callOI) + ' | Put OI: ' + fmtK(a.putOI) + '</div>';
+                    }
+                    h += '</div>';
+
+                    h += '</div>';
                 });
-                ctx.strokeStyle = '#334155'; ctx.beginPath(); ctx.moveTo(0, chartH / 2); ctx.lineTo(W, chartH / 2); ctx.stroke();
+
+                h += '</div>';
+                gexContainer.innerHTML = h;
             }
-        } else if (gexSummaryEl) {
-            gexSummaryEl.innerHTML = '';
+        } else {
+            if (gexContainer) gexContainer.innerHTML = '<div class="empty" style="padding:40px;text-align:center;color:#64748b">No GEX data for ' + ticker + '</div>';
+            if (gexSummaryEl) gexSummaryEl.innerHTML = '';
         }
     } catch (e) { console.error('Modal GEX error:', e); }
 

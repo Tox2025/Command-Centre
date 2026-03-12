@@ -36,6 +36,11 @@ class ABTester {
         console.log('💰 A/B Tester: $' + this.perVersionBudget + ' budget per version (' + versionCount + ' versions)');
     }
 
+    // Get all active version keys for cross-model learning
+    getVersionKeys() {
+        return Object.keys(this.engines);
+    }
+
     refreshVersions() {
         console.log('🔬 A/B Tester: Refreshing signal versions...');
         this._loadVersions();

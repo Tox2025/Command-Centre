@@ -2560,7 +2560,7 @@ function trackDiscovery(ticker, source, signalResult, meta) {
 
 
     // ── Auto Trade Setup for High-Confidence Discoveries ──
-    if (signalResult && signalResult.confidence >= 70 && signalResult.direction !== 'NEUTRAL') {
+    if (signalResult && signalResult.confidence >= 55 && signalResult.direction !== 'NEUTRAL') {
         try {
             var price = signalResult.price;
             if (!price || price <= 0) return;
@@ -4267,7 +4267,7 @@ async function refreshAll() {
     state.journalStats = tradeJournal.getStats();
     state.mlStatus = mlCalibrator.getStatus();
 
-    // Train ML if enough data - train BOTH models
+    // Train ML if enough data — train BOTH models
     const trainingData = tradeJournal.getTrainingData();
     if (trainingData.length >= 30 && trainingData.length % 10 === 0) {
         // Train dayTrade model with all data (intraday focus)
@@ -4279,6 +4279,17 @@ async function refreshAll() {
         // Train swing model with all data (will learn swing patterns)
         mlCalibrator.train(trainingData, 'swing');
     }
+
+    // ── Cross-Model Learning: Retrain per-version ML models from their own trade outcomes ──
+    try {
+        var versionKeys = abTester.getVersionKeys ? abTester.getVersionKeys() : [];
+        versionKeys.forEach(function (ver) {
+            var versionTrades = tradeJournal.getTrainingData(ver);
+            if (versionTrades.length >= 20) {
+                mlCalibrator.train(versionTrades, 'dayTrade', ver);
+            }
+        });
+    } catch (cme) { /* cross-model is optional */ }
 
     // Generate morning brief
     state.morningBrief = generateMorningBrief();
@@ -5378,3 +5389,102 @@ console.log(`\uD83D\uDCCA Tickers: ${TICKERS.join(', ')}`);
 console.log(`\u23F1\uFE0F  Session: ${scheduler.getSessionName()} | Interval: ${scheduler.getSessionInterval() / 1000}s`);
 startMLBackgroundGrind();
 syncMLWeights(); // and run once immediately
+
+// ── Daily Live-Data Training: Learn from today's signal scores + actual price moves ──
+// Runs at 4:30 PM EST each day. Generates training samples for EVERY ticker scored today.
+var _dailyTrainingDone = {};
+async function dailyLiveTraining() {
+    var est = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    var estDate = new Date(est);
+    var hour = estDate.getHours();
+    var min = estDate.getMinutes();
+    var dateKey = estDate.toLocaleDateString();
+
+    // Only run once per day, between 4:30-5:00 PM EST
+    if (hour !== 16 || min < 30) return;
+    if (_dailyTrainingDone[dateKey]) return;
+    _dailyTrainingDone[dateKey] = true;
+
+    console.log('🧠 [Daily Live Training] Starting end-of-day ML training from live signal data...');
+
+    try {
+        var liveSamples = [];
+        var tickers = state.tickers || TICKERS;
+
+        for (var i = 0; i < tickers.length; i++) {
+            var ticker = tickers[i];
+            var score = state.signalScores[ticker];
+            var quote = state.quotes[ticker];
+            if (!score || !quote || !score.features || score.features.length < 10) continue;
+
+            var price = parseFloat(quote.last || quote.price || 0);
+            var prevClose = parseFloat(quote.prevClose || quote.previousClose || quote.prev_close || 0);
+            if (price <= 0 || prevClose <= 0) continue;
+
+            // Did the stock move in the direction we predicted?
+            var actualMove = (price - prevClose) / prevClose;
+            var predictedBull = score.direction === 'BULLISH';
+            var predictedBear = score.direction === 'BEARISH';
+            var correctDirection = (predictedBull && actualMove > 0.002) || (predictedBear && actualMove < -0.002);
+
+            // Create training sample: features + label (1=correct, 0=incorrect)
+            liveSamples.push({
+                features: score.features.slice(0, 44), // Match ML featureCount
+                label: correctDirection ? 1 : 0,
+                confidence: score.confidence,
+                pnlPct: +(actualMove * 100).toFixed(2)
+            });
+        }
+
+        if (liveSamples.length >= 10) {
+            // Append to cumulative training file
+            var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+            var cumulative = [];
+            try {
+                if (require('fs').existsSync(cumulPath)) {
+                    cumulative = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8'));
+                }
+            } catch (e) { }
+
+            cumulative = cumulative.concat(liveSamples);
+            if (cumulative.length > 50000) cumulative = cumulative.slice(-50000);
+            require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
+
+            // Retrain both models with fresh cumulative data
+            var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
+            mlCalibrator.train(recent, 'dayTrade');
+            mlCalibrator.train(cumulative, 'swing');
+
+            var st = mlCalibrator.getStatus();
+            console.log('🧠 [Daily Live Training] +' + liveSamples.length + ' live samples! dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ') | swing=' + st.swing.accuracy + '% (' + cumulative.length + ')');
+
+            // Cross-model: retrain per-version models too
+            var versionKeys = abTester.getVersionKeys ? abTester.getVersionKeys() : [];
+            versionKeys.forEach(function (ver) {
+                var versionTrades = tradeJournal.getTrainingData(ver);
+                if (versionTrades.length >= 15) {
+                    mlCalibrator.train(versionTrades, 'dayTrade', ver);
+                    console.log('  🔬 [Cross-Model] Retrained ' + ver + ' with ' + versionTrades.length + ' version-specific samples');
+                }
+            });
+
+            // Sync updated weights to vML
+            syncMLWeights();
+        } else {
+            console.log('🧠 [Daily Live Training] Only ' + liveSamples.length + ' valid samples — need 10+ to train');
+        }
+    } catch (e) {
+        console.error('🧠 [Daily Live Training] Error:', e.message);
+    }
+}
+
+// Run daily training check every 5 minutes during power hour
+setInterval(dailyLiveTraining, 5 * 60 * 1000);
+
+// ── Market Session Bridge: Force immediate refresh if starting during market hours ──
+if (scheduler.isTradingSession()) {
+    console.log('⚡ [Session Bridge] Bot started during active market — triggering immediate refresh');
+    setTimeout(function () {
+        refreshAll();
+    }, 5000); // Small delay to let everything initialize
+}

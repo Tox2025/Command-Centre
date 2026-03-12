@@ -318,8 +318,13 @@ class TradeJournal {
     }
 
     // Get graded trades for ML training
-    getTrainingData() {
-        return this.trades.filter(t => t.status !== 'PENDING' && t.status !== 'EXPIRED' && t.features && t.features.length > 0)
+    getTrainingData(version) {
+        return this.trades.filter(t => {
+            if (t.status === 'PENDING' || t.status === 'EXPIRED') return false;
+            if (!t.features || t.features.length === 0) return false;
+            if (version && t.signalVersion !== version) return false;
+            return true;
+        })
             .map(t => ({
                 features: t.features,
                 label: t.status.startsWith('WIN') ? 1 : 0,

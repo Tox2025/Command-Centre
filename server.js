@@ -4039,7 +4039,17 @@ async function refreshAll() {
 
         // Enforce HOT_ONLY for discovery tickers to preserve budget for watchlist SI/FTD/GEX deep-dives
         var effectiveTier = state.tickers.includes(ticker) ? tier : 'HOT';
-        totalCalls += await fetchTickerData(ticker, effectiveTier);
+        // Per-ticker timeout: 30s max per ticker to prevent one stuck call from blocking all
+        try {
+            totalCalls += await Promise.race([
+                fetchTickerData(ticker, effectiveTier),
+                new Promise(function (_, reject) {
+                    setTimeout(function () { reject(new Error('fetchTickerData timeout: ' + ticker)); }, 30000);
+                })
+            ]);
+        } catch (tickerErr) {
+            console.warn('⚠️ Ticker fetch timeout/error: ' + ticker + ' — ' + tickerErr.message);
+        }
     }
 
     // Fetch market-wide data (tiered)
@@ -4681,7 +4691,13 @@ function scheduleNext() {
     if (refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(async function () {
         try {
-            await refreshAll();
+            // Master timeout: if refreshAll hangs for 120s, force-cancel and continue loop
+            await Promise.race([
+                refreshAll(),
+                new Promise(function (_, reject) {
+                    setTimeout(function () { reject(new Error('refreshAll timeout (120s)')); }, 120000);
+                })
+            ]);
         } catch (e) {
             console.error('Refresh error:', e.message);
         }

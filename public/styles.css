@@ -2708,3 +2708,27 @@ body {
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* ── Earnings Calendar Panel ── */
+.panel-earnings { grid-column: span 2; }
+.earnings-grid { display: flex; flex-direction: column; gap: 12px; }
+.earnings-section { margin-bottom: 8px; }
+.earnings-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.earnings-card {
+  background: var(--bg-tertiary, rgba(255,255,255,0.03));
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--accent, #6366f1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  transition: background 0.2s;
+}
+.earnings-card:hover { background: rgba(255,255,255,0.06); }
+.earnings-card.earnings-watchlist { border-left-color: #f59e0b; background: rgba(245,158,11,0.06); }
+.earnings-ticker { font-weight: 700; font-size: 14px; color: var(--text-primary, #e2e8f0); min-width: 70px; }
+.earnings-eps { font-size: 12px; color: var(--text-secondary, #94a3b8); }
+.earnings-detail { font-size: 12px; font-weight: 600; }
+.earnings-meta { font-size: 11px; color: var(--text-muted, #64748b); }

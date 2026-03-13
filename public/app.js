@@ -372,6 +372,7 @@ function renderAll() {
     try { renderInsider(); } catch (e) { console.error('renderInsider', e); }
     try { renderAlerts(); } catch (e) { console.error('renderAlerts', e); }
     try { renderBudget(); } catch (e) { console.error('renderBudget', e); }
+    try { renderEarnings(); } catch (e) { console.error('renderEarnings', e); }
     console.log('renderAll complete — ' + state.tickers.length + ' tickers, ' + (state.alerts || []).length + ' alerts');
 }
 
@@ -384,6 +385,84 @@ function populateSelects() {
         state.tickers.forEach(function (t) { var o = document.createElement('option'); o.value = t; o.textContent = t; el.appendChild(o); });
         if (cur && state.tickers.indexOf(cur) >= 0) el.value = cur;
     });
+}
+
+function renderEarnings() {
+    var container = $('earningsContent');
+    var badge = $('earningsCount');
+    if (!container) return;
+
+    var earningsToday = state.earningsToday || [];
+    var earningsRisk = state.earningsRisk || {};
+
+    // Combine today's earnings with watchlist risk warnings
+    var watchlistWarnings = [];
+    (state.tickers || []).forEach(function (t) {
+        var risk = earningsRisk[t];
+        if (risk && risk.level && risk.level !== 'NONE') {
+            watchlistWarnings.push({ ticker: t, risk: risk });
+        }
+    });
+
+    var total = earningsToday.length + watchlistWarnings.length;
+    if (badge) badge.textContent = total;
+
+    if (total === 0) {
+        container.innerHTML = '<div class="scanner-status">No earnings today</div>';
+        return;
+    }
+
+    var html = '';
+
+    // Watchlist earnings risk warnings
+    if (watchlistWarnings.length > 0) {
+        html += '<div class="earnings-section"><h3 class="earnings-section-title">⚠️ Watchlist Earnings Risk</h3>';
+        watchlistWarnings.forEach(function (w) {
+            var color = w.risk.level === 'HIGH' ? '#ef4444' : w.risk.level === 'MEDIUM' ? '#f59e0b' : '#22c55e';
+            html += '<div class="earnings-card" style="border-left: 3px solid ' + color + '">';
+            html += '<div class="earnings-ticker">' + w.ticker + '</div>';
+            html += '<div class="earnings-detail" style="color:' + color + '">' + (w.risk.message || w.risk.level) + '</div>';
+            if (w.risk.daysUntil !== undefined) html += '<div class="earnings-meta">' + w.risk.daysUntil + ' days until earnings</div>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    // Today's earnings calendar
+    if (earningsToday.length > 0) {
+        // Separate pre-market and after-hours
+        var preMkt = earningsToday.filter(function (e) { return (e.timing || e.time || '').toLowerCase().includes('pre') || (e.timing || e.time || '').toLowerCase().includes('bmo'); });
+        var afterHrs = earningsToday.filter(function (e) { return (e.timing || e.time || '').toLowerCase().includes('after') || (e.timing || e.time || '').toLowerCase().includes('amc'); });
+        var other = earningsToday.filter(function (e) {
+            var t = (e.timing || e.time || '').toLowerCase();
+            return !t.includes('pre') && !t.includes('bmo') && !t.includes('after') && !t.includes('amc');
+        });
+
+        function renderEarningsGroup(title, items) {
+            if (items.length === 0) return '';
+            var h = '<div class="earnings-section"><h3 class="earnings-section-title">' + title + '</h3>';
+            items.forEach(function (e) {
+                var ticker = e.ticker || e.symbol || '?';
+                var isWatchlist = (state.tickers || []).indexOf(ticker) >= 0;
+                var epsExp = e.eps_estimate || e.expected_eps || e.eps_expected || '--';
+                var epsPrev = e.eps_prior || e.previous_eps || e.eps_actual_prev || '--';
+                var rev = e.revenue_estimate || e.expected_revenue || '';
+                h += '<div class="earnings-card' + (isWatchlist ? ' earnings-watchlist' : '') + '">';
+                h += '<div class="earnings-ticker">' + ticker + (isWatchlist ? ' ⭐' : '') + '</div>';
+                h += '<div class="earnings-eps">EPS Est: ' + epsExp + ' | Prior: ' + epsPrev + '</div>';
+                if (rev) h += '<div class="earnings-meta">Rev Est: $' + (parseFloat(rev) / 1e9 > 0.1 ? (parseFloat(rev) / 1e9).toFixed(2) + 'B' : (parseFloat(rev) / 1e6).toFixed(0) + 'M') + '</div>';
+                h += '</div>';
+            });
+            h += '</div>';
+            return h;
+        }
+
+        html += renderEarningsGroup('🌅 Pre-Market', preMkt);
+        html += renderEarningsGroup('🌙 After Hours', afterHrs);
+        html += renderEarningsGroup('📋 Other', other);
+    }
+
+    container.innerHTML = html;
 }
 
 function renderBrief() {

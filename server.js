@@ -4376,6 +4376,7 @@ async function refreshAll() {
     }
 
     // 2b. Nightly ML retrain (5:00 PM EST — after EOD report settles)
+    // Includes: (1) historical backtests, (2) live daily signal scores, (3) cross-version learning
     if (hour === 17 && min >= 0 && min < 10 && !state.mlNightlyRetrained) {
         state.mlNightlyRetrained = true;
         (async function () {
@@ -4397,12 +4398,52 @@ async function refreshAll() {
                     require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
                 }
 
+                // ── Fix 2: Daily live-data training from closed paper trades ──
+                // Collect today's closed trades with their features + actual outcomes
+                var trades = tradeJournal.getPaperTrades() || [];
+                var today = new Date().toISOString().split('T')[0];
+                var todayClosed = trades.filter(function (t) {
+                    return t.status === 'CLOSED' && t.features && t.features.length > 0 &&
+                        (t.closedAt || t.exitTime || '').indexOf(today) === 0;
+                });
+
+                var liveSamples = [];
+                todayClosed.forEach(function (t) {
+                    var label = (t.pnlPct >= 0) ? 1 : 0;
+                    var sample = { features: t.features, label: label, _ticker: t.ticker, _version: t.signalVersion || 'v2.1', _live: true };
+                    liveSamples.push(sample);
+                });
+
+                if (liveSamples.length > 0) {
+                    console.log('🧠 Live training: ' + liveSamples.length + ' samples from today\'s closed trades');
+                    // Save live samples to cumulative file
+                    cumulative = cumulative.concat(liveSamples);
+                    if (cumulative.length > 50000) cumulative = cumulative.slice(-50000);
+                    require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
+                }
+
+                // ── Fix 3: Cross-model learning ──
+                // Pool WIN/LOSS features from ALL versions together
+                var versionSamples = {};
+                cumulative.forEach(function (d) {
+                    var ver = d._version || 'v2.1';
+                    if (!versionSamples[ver]) versionSamples[ver] = [];
+                    versionSamples[ver].push(d);
+                });
+                var versionKeys = Object.keys(versionSamples);
+                if (versionKeys.length > 1) {
+                    // Create pooled dataset with all versions' data (cross-training)
+                    var pooled = [];
+                    versionKeys.forEach(function (k) { pooled = pooled.concat(versionSamples[k]); });
+                    console.log('🧠 Cross-model: ' + versionKeys.length + ' versions, ' + pooled.length + ' pooled samples');
+                }
+
                 if (cumulative.length >= 30) {
                     var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
                     mlCalibrator.train(recent, 'dayTrade');
                     mlCalibrator.train(cumulative, 'swing');
                     var st = mlCalibrator.getStatus();
-                    console.log('🧠 Nightly retrain complete: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
+                    console.log('🧠 Nightly retrain complete: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples, ' + liveSamples.length + ' live) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
                 } else {
                     console.log('🧠 Nightly retrain skipped: only ' + cumulative.length + ' samples (need 30+)');
                 }

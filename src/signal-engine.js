@@ -446,7 +446,7 @@ class SignalEngine {
             flow.forEach(f => {
                 const prem = parseFloat(f.premium || f.total_premium || 0);
                 const pc = (f.put_call || f.option_type || f.sentiment || '').toUpperCase();
-                if (pc.includes('CALL') || pc.includes('BULLISH') || pc.includes('C')) callPrem += prem;
+                if (pc.includes('CALL') || pc.includes('BULLISH')) callPrem += prem;
                 else putPrem += prem;
             });
             const total = callPrem + putPrem;
@@ -584,7 +584,9 @@ class SignalEngine {
         }
 
         // 12b. Intraday price action — detect bounce from session low or rejection from high
-        if (quote) {
+        // Guard: skip pre-market/overnight when quote.high/low contains yesterday's stale data
+        var isLiveSession = sess && ['OPEN_RUSH', 'POWER_OPEN', 'MIDDAY', 'POWER_HOUR', 'AFTER_HOURS'].indexOf(sess) >= 0;
+        if (quote && isLiveSession) {
             const curPrice = parseFloat(quote.last || quote.price || 0);
             const sessionHigh = parseFloat(quote.high || 0);
             const sessionLow = parseFloat(quote.low || 0);
@@ -1834,7 +1836,7 @@ class SignalEngine {
             console.log(`  🎯 ${ticker}: Setup ${best.setup} → ${direction} (${confidence}%)`);
         } else {
             direction = weightedDir;
-            confidence = Math.min(55, weightedConf);
+            confidence = Math.min(65, weightedConf);
         }
 
         const signalCount = signals.length;
@@ -1932,12 +1934,48 @@ class SignalEngine {
             if (curPrice > 0 && vwap > 0) vwapDev = (curPrice - vwap) / vwap * 100;
         }
 
-        // New features for signals #15-#19
-        const regimeScore = 0; // populated at ensemble level
-        const gammaProx = 0; // populated at ensemble level
-        const ivSkew = 0;
-        const candleScore = 0;
-        const sentScore = 0;
+        // Features for signals #15-#19 — populated from actual data
+        var regimeScore = 0;
+        if (regime && regime.confidence) regimeScore = regime.confidence / 100;
+        else if (regime && regime.score) regimeScore = regime.score;
+
+        var gammaProx = 0;
+        if (gex.length > 0 && quote) {
+            var gCurPrice = parseFloat(quote.last || quote.price || quote.close || 0);
+            var gMaxGamma = 0, gGammaStrike = 0;
+            gex.forEach(function (g) {
+                var gVal = Math.abs(parseFloat(g.gex || g.gamma || 0));
+                if (gVal > gMaxGamma) { gMaxGamma = gVal; gGammaStrike = parseFloat(g.strike || 0); }
+            });
+            if (gGammaStrike > 0 && gCurPrice > 0) {
+                gammaProx = Math.abs(gCurPrice - gGammaStrike) / gCurPrice; // 0 = at wall, 0.05 = 5% away
+            }
+        }
+
+        var ivSkewFeature = 0;
+        if (ivData) {
+            var ivArr2 = Array.isArray(ivData) ? ivData : [ivData];
+            var ivLast = ivArr2[ivArr2.length - 1] || {};
+            var fCallIV = parseFloat(ivLast.call_iv || ivLast.avg_call_iv || 0);
+            var fPutIV = parseFloat(ivLast.put_iv || ivLast.avg_put_iv || 0);
+            if (fCallIV > 0 && fPutIV > 0) {
+                ivSkewFeature = (fCallIV - fPutIV) / ((fCallIV + fPutIV) / 2); // normalized skew
+            }
+        }
+
+        var candleScore = 0;
+        if (patterns.length > 0) {
+            patterns.forEach(function (p) {
+                if (p.direction === 'BULL') candleScore += (p.strength || 0.5);
+                else if (p.direction === 'BEAR') candleScore -= (p.strength || 0.5);
+            });
+            candleScore = Math.max(-1, Math.min(1, candleScore)); // clamp
+        }
+
+        var sentScore = 0;
+        if (sentiment && sentiment.score !== undefined) {
+            sentScore = sentiment.score / 100; // normalize -1 to +1
+        }
 
         // ── NEW: Enhanced features (#10 ML Feature Engineering) ──
 
@@ -2170,7 +2208,7 @@ class SignalEngine {
         var sectorId = SECTOR_MAP[ticker] !== undefined ? SECTOR_MAP[ticker] / 10 : 0.5; // normalized 0-1
         var sectorVolProfile = SECTOR_MAP[ticker] !== undefined ? SECTOR_VOL[SECTOR_MAP[ticker]] * 100 : 1.5;
 
-        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
+        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkewFeature, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
     }
 }
 

@@ -1936,8 +1936,9 @@ class SignalEngine {
 
         // Features for signals #15-#19 — populated from actual data
         var regimeScore = 0;
-        if (regime && regime.confidence) regimeScore = regime.confidence / 100;
-        else if (regime && regime.score) regimeScore = regime.score;
+        var _regime = (data && data.regime) || null;
+        if (_regime && _regime.confidence) regimeScore = _regime.confidence / 100;
+        else if (_regime && _regime.score) regimeScore = _regime.score;
 
         var gammaProx = 0;
         if (gex.length > 0 && quote) {
@@ -1964,8 +1965,9 @@ class SignalEngine {
         }
 
         var candleScore = 0;
-        if (patterns.length > 0) {
-            patterns.forEach(function (p) {
+        var _patterns = (ta.patterns || []);
+        if (_patterns.length > 0) {
+            _patterns.forEach(function (p) {
                 if (p.direction === 'BULL') candleScore += (p.strength || 0.5);
                 else if (p.direction === 'BEAR') candleScore -= (p.strength || 0.5);
             });
@@ -1973,8 +1975,9 @@ class SignalEngine {
         }
 
         var sentScore = 0;
-        if (sentiment && sentiment.score !== undefined) {
-            sentScore = sentiment.score / 100; // normalize -1 to +1
+        var _sentiment = (data && data.sentiment) || null;
+        if (_sentiment && _sentiment.score !== undefined) {
+            sentScore = _sentiment.score / 100; // normalize -1 to +1
         }
 
         // ── NEW: Enhanced features (#10 ML Feature Engineering) ──

@@ -244,44 +244,80 @@ const state = {
 };
 
 // ── Memory-Safe State Serialization ───────────────────────
-// Prevents OOM crashes by capping unbounded arrays and stripping non-serializable fields
+// WHITELIST approach: only pick fields the dashboard client needs
+// Prevents OOM by never touching heavy server-only data
 function getSerializableState() {
-    var safe = Object.assign({}, state);
-    // Strip non-serializable and large cache fields
-    safe.chatHistory = undefined;
-    safe.polygonSnapshots = undefined;
+    var safe = {
+        // Core
+        tickers: state.tickers,
+        quotes: state.quotes,
+        session: state.session,
+        lastUpdate: state.lastUpdate,
+        lastBroadcast: state.lastBroadcast,
+        marketRegime: state.marketRegime,
 
-    // Strip HEAVY server-only fields that cause OOM during JSON.stringify
-    safe.historicalCandles = undefined;  // 180 days × 50 tickers = massive
-    safe.optionVolume = undefined;       // full options chain data
-    safe.greeks = undefined;             // per-ticker greeks arrays
-    safe.stockState = undefined;         // ticker details cache
-    safe.polygonMovers = undefined;      // mover cache
-    safe.polygonMoverCooldown = undefined;
-    safe.earningsRisk = undefined;       // per-ticker risk cache
-    safe.mlTrainingData = undefined;     // ML training samples
+        // Flow & Dark Pool
+        optionsFlow: (state.optionsFlow || []).slice(-100),
+        darkPoolRecent: (state.darkPoolRecent || []).slice(-50),
+        litFlow: state.litFlow,
 
-    // CAP 1: Unbounded arrays to prevent memory bloat
-    if (Array.isArray(safe.optionsFlow) && safe.optionsFlow.length > 100) safe.optionsFlow = safe.optionsFlow.slice(-100);
-    if (Array.isArray(safe.alerts) && safe.alerts.length > 100) safe.alerts = safe.alerts.slice(-100);
-    if (Array.isArray(safe.darkPoolRecent) && safe.darkPoolRecent.length > 50) safe.darkPoolRecent = safe.darkPoolRecent.slice(-50);
-    if (Array.isArray(safe.news) && safe.news.length > 50) safe.news = safe.news.slice(-50);
+        // Signals & Trading
+        tradeSetups: state.tradeSetups,
+        signalScores: state.signalScores,
+        alerts: (state.alerts || []).slice(-100),
+        gapAnalysis: state.gapAnalysis,
+        multiTF: state.multiTF,
 
-    // CAP 2: Massive per-ticker historical data (CRITICAL for dashboard speed)
-    // Only send the last 5 records per ticker to the client
-    var historicalKeys = ['shortInterest', 'shortVolume', 'failsToDeliver', 'insiderFlow', 'institutionActivity', 'shortVolumesByExchange', 'termStructure', 'realizedVol', 'ivSkew', 'volStats'];
+        // Paper Trading
+        paperTrades: state.paperTrades,
+        optionsPaperTrades: state.optionsPaperTrades,
+        journalStats: state.journalStats,
+        mlStatus: state.mlStatus,
+
+        // Discovery & Scanner
+        hotOpportunities: state.hotOpportunities,
+        liveDiscoveries: state.liveDiscoveries,
+        scannerResults: state.scannerResults,
+        halts: state.halts,
+
+        // Market Data (lightweight)
+        gex: state.gex,
+        marketTide: state.marketTide,
+        sectorTide: state.sectorTide,
+        ivRank: state.ivRank,
+        maxPain: state.maxPain,
+        oiChange: state.oiChange,
+        netPremium: state.netPremium,
+
+        // News & Earnings
+        news: (state.news || []).slice(-50),
+        earningsToday: state.earningsToday,
+        earnings: state.earnings,
+        morningBrief: state.morningBrief,
+
+        // Misc
+        congressTrades: (state.congressTrades || []).slice(-100),
+        insiderTransactions: (state.insiderTransactions || []).slice(-100),
+        xAlerts: (state.xAlerts || []).slice(-50),
+        topNetImpact: state.topNetImpact,
+        notifierStatus: state.notifierStatus,
+        sentiment: state.sentiment,
+        analystRatings: state.analystRatings,
+        economicCalendar: state.economicCalendar,
+        marketSpike: state.marketSpike,
+        unusualOptions: state.unusualOptions
+    };
+
+    // CAP: Massive per-ticker historical data — only last 5 per ticker
+    var historicalKeys = ['shortInterest', 'shortVolume', 'failsToDeliver', 'insiderFlow', 'institutionActivity'];
     historicalKeys.forEach(function (key) {
-        if (safe[key]) {
-            var prunedKey = {};
-            Object.keys(safe[key]).forEach(function (ticker) {
-                var arr = safe[key][ticker];
-                if (Array.isArray(arr)) {
-                    prunedKey[ticker] = arr.slice(-5);
-                } else {
-                    prunedKey[ticker] = arr;
-                }
+        if (state[key]) {
+            var pruned = {};
+            Object.keys(state[key]).forEach(function (ticker) {
+                var arr = state[key][ticker];
+                pruned[ticker] = Array.isArray(arr) ? arr.slice(-5) : arr;
             });
-            safe[key] = prunedKey;
+            safe[key] = pruned;
         }
     });
 

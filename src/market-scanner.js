@@ -279,7 +279,7 @@ class MarketScanner {
                 var prem = parseFloat(f.premium || f.total_premium || 0);
                 var pc = (f.put_call || f.option_type || f.sentiment || '').toUpperCase();
                 var tt = (f.trade_type || f.execution_type || '').toLowerCase();
-                if (pc.includes('CALL') || pc.includes('BULLISH')) callPrem += prem;
+                if (pc.includes('CALL') || pc.includes('BULLISH') || pc.includes('C')) callPrem += prem;
                 else putPrem += prem;
                 if (tt.includes('sweep')) sweepCount++;
             });

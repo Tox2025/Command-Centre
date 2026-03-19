@@ -446,7 +446,7 @@ class SignalEngine {
             flow.forEach(f => {
                 const prem = parseFloat(f.premium || f.total_premium || 0);
                 const pc = (f.put_call || f.option_type || f.sentiment || '').toUpperCase();
-                if (pc.includes('CALL') || pc.includes('BULLISH')) callPrem += prem;
+                if (pc.includes('CALL') || pc.includes('BULLISH') || pc.includes('C')) callPrem += prem;
                 else putPrem += prem;
             });
             const total = callPrem + putPrem;
@@ -584,9 +584,7 @@ class SignalEngine {
         }
 
         // 12b. Intraday price action — detect bounce from session low or rejection from high
-        // Guard: skip pre-market/overnight when quote.high/low contains yesterday's stale data
-        var isLiveSession = sess && ['OPEN_RUSH', 'POWER_OPEN', 'MIDDAY', 'POWER_HOUR', 'AFTER_HOURS'].indexOf(sess) >= 0;
-        if (quote && isLiveSession) {
+        if (quote) {
             const curPrice = parseFloat(quote.last || quote.price || 0);
             const sessionHigh = parseFloat(quote.high || 0);
             const sessionLow = parseFloat(quote.low || 0);
@@ -1836,7 +1834,7 @@ class SignalEngine {
             console.log(`  🎯 ${ticker}: Setup ${best.setup} → ${direction} (${confidence}%)`);
         } else {
             direction = weightedDir;
-            confidence = Math.min(65, weightedConf);
+            confidence = Math.min(55, weightedConf);
         }
 
         const signalCount = signals.length;

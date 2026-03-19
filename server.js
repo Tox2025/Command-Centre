@@ -296,6 +296,7 @@ function getSerializableState() {
         tickData: state.tickData,              // buy/sell flow in brief cards
         flowPerStrike: state.flowPerStrike,    // strike-level flow
         flowPerExpiry: state.flowPerExpiry,    // expiry-level flow
+        flowPerStrikeIntraday: state.flowPerStrikeIntraday, // intraday strike flow (drill-down)
         nope: state.nope,                      // net options pricing effect
         priceTargets: state.priceTargets,      // analyst price targets
 

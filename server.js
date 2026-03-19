@@ -288,12 +288,23 @@ function getSerializableState() {
         maxPain: state.maxPain,
         oiChange: state.oiChange,
         netPremium: state.netPremium,
+        technicals: state.technicals,          // watchlist RSI, bias, price
+        darkPool: state.darkPool,              // per-ticker dark pool panel
+        kellySizing: state.kellySizing,        // position sizing badges
+        correlationRisk: state.correlationRisk, // correlation risk warning
+        earningsRisk: state.earningsRisk,      // earnings badges on setups
+        tickData: state.tickData,              // buy/sell flow in brief cards
+        flowPerStrike: state.flowPerStrike,    // strike-level flow
+        flowPerExpiry: state.flowPerExpiry,    // expiry-level flow
+        nope: state.nope,                      // net options pricing effect
+        priceTargets: state.priceTargets,      // analyst price targets
 
         // News & Earnings
         news: (state.news || []).slice(-50),
         earningsToday: state.earningsToday,
         earnings: state.earnings,
         morningBrief: state.morningBrief,
+        fdaCalendar: state.fdaCalendar,        // FDA calendar panel
 
         // Misc
         congressTrades: (state.congressTrades || []).slice(-100),

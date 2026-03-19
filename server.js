@@ -251,6 +251,16 @@ function getSerializableState() {
     safe.chatHistory = undefined;
     safe.polygonSnapshots = undefined;
 
+    // Strip HEAVY server-only fields that cause OOM during JSON.stringify
+    safe.historicalCandles = undefined;  // 180 days × 50 tickers = massive
+    safe.optionVolume = undefined;       // full options chain data
+    safe.greeks = undefined;             // per-ticker greeks arrays
+    safe.stockState = undefined;         // ticker details cache
+    safe.polygonMovers = undefined;      // mover cache
+    safe.polygonMoverCooldown = undefined;
+    safe.earningsRisk = undefined;       // per-ticker risk cache
+    safe.mlTrainingData = undefined;     // ML training samples
+
     // CAP 1: Unbounded arrays to prevent memory bloat
     if (Array.isArray(safe.optionsFlow) && safe.optionsFlow.length > 100) safe.optionsFlow = safe.optionsFlow.slice(-100);
     if (Array.isArray(safe.alerts) && safe.alerts.length > 100) safe.alerts = safe.alerts.slice(-100);

@@ -4861,7 +4861,7 @@ function startPolygonPriceRefresh() {
                         }
                     }
                 });
-            } catch (snapErr) { /* partial data is fine */ }
+            } catch (snapErr) { console.warn('⚠️ Polygon snapshot failed:', snapErr.message); }
 
             // ── Fast Polygon Options Data (IV, greeks, volume) ──
             // Fetch options data for watchlist tickers on each cycle (staggered: 3 per cycle)
@@ -5208,12 +5208,25 @@ function startPolygonPriceRefresh() {
             var samplePrice = (state.quotes[sampleTicker] || {}).last || '?';
             console.log('📡 Polygon prices: ' + updatedCount + '/' + allTickers.length + ' updated (sample: ' + sampleTicker + ' $' + samplePrice + ')');
         }
-        schedulePolygonRefresh();
+        // schedulePolygonRefresh is now called by the timeout wrapper, not here
     }
 
     function schedulePolygonRefresh() {
         var interval = getPolygonRefreshInterval();
-        polygonRefreshTimer = setTimeout(polygonTick, interval);
+        polygonRefreshTimer = setTimeout(async function () {
+            try {
+                // Master timeout: 60s max for entire polygonTick to prevent permanent freeze
+                await Promise.race([
+                    polygonTick(),
+                    new Promise(function (_, reject) {
+                        setTimeout(function () { reject(new Error('polygonTick timeout (60s)')); }, 60000);
+                    })
+                ]);
+            } catch (e) {
+                console.error('❌ Polygon tick error/timeout:', e.message);
+            }
+            schedulePolygonRefresh();
+        }, interval);
     }
 
     schedulePolygonRefresh();

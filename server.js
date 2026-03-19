@@ -5297,16 +5297,26 @@ function startLiveDashboardBroadcast() {
     console.log('📡 Autonomous dashboard broadcast pulse started (5s interval)');
 }
 
-refreshAll().then(() => {
+// Startup: kick off refreshAll but with timeout — don't let a hung first cycle block everything else
+Promise.race([
+    refreshAll(),
+    new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error('Initial refreshAll timeout (60s)')); }, 60000);
+    })
+]).catch(function (e) {
+    console.error('⚠️ Initial refresh error/timeout:', e.message, '— starting subsystems anyway');
+}).then(function () {
     console.log('\n⏱️  Dynamic scheduling active — interval adjusts per market session');
     console.log('📊 Session: ' + scheduler.getSessionName() + ' | Interval: ' + (scheduler.getSessionInterval() / 1000) + 's');
     scheduleNext();
-    startPolygonPriceRefresh();
-    startLiveDashboardBroadcast();
-    startHaltRefresh();
-    console.log('📈 Polygon price refresh active — session-aware (' + (getPolygonRefreshInterval() / 1000) + 's current, covers all command centre tickers)');
-    console.log('🛑 Halt detection active — checking every ' + (HALT_REFRESH_MS / 1000) + 's');
 });
+
+// Start Polygon, dashboard broadcast, and halts IMMEDIATELY — don't wait for refreshAll
+startPolygonPriceRefresh();
+startLiveDashboardBroadcast();
+startHaltRefresh();
+console.log('📈 Polygon price refresh active — session-aware (' + (getPolygonRefreshInterval() / 1000) + 's current, covers all command centre tickers)');
+console.log('🛑 Halt detection active — checking every ' + (HALT_REFRESH_MS / 1000) + 's');
 
 // ── Morning Brief Generator ──────────────────────────────
 function generateMorningBrief() {

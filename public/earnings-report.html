@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Earnings Report — Command Center</title>
+  <meta name="description" content="4-step pre-earnings analysis report with options flow, chart history, analyst coverage, and insider activity">
+  <link rel="stylesheet" href="styles.css?v=15">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ── Report Page Layout ───────────────────────────── */
+    .report-page { padding: 20px; max-width: 1100px; margin: 0 auto; }
+
+    /* Back button */
+    .back-bar {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    }
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #818cf8; padding: 8px 18px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.2s;
+    }
+    .back-btn:hover { background: rgba(99, 102, 241, 0.25); transform: translateY(-1px); }
+
+    /* Report Header — Newsletter Style */
+    .report-header {
+      background: linear-gradient(135deg, #0c2e1a, #0a2540);
+      border-bottom: 3px solid #34d399; padding: 28px 32px; border-radius: 16px 16px 0 0;
+      display: flex; align-items: center; gap: 20px;
+    }
+    .rh-logo {
+      width: 64px; height: 64px; border-radius: 14px; background: rgba(52, 211, 153, 0.15);
+      border: 1px solid rgba(52, 211, 153, 0.3); display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 800; color: #34d399; flex-shrink: 0;
+    }
+    .rh-logo img { width: 100%; height: 100%; border-radius: 14px; object-fit: contain; }
+    .rh-info { flex: 1; }
+    .rh-ticker { font-size: 30px; font-weight: 800; color: #34d399; font-family: 'JetBrains Mono', monospace; }
+    .rh-name { font-size: 16px; color: #94a3b8; margin-top: 2px; }
+    .rh-date { font-size: 13px; color: #64748b; margin-top: 6px; }
+    .rh-price { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+    .rh-price-val { font-size: 22px; font-weight: 700; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; }
+    .rh-price-chg { font-size: 14px; font-weight: 600; }
+    .rh-price-chg.up { color: #34d399; }
+    .rh-price-chg.down { color: #ef4444; }
+
+    /* Prediction Banner */
+    .prediction-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 32px; background: rgba(15, 23, 42, 0.6);
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    }
+    .pred-verdict { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+    .pred-verdict.BEAT { color: #34d399; }
+    .pred-verdict.MISS { color: #ef4444; }
+    .pred-verdict.NEUTRAL { color: #f59e0b; }
+    .pred-confidence { text-align: right; }
+    .pred-confidence strong { font-size: 28px; font-weight: 800; display: block; }
+    .pred-confidence strong.BEAT { color: #34d399; }
+    .pred-confidence strong.MISS { color: #ef4444; }
+    .pred-confidence strong.NEUTRAL { color: #f59e0b; }
+    .pred-summary { font-size: 13px; color: #64748b; max-width: 500px; margin-top: 4px; }
+
+    /* Company Overview */
+    .company-overview {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+      padding: 20px 32px; border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+    }
+    .co-desc { font-size: 13px; color: #94a3b8; line-height: 1.7; }
+    .co-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .co-stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; }
+    .co-stat-value { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+
+    /* Step Cards */
+    .report-body { padding: 24px 32px; }
+    .step-card {
+      background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(51, 65, 85, 0.4);
+      border-radius: 14px; padding: 20px; margin-bottom: 20px;
+      transition: border-color 0.2s;
+    }
+    .step-card:hover { border-color: rgba(99, 102, 241, 0.4); }
+    .step-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .step-num {
+      font-size: 12px; font-weight: 700; color: #818cf8; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .step-verdict {
+      font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px;
+    }
+    .step-verdict.BULLISH, .step-verdict.CLEAN, .step-verdict.positive { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+    .step-verdict.BEARISH, .step-verdict.negative { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .step-verdict.NEUTRAL, .step-verdict.mixed { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    .step-data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .step-metric { background: rgba(30, 41, 59, 0.4); padding: 12px; border-radius: 8px; }
+    .step-metric-label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+    .step-metric-value { font-size: 16px; font-weight: 600; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; }
+
+    /* Tables */
+    .analyst-table, .insider-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .analyst-table th, .insider-table th {
+      font-size: 10px; color: #64748b; text-align: left; padding: 6px 8px;
+      border-bottom: 1px solid rgba(51,65,85,0.4); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .analyst-table td, .insider-table td {
+      font-size: 12px; color: #cbd5e1; padding: 6px 8px; border-bottom: 1px solid rgba(51,65,85,0.2);
+    }
+    .insider-sale td { color: #ef4444; }
+    .insider-buy td { color: #34d399; }
+
+    /* Earnings History Bar Chart */
+    .earnings-history-chart { display: flex; align-items: flex-end; gap: 8px; height: 90px; margin-top: 12px; padding-bottom: 20px; }
+    .eh-bar {
+      flex: 1; border-radius: 4px 4px 0 0; min-width: 40px; position: relative; transition: all 0.3s;
+    }
+    .eh-bar.beat { background: linear-gradient(180deg, #34d399, #059669); }
+    .eh-bar.miss { background: linear-gradient(180deg, #ef4444, #dc2626); }
+    .eh-bar-label { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #64748b; white-space: nowrap; }
+    .eh-bar-value { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #e2e8f0; font-weight: 600; white-space: nowrap; }
+
+    /* Report Container */
+    .report-container {
+      background: linear-gradient(180deg, #0f172a, #1e293b);
+      border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Loading State */
+    .report-loading {
+      text-align: center; padding: 80px 40px; color: #64748b; font-size: 15px;
+    }
+    .report-loading .spinner {
+      width: 48px; height: 48px; border: 3px solid rgba(99,102,241,0.2); border-top-color: #818cf8;
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Newsletter Timestamp */
+    .report-timestamp {
+      text-align: center; padding: 16px; color: #475569; font-size: 11px;
+      border-top: 1px solid rgba(51, 65, 85, 0.3);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .report-page { padding: 10px; }
+      .report-header, .prediction-banner, .company-overview, .report-body { padding-left: 16px; padding-right: 16px; }
+      .company-overview { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="logo">
+        <span class="logo-icon">&#9670;</span>
+        <span class="logo-text">COMMAND CENTER</span>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <h2 style="color:#e2e8f0;margin:0;font-size:16px">📋 Earnings Report</h2>
+    </div>
+    <div class="topbar-right"></div>
+  </header>
+
+  <!-- Navigation -->
+  <nav class="nav-bar">
+    <a href="/" class="nav-link" id="navDashboard">
+      <span class="nav-icon">&#9632;</span> Dashboard
+    </a>
+    <a href="/paper-trading.html" class="nav-link" id="navPaperTrading">
+      <span class="nav-icon">&#9881;</span> Paper Trading
+    </a>
+    <a href="/options-paper-trading.html" class="nav-link" id="navOptionsPaper">
+      <span class="nav-icon">&#128203;</span> Options Paper
+    </a>
+    <a href="/earnings.html" class="nav-link active" id="navEarnings">
+      <span class="nav-icon">📅</span> Earnings
+    </a>
+    <a href="/reports.html" class="nav-link" id="navReports">
+      <span class="nav-icon">&#128202;</span> Reports
+    </a>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="report-page">
+    <!-- Back Button -->
+    <div class="back-bar">
+      <a href="/earnings.html" class="back-btn">◀ Back to Calendar</a>
+      <span id="tickerBreadcrumb" style="color:#64748b;font-size:13px"></span>
+    </div>
+
+    <!-- Report Container -->
+    <div class="report-container" id="reportContainer">
+      <div class="report-loading" id="reportLoading">
+        <div class="spinner"></div>
+        Running 4-step pre-earnings analysis...
+      </div>
+      <div id="reportContent" style="display:none"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── Get ticker from URL ────────────────────────────────
+    var params = new URLSearchParams(window.location.search);
+    var ticker = params.get('ticker');
+
+    if (!ticker) {
+      window.location.href = '/earnings.html';
+    } else {
+      document.title = ticker + ' Earnings Report — Command Center';
+      document.getElementById('tickerBreadcrumb').textContent = 'Earnings Calendar → ' + ticker + ' Report';
+      loadReport(ticker);
+    }
+
+    // ── Load Report ────────────────────────────────────────
+    function loadReport(ticker) {
+      var loading = document.getElementById('reportLoading');
+      var content = document.getElementById('reportContent');
+
+      fetch('/api/earnings/report/' + ticker)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          loading.style.display = 'none';
+          content.style.display = 'block';
+          renderReport(data);
+        })
+        .catch(function (err) {
+          loading.innerHTML = '<div style="color:#ef4444;font-size:16px">⚠️ Error loading report for ' + ticker + '</div><div style="color:#64748b;margin-top:8px">' + err.message + '</div><div style="margin-top:20px"><a href="/earnings.html" class="back-btn">◀ Back to Calendar</a></div>';
+        });
+    }
+
+    // ── Render Report ─────────────────────────────────────
+    function renderReport(report) {
+      var content = document.getElementById('reportContent');
+      var company = report.company || {};
+      var pred = report.prediction || {};
+      var step1 = report.step1_optionsFlow || {};
+      var step2 = report.step2_chartHistory || {};
+      var step3 = report.step3_analystCoverage || {};
+      var step4 = report.step4_insiderActivity || {};
+
+      var html = '';
+
+      // ── Header ──
+      html += '<div class="report-header">';
+      html += '<div class="rh-logo">';
+      if (company.logoUrl) {
+        html += '<img src="' + company.logoUrl + '" alt="' + report.ticker + '" onerror="this.style.display=\'none\';this.parentElement.textContent=\'' + (report.ticker || '?').substring(0, 2) + '\'">';
+      } else {
+        html += (report.ticker || '?').substring(0, 2);
+      }
+      html += '</div>';
+      html += '<div class="rh-info">';
+      html += '<div class="rh-ticker">$' + report.ticker + '</div>';
+      html += '<div class="rh-name">' + (company.name || report.ticker) + '</div>';
+      var ed = report.earningsDate;
+      if (ed) {
+        html += '<div class="rh-date">📅 Earnings: ' + ed.date + ' (' + (ed.time || 'TBD') + ')  &nbsp; EPS Est: ' + (ed.epsEstimate ? '$' + ed.epsEstimate.toFixed(2) : 'N/A') + '</div>';
+      }
+      if (step2.currentPrice) {
+        var chgClass = step2.move20d > 0 ? 'up' : step2.move20d < 0 ? 'down' : '';
+        html += '<div class="rh-price">';
+        html += '<span class="rh-price-val">$' + step2.currentPrice.toFixed(2) + '</span>';
+        if (step2.move20d !== undefined) {
+          html += '<span class="rh-price-chg ' + chgClass + '">' + (step2.move20d > 0 ? '▲' : '▼') + ' ' + Math.abs(step2.move20d).toFixed(1) + '% (20d)</span>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+
+      // ── Prediction Banner ──
+      var direction = pred.direction || 'NEUTRAL';
+      html += '<div class="prediction-banner">';
+      html += '<div>';
+      html += '<div class="pred-verdict ' + direction + '">' + (direction === 'BEAT' ? '🟢 PREDICTED: BEAT' : direction === 'MISS' ? '🔴 PREDICTED: MISS' : '🟡 NEUTRAL') + '</div>';
+      html += '<div class="pred-summary">' + (pred.summary || 'Insufficient data for prediction. Analysis based on available information.') + '</div>';
+      html += '</div>';
+      html += '<div class="pred-confidence">';
+      html += '<strong class="' + direction + '">' + (pred.confidence || '--') + '%</strong>';
+      html += '<div style="font-size:11px;color:#64748b">Confidence</div>';
+      html += '</div>';
+      html += '</div>';
+
+      // ── Company Overview ──
+      html += '<div class="company-overview">';
+      html += '<div class="co-desc">' + (company.description || 'No company description available. Data will populate as the earnings date approaches.') + '</div>';
+      html += '<div class="co-stats">';
+      html += '<div><div class="co-stat-label">Sector</div><div class="co-stat-value">' + (company.sector || 'N/A') + '</div></div>';
+      html += '<div><div class="co-stat-label">Market Cap</div><div class="co-stat-value">' + (company.marketCapFormatted || 'N/A') + '</div></div>';
+      html += '<div><div class="co-stat-label">Beat Rate</div><div class="co-stat-value">' + (report.historicalBeatRate !== null && report.historicalBeatRate !== undefined ? report.historicalBeatRate + '%' : 'N/A') + '</div></div>';
+      html += '<div><div class="co-stat-label">Exchange</div><div class="co-stat-value">' + (company.exchange || 'N/A') + '</div></div>';
+      html += '</div>';
+      html += '</div>';
+
+      // ── Report Body ──
+      html += '<div class="report-body">';
+
+      // ── STEP 1: Options Flow ──
+      html += '<div class="step-card">';
+      html += '<div class="step-card-header">';
+      html += '<div class="step-num">📊 Step 1 — Options Flow Analysis</div>';
+      html += '<div class="step-verdict ' + verdictClass(step1.verdict) + '">' + (step1.verdict || 'NO DATA') + '</div>';
+      html += '</div>';
+      html += '<div class="step-data-grid">';
+      html += metricBox('Put/Call Ratio', step1.putCallRatio !== undefined ? step1.putCallRatio.toFixed(2) : '--');
+      html += metricBox('Call Premium', step1.callPremium ? formatPremium(step1.callPremium) : '--');
+      html += metricBox('Put Premium', step1.putPremium ? formatPremium(step1.putPremium) : '--');
+      html += metricBox('Premium Bias', step1.premiumBias || '--');
+      html += metricBox('IV Rank', step1.ivRank !== undefined ? step1.ivRank.toFixed(1) + '%' : '--');
+      html += metricBox('Implied Move', step1.impliedMove ? step1.impliedMove.toFixed(1) + '%' : '--');
+      html += '</div>';
+      if (step1.verdict === 'NO DATA' || !step1.verdict) {
+        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">Options flow data not yet available. This typically populates 1-2 days before earnings.</div>';
+      }
+      html += '</div>';
+
+      // ── STEP 2: Chart & Price Action ──
+      html += '<div class="step-card">';
+      html += '<div class="step-card-header">';
+      html += '<div class="step-num">📈 Step 2 — Chart & Price Action (20-Day)</div>';
+      html += '<div class="step-verdict ' + (step2.pricedIn ? 'negative' : 'positive') + '">' + (step2.pricedIn ? '⚠️ MAY BE PRICED IN' : '✅ ROOM TO MOVE') + '</div>';
+      html += '</div>';
+      html += '<div class="step-data-grid">';
+      html += metricBox('20-Day Move', step2.move20d !== undefined ? (step2.move20d > 0 ? '+' : '') + step2.move20d.toFixed(1) + '%' : '--');
+      html += metricBox('Current Price', step2.currentPrice ? '$' + step2.currentPrice.toFixed(2) : '--');
+      html += metricBox('Anticipated Move', step2.anticipatedMove ? step2.anticipatedMove.toFixed(1) + '%' : '--');
+      html += metricBox('Avg Earnings Move', step2.avgEarningsMove ? step2.avgEarningsMove.toFixed(1) + '%' : '--');
+      html += '</div>';
+      // Past reactions
+      if (step2.pastReactions && step2.pastReactions.length > 0) {
+        html += '<div style="margin-top:14px"><div class="step-metric-label">Last ' + step2.pastReactions.length + ' Earnings Reactions</div>';
+        html += '<div class="earnings-history-chart">';
+        step2.pastReactions.forEach(function (r) {
+          var h = Math.min(70, Math.abs(r.reaction) * 5);
+          html += '<div class="eh-bar ' + (r.reaction >= 0 ? 'beat' : 'miss') + '" style="height:' + Math.max(8, h) + 'px">';
+          html += '<div class="eh-bar-value">' + (r.reaction > 0 ? '+' : '') + r.reaction + '%</div>';
+          html += '<div class="eh-bar-label">' + (r.date || '').substring(5) + '</div>';
+          html += '</div>';
+        });
+        html += '</div></div>';
+      }
+      html += '</div>';
+
+      // ── STEP 3: Analyst Coverage ──
+      html += '<div class="step-card">';
+      html += '<div class="step-card-header">';
+      html += '<div class="step-num">🏦 Step 3 — Analyst Coverage & Upgrades</div>';
+      html += '<div class="step-verdict ' + verdictClass(step3.verdict) + '">' + (step3.verdict || 'NO DATA') + '</div>';
+      html += '</div>';
+      html += '<div class="step-data-grid">';
+      html += metricBox('Consensus Target', step3.consensusTarget ? '$' + step3.consensusTarget.toFixed(2) : '--');
+      html += metricBox('Target Range', step3.lowTarget && step3.highTarget ? '$' + step3.lowTarget + ' - $' + step3.highTarget : '--');
+      html += metricBox('Upside/Downside', step3.upsidePercent !== undefined ? (step3.upsidePercent > 0 ? '+' : '') + step3.upsidePercent.toFixed(1) + '%' : '--');
+      html += metricBox('Upgrades (10d)', step3.upgradesLast10d !== undefined ? step3.upgradesLast10d : '--');
+      html += metricBox('Downgrades (10d)', step3.downgradesLast10d !== undefined ? step3.downgradesLast10d : '--');
+      html += metricBox('Total Analysts', step3.totalAnalysts || '--');
+      html += '</div>';
+      // Recent upgrades table
+      if (step3.recentUpgrades && step3.recentUpgrades.length > 0) {
+        html += '<table class="analyst-table"><thead><tr><th>Date</th><th>Firm</th><th>Rating</th><th>Price Target</th></tr></thead><tbody>';
+        step3.recentUpgrades.slice(0, 8).forEach(function (u) {
+          html += '<tr><td>' + (u.date || '').substring(0, 10) + '</td><td>' + (u.firm || '--') + '</td><td>' + (u.rating || '--') + '</td><td>' + (u.priceTarget ? '$' + u.priceTarget.toFixed(2) : '--') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      html += '</div>';
+
+      // ── STEP 4: Insider Activity ──
+      html += '<div class="step-card">';
+      html += '<div class="step-card-header">';
+      html += '<div class="step-num">👤 Step 4 — Insider Activity</div>';
+      var insVerdict = step4.verdict || 'NO DATA';
+      html += '<div class="step-verdict ' + (insVerdict.includes('RED') ? 'negative' : insVerdict.includes('BUYING') ? 'positive' : insVerdict.includes('SELLING') ? 'negative' : 'mixed') + '">' + insVerdict + '</div>';
+      html += '</div>';
+      html += '<div class="step-data-grid">';
+      html += metricBox('Recent Sales', step4.salesCount !== undefined ? step4.salesCount : '--');
+      html += metricBox('Recent Buys', step4.buysCount !== undefined ? step4.buysCount : '--');
+      html += metricBox('Total Sales Value', step4.totalSalesValue ? formatPremium(step4.totalSalesValue) : '--');
+      html += metricBox('Total Buys Value', step4.totalBuysValue ? formatPremium(step4.totalBuysValue) : '--');
+      html += '</div>';
+      // C-suite sales warning
+      if (step4.cSuiteSales && step4.cSuiteSales.length > 0) {
+        html += '<div style="margin-top:12px;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px">';
+        html += '<div style="color:#ef4444;font-weight:700;font-size:13px;margin-bottom:8px">🚨 C-Suite / Director Sales Detected</div>';
+        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
+        step4.cSuiteSales.forEach(function (s) {
+          html += '<tr class="insider-sale"><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        html += '</div>';
+      }
+      // Recent insider transactions
+      if (step4.recentSales && step4.recentSales.length > 0) {
+        html += '<div style="margin-top:10px"><div class="step-metric-label">All Recent Sales (30d)</div>';
+        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
+        step4.recentSales.slice(0, 10).forEach(function (s) {
+          html += '<tr><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      if (step4.recentBuys && step4.recentBuys.length > 0) {
+        html += '<div style="margin-top:10px"><div class="step-metric-label">All Recent Buys (30d)</div>';
+        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
+        step4.recentBuys.slice(0, 10).forEach(function (s) {
+          html += '<tr class="insider-buy"><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      html += '</div>';
+
+      // ── Prediction Breakdown ──
+      if (pred.breakdown) {
+        html += '<div class="step-card" style="border-color:rgba(99,102,241,0.4);background:rgba(99,102,241,0.05)">';
+        html += '<div class="step-card-header"><div class="step-num" style="color:#34d399">📊 Prediction Breakdown</div></div>';
+        html += '<div class="step-data-grid">';
+        var bd = pred.breakdown;
+        for (var key in bd) {
+          if (bd.hasOwnProperty(key)) {
+            var s = bd[key];
+            html += '<div class="step-metric">';
+            html += '<div class="step-metric-label">' + s.label + '</div>';
+            html += '<div class="step-metric-value">' + (s.score > 0 ? '+' : '') + s.score.toFixed(2) + ' <span style="font-size:10px;color:#64748b">' + s.verdict + '</span></div>';
+            html += '</div>';
+          }
+        }
+        html += '<div class="step-metric"><div class="step-metric-label">Total Score</div><div class="step-metric-value" style="color:' + (pred.totalScore > 0 ? '#34d399' : pred.totalScore < 0 ? '#ef4444' : '#f59e0b') + '">' + (pred.totalScore > 0 ? '+' : '') + pred.totalScore.toFixed(2) + '</div></div>';
+        html += '</div>';
+        html += '</div>';
+      }
+
+      // ── Financials ──
+      if (report.financials && report.financials.length > 0) {
+        html += '<div class="step-card">';
+        html += '<div class="step-card-header"><div class="step-num">📈 Quarterly Financials</div></div>';
+        html += '<table class="analyst-table"><thead><tr><th>Period</th><th>Revenue</th><th>Net Income</th><th>EPS</th></tr></thead><tbody>';
+        report.financials.forEach(function (q) {
+          html += '<tr><td>' + (q.period || '') + ' ' + (q.year || '') + '</td><td>' + (q.revenue ? formatRevenue(q.revenue) : '--') + '</td><td>' + (q.netIncome ? formatRevenue(q.netIncome) : '--') + '</td><td>' + (q.eps !== null && q.eps !== undefined ? '$' + q.eps.toFixed(2) : '--') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        html += '</div>';
+      }
+
+      html += '</div>'; // end report-body
+
+      // ── Timestamp ──
+      html += '<div class="report-timestamp">Report generated ' + new Date().toLocaleString() + ' by Command Center AI • Data from Unusual Whales & Polygon.io</div>';
+
+      content.innerHTML = html;
+    }
+
+    // ── Helper Functions ──────────────────────────────────
+    function metricBox(label, value) {
+      return '<div class="step-metric"><div class="step-metric-label">' + label + '</div><div class="step-metric-value">' + value + '</div></div>';
+    }
+
+    function verdictClass(v) {
+      if (!v) return 'mixed';
+      if (v === 'BULLISH' || v === 'CLEAN' || v.indexOf('BUYING') >= 0) return 'BULLISH';
+      if (v === 'BEARISH' || v.indexOf('RED') >= 0 || v.indexOf('SELLING') >= 0) return 'BEARISH';
+      return 'NEUTRAL';
+    }
+
+    function formatMarketCap(val) {
+      if (!val) return 'N/A';
+      if (val >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
+      if (val >= 1e9) return '$' + (val / 1e9).toFixed(1) + 'B';
+      if (val >= 1e6) return '$' + (val / 1e6).toFixed(0) + 'M';
+      return '$' + val.toLocaleString();
+    }
+
+    function formatRevenue(val) {
+      if (!val) return '--';
+      var abs = Math.abs(val);
+      var sign = val < 0 ? '-' : '';
+      if (abs >= 1e9) return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return sign + '$' + (abs / 1e6).toFixed(1) + 'M';
+      if (abs >= 1e3) return sign + '$' + (abs / 1e3).toFixed(0) + 'K';
+      return sign + '$' + abs.toFixed(2);
+    }
+
+    function formatPremium(val) {
+      if (!val) return '--';
+      var abs = Math.abs(val);
+      if (abs >= 1e6) return '$' + (val / 1e6).toFixed(1) + 'M';
+      if (abs >= 1e3) return '$' + (val / 1e3).toFixed(0) + 'K';
+      return '$' + val.toFixed(0);
+    }
+  </script>
+</body>
+</html>

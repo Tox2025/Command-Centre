@@ -466,7 +466,7 @@ app.get('/api/earnings/calendar', async (req, res) => {
             year = now.getFullYear();
             mo = now.getMonth() + 1;
         }
-        var data = await earningsCalendar.getMonthlyCalendar(year, mo);
+        var data = await earningsCalendar.getMonthlyCalendar(year, mo, state.earningsToday);
         res.json(data);
     } catch (e) {
         console.error('Earnings calendar error:', e.message);

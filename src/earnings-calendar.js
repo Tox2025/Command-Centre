@@ -61,69 +61,90 @@ class EarningsCalendar {
     // ██  MONTHLY CALENDAR                                   ██
     // ══════════════════════════════════════════════════════════
 
-    async getMonthlyCalendar(year, month) {
+    async getMonthlyCalendar(year, month, earningsToday) {
         var cacheKey = year + '-' + String(month).padStart(2, '0');
         var cached = this.monthlyCache[cacheKey];
         if (cached && (Date.now() - cached.fetchedAt) < CACHE_TTL) {
             return cached.data;
         }
 
-        // Build date range for the month
         var startDate = new Date(year, month - 1, 1);
-        var endDate = new Date(year, month, 0); // last day of month
-        var startStr = this._formatDate(startDate);
-        var endStr = this._formatDate(endDate);
-
-        // Fetch earnings for this date range
+        var endDate = new Date(year, month, 0);
+        var todayStr = this._formatDate(new Date());
         var calendar = {};
-        try {
-            // Fetch premarket and afterhours earnings lists
-            var premarket = await this.uw._fetch('/earnings/premarket');
-            var afterhours = await this.uw._fetch('/earnings/afterhours');
 
-            // Process premarket earnings
-            var pmData = this._extractEarningsArray(premarket);
-            for (var i = 0; i < pmData.length; i++) {
-                var e = pmData[i];
-                var dateStr = e.date || e.earnings_date || e.report_date || '';
-                if (!dateStr) continue;
+        // === Source 1: Use server-side state.earningsToday (already fetched) ===
+        if (earningsToday) {
+            var pmList = earningsToday.premarket || [];
+            var ahList = earningsToday.afterhours || [];
+            var enriched = earningsToday.enriched || {};
+
+            for (var i = 0; i < pmList.length; i++) {
+                var e = pmList[i];
+                var dateStr = e.date || e.earnings_date || e.report_date || todayStr;
                 if (!calendar[dateStr]) calendar[dateStr] = [];
-                calendar[dateStr].push(this._normalizeEarning(e, 'BMO'));
+                var norm = this._normalizeEarning(e, 'BMO');
+                // Merge enriched data if available
+                if (enriched[norm.ticker]) {
+                    var enr = enriched[norm.ticker];
+                    if (enr.eps_estimate) norm.epsEstimate = parseFloat(enr.eps_estimate);
+                    if (enr.eps_actual) norm.epsActual = parseFloat(enr.eps_actual);
+                    if (enr.revenue_estimate) norm.revenueEstimate = parseFloat(enr.revenue_estimate);
+                    if (enr.revenue_actual) norm.revenueActual = parseFloat(enr.revenue_actual);
+                    if (enr.beat) norm.beatMiss = enr.beat;
+                    if (enr.surprise_pct) norm.surprisePct = enr.surprise_pct;
+                }
+                calendar[dateStr].push(norm);
             }
 
-            // Process afterhours earnings
-            var ahData = this._extractEarningsArray(afterhours);
-            for (var j = 0; j < ahData.length; j++) {
-                var ae = ahData[j];
-                var aDateStr = ae.date || ae.earnings_date || ae.report_date || '';
-                if (!aDateStr) continue;
+            for (var j = 0; j < ahList.length; j++) {
+                var ae = ahList[j];
+                var aDateStr = ae.date || ae.earnings_date || ae.report_date || todayStr;
                 if (!calendar[aDateStr]) calendar[aDateStr] = [];
-                calendar[aDateStr].push(this._normalizeEarning(ae, 'AMC'));
+                var aNorm = this._normalizeEarning(ae, 'AMC');
+                if (enriched[aNorm.ticker]) {
+                    var aEnr = enriched[aNorm.ticker];
+                    if (aEnr.eps_estimate) aNorm.epsEstimate = parseFloat(aEnr.eps_estimate);
+                    if (aEnr.eps_actual) aNorm.epsActual = parseFloat(aEnr.eps_actual);
+                    if (aEnr.revenue_estimate) aNorm.revenueEstimate = parseFloat(aEnr.revenue_estimate);
+                    if (aEnr.revenue_actual) aNorm.revenueActual = parseFloat(aEnr.revenue_actual);
+                    if (aEnr.beat) aNorm.beatMiss = aEnr.beat;
+                    if (aEnr.surprise_pct) aNorm.surprisePct = aEnr.surprise_pct;
+                }
+                calendar[aDateStr].push(aNorm);
             }
-        } catch (err) {
-            console.error('EarningsCalendar: monthly fetch error:', err.message);
+
+            console.log('EarningsCalendar: loaded ' + pmList.length + ' BMO + ' + ahList.length + ' AMC from server state for ' + todayStr);
         }
 
-        // Also try the general earnings endpoint for broader coverage
-        try {
-            // Fetch earnings for tickers in watchlist if available
-            var generalData = await this.uw._fetch('/market/earnings-calendar', { from: startStr, to: endStr });
-            if (generalData) {
-                var genArr = this._extractEarningsArray(generalData);
-                for (var k = 0; k < genArr.length; k++) {
-                    var ge = genArr[k];
-                    var gDateStr = ge.date || ge.earnings_date || ge.report_date || '';
-                    if (!gDateStr) continue;
-                    if (!calendar[gDateStr]) calendar[gDateStr] = [];
-                    // Avoid duplicates
-                    var ticker = (ge.ticker || ge.symbol || '').toUpperCase();
-                    var exists = calendar[gDateStr].some(function (x) { return x.ticker === ticker; });
-                    if (!exists) {
-                        calendar[gDateStr].push(this._normalizeEarning(ge, ge.time || ge.when || 'unknown'));
-                    }
+        // === Source 2: If no server data or looking at a different month, try UW API directly ===
+        if (Object.keys(calendar).length === 0) {
+            try {
+                var premarket = await this.uw._fetch('/earnings/premarket');
+                var pmData = this._extractEarningsArray(premarket);
+                for (var pi = 0; pi < pmData.length; pi++) {
+                    var pe = pmData[pi];
+                    var pDate = pe.date || pe.earnings_date || pe.report_date || todayStr;
+                    if (!calendar[pDate]) calendar[pDate] = [];
+                    calendar[pDate].push(this._normalizeEarning(pe, 'BMO'));
                 }
+            } catch (err) {
+                console.error('EarningsCalendar: premarket fetch error:', err.message);
             }
-        } catch (e) { /* general endpoint may not exist */ }
+
+            try {
+                var afterhours = await this.uw._fetch('/earnings/afterhours');
+                var ahData = this._extractEarningsArray(afterhours);
+                for (var ai = 0; ai < ahData.length; ai++) {
+                    var ahe = ahData[ai];
+                    var ahDate = ahe.date || ahe.earnings_date || ahe.report_date || todayStr;
+                    if (!calendar[ahDate]) calendar[ahDate] = [];
+                    calendar[ahDate].push(this._normalizeEarning(ahe, 'AMC'));
+                }
+            } catch (err) {
+                console.error('EarningsCalendar: afterhours fetch error:', err.message);
+            }
+        }
 
         var result = {
             year: year,

@@ -1,7 +1,7 @@
 // Options Paper Trading Client JS
 var $ = function (id) { return document.getElementById(id); };
 var ws = null, state = { tickers: [], quotes: {} };
-var activeVersion = 'vML';
+var activeVersion = 'all';
 var ptChart = null;
 var sColors = { PRE_MARKET: '#f59e0b', OPEN: '#10b981', MIDDAY: '#3b82f6', POWER_HOUR: '#8b5cf6', POST_MARKET: '#f59e0b', CLOSED: '#64748b', LOADING: '#64748b' };
 var sLabels = { PRE_MARKET: 'PRE-MKT', OPEN: 'OPEN', MIDDAY: 'MIDDAY', POWER_HOUR: 'PWR HOUR', POST_MARKET: 'POST-MKT', CLOSED: 'CLOSED', LOADING: 'LOADING' };
@@ -265,7 +265,7 @@ function fetchOpenPositions() {
 
 // ── Trade History ────────────────────────────────────
 function fetchTradeHistory() {
-    fetch('/api/options-paper/trades').then(function (r) { return r.json(); }).then(function (trades) {
+    fetch('/api/options-paper/trades?version=' + activeVersion).then(function (r) { return r.json(); }).then(function (trades) {
         var closed = trades.filter(function (t) { return t.status !== 'OPEN'; });
         $('historyCount').textContent = closed.length + ' trade' + (closed.length !== 1 ? 's' : '');
 

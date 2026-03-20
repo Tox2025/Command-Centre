@@ -1932,51 +1932,12 @@ class SignalEngine {
             if (curPrice > 0 && vwap > 0) vwapDev = (curPrice - vwap) / vwap * 100;
         }
 
-        // Features for signals #15-#19 — populated from actual data
-        var regimeScore = 0;
-        var _regime = (data && data.regime) || null;
-        if (_regime && _regime.confidence) regimeScore = _regime.confidence / 100;
-        else if (_regime && _regime.score) regimeScore = _regime.score;
-
-        var gammaProx = 0;
-        if (gex.length > 0 && quote) {
-            var gCurPrice = parseFloat(quote.last || quote.price || quote.close || 0);
-            var gMaxGamma = 0, gGammaStrike = 0;
-            gex.forEach(function (g) {
-                var gVal = Math.abs(parseFloat(g.gex || g.gamma || 0));
-                if (gVal > gMaxGamma) { gMaxGamma = gVal; gGammaStrike = parseFloat(g.strike || 0); }
-            });
-            if (gGammaStrike > 0 && gCurPrice > 0) {
-                gammaProx = Math.abs(gCurPrice - gGammaStrike) / gCurPrice; // 0 = at wall, 0.05 = 5% away
-            }
-        }
-
-        var ivSkewFeature = 0;
-        if (ivData) {
-            var ivArr2 = Array.isArray(ivData) ? ivData : [ivData];
-            var ivLast = ivArr2[ivArr2.length - 1] || {};
-            var fCallIV = parseFloat(ivLast.call_iv || ivLast.avg_call_iv || 0);
-            var fPutIV = parseFloat(ivLast.put_iv || ivLast.avg_put_iv || 0);
-            if (fCallIV > 0 && fPutIV > 0) {
-                ivSkewFeature = (fCallIV - fPutIV) / ((fCallIV + fPutIV) / 2); // normalized skew
-            }
-        }
-
-        var candleScore = 0;
-        var _patterns = (ta.patterns || []);
-        if (_patterns.length > 0) {
-            _patterns.forEach(function (p) {
-                if (p.direction === 'BULL') candleScore += (p.strength || 0.5);
-                else if (p.direction === 'BEAR') candleScore -= (p.strength || 0.5);
-            });
-            candleScore = Math.max(-1, Math.min(1, candleScore)); // clamp
-        }
-
-        var sentScore = 0;
-        var _sentiment = (data && data.sentiment) || null;
-        if (_sentiment && _sentiment.score !== undefined) {
-            sentScore = _sentiment.score / 100; // normalize -1 to +1
-        }
+        // New features for signals #15-#19
+        const regimeScore = 0; // populated at ensemble level
+        const gammaProx = 0; // populated at ensemble level
+        const ivSkew = 0;
+        const candleScore = 0;
+        const sentScore = 0;
 
         // ── NEW: Enhanced features (#10 ML Feature Engineering) ──
 
@@ -2209,7 +2170,7 @@ class SignalEngine {
         var sectorId = SECTOR_MAP[ticker] !== undefined ? SECTOR_MAP[ticker] / 10 : 0.5; // normalized 0-1
         var sectorVolProfile = SECTOR_MAP[ticker] !== undefined ? SECTOR_VOL[SECTOR_MAP[ticker]] * 100 : 1.5;
 
-        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkewFeature, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
+        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
     }
 }
 

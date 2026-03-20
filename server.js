@@ -137,6 +137,7 @@ const newsSentiment = new NewsSentiment();
 const correlationGuard = new CorrelationGuard();
 const notifier = new Notifier();
 const polygonClient = new PolygonTickClient(process.env.POLYGON_API_KEY);
+earningsCalendar.polygon = polygonClient; // Assign Polygon for company details + financials
 const scanner = new MarketScanner({ minConfidence: 40, maxCandidates: 10, minPrice: 2, polygonClient: polygonClient });
 const scheduler = new SessionScheduler({ dailyLimit: 15000, safetyMargin: 1.0 });
 abTester.scheduler = scheduler; // Assign scheduler for market hours gating
@@ -451,6 +452,58 @@ app.get('/api/technicals/:ticker/:timeframe', async (req, res) => {
 app.get('/api/news', (req, res) => res.json(state.news));
 app.get('/api/insider', (req, res) => res.json(state.insiderTransactions));
 app.get('/api/earnings/today', (req, res) => res.json(state.earningsToday));
+
+// Earnings Calendar API
+app.get('/api/earnings/calendar', async (req, res) => {
+    try {
+        var now = new Date();
+        var month = req.query.month; // YYYY-MM
+        var year, mo;
+        if (month && month.includes('-')) {
+            year = parseInt(month.split('-')[0]);
+            mo = parseInt(month.split('-')[1]);
+        } else {
+            year = now.getFullYear();
+            mo = now.getMonth() + 1;
+        }
+        var data = await earningsCalendar.getMonthlyCalendar(year, mo);
+        res.json(data);
+    } catch (e) {
+        console.error('Earnings calendar error:', e.message);
+        res.json({ error: e.message, calendar: {} });
+    }
+});
+
+app.get('/api/earnings/day', async (req, res) => {
+    try {
+        var date = req.query.date; // YYYY-MM-DD
+        if (!date) {
+            date = new Date().toISOString().split('T')[0];
+        }
+        var data = await earningsCalendar.getDayEarnings(date);
+        res.json(data);
+    } catch (e) {
+        console.error('Earnings day error:', e.message);
+        res.json({ error: e.message, entries: [] });
+    }
+});
+
+app.get('/api/earnings/report/:ticker', async (req, res) => {
+    try {
+        var ticker = req.params.ticker.toUpperCase();
+        var type = req.query.type || 'pre'; // pre or post
+        var report;
+        if (type === 'post') {
+            report = await earningsCalendar.getPostEarningsReport(ticker);
+        } else {
+            report = await earningsCalendar.getPreEarningsReport(ticker);
+        }
+        res.json(report);
+    } catch (e) {
+        console.error('Earnings report error for ' + req.params.ticker + ':', e.message);
+        res.json({ error: e.message });
+    }
+});
 app.get('/api/shorts/:ticker', (req, res) => {
     const t = req.params.ticker.toUpperCase();
     res.json(state.shortInterest[t] || null);

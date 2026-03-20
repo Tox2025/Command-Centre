@@ -191,8 +191,11 @@ class EarningsCalendar {
             calendar: calendar
         };
 
-        this.monthlyCache[cacheKey] = { data: result, fetchedAt: Date.now() };
-        this._saveCache();
+        // Only cache if we have actual data — don't cache empty results
+        if (Object.keys(calendar).length > 0) {
+            this.monthlyCache[cacheKey] = { data: result, fetchedAt: Date.now() };
+            this._saveCache();
+        }
         return result;
     }
 

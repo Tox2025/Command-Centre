@@ -114,7 +114,43 @@ class EarningsCalendar {
                 calendar[aDateStr].push(aNorm);
             }
 
-            console.log('EarningsCalendar: loaded ' + pmList.length + ' BMO + ' + ahList.length + ' AMC from server state for ' + todayStr);
+            // === Source 1b: Enriched data has 200+ tickers with report_date — full month coverage ===
+            var reactions = earningsToday.reactions || {};
+            var monthPrefix = year + '-' + String(month).padStart(2, '0');
+            var enrichedTickers = Object.keys(enriched);
+            for (var ei = 0; ei < enrichedTickers.length; ei++) {
+                var eTicker = enrichedTickers[ei];
+                var eData = enriched[eTicker];
+                var eDate = eData.report_date;
+                if (!eDate) continue;
+                // Only include dates in the requested month
+                if (!eDate.startsWith(monthPrefix)) continue;
+                // Skip if already added from premarket/afterhours
+                if (calendar[eDate] && calendar[eDate].some(function(x) { return x.ticker === eTicker; })) continue;
+                if (!calendar[eDate]) calendar[eDate] = [];
+                var eNorm = {
+                    ticker: eTicker,
+                    companyName: eTicker,
+                    time: 'unknown',
+                    epsEstimate: eData.eps_estimate ? parseFloat(eData.eps_estimate) : null,
+                    epsActual: eData.eps_actual ? parseFloat(eData.eps_actual) : null,
+                    revenueEstimate: eData.revenue_estimate ? parseFloat(eData.revenue_estimate) : null,
+                    revenueActual: eData.revenue_actual ? parseFloat(eData.revenue_actual) : null,
+                    beatMiss: eData.beat || null,
+                    surprisePct: eData.surprise_pct || null,
+                    marketCap: null
+                };
+                // Merge reaction data (price, change) if available
+                if (reactions[eTicker]) {
+                    eNorm.price = reactions[eTicker].price;
+                    eNorm.changePct = reactions[eTicker].change_pct;
+                }
+                calendar[eDate].push(eNorm);
+            }
+
+            var totalEntries = 0;
+            for (var dk in calendar) { totalEntries += calendar[dk].length; }
+            console.log('EarningsCalendar: loaded ' + totalEntries + ' total entries (' + pmList.length + ' BMO + ' + ahList.length + ' AMC + enriched) for month ' + monthPrefix);
         }
 
         // === Source 2: If no server data or looking at a different month, try UW API directly ===

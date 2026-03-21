@@ -1,477 +1,525 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Earnings Report — Command Center</title>
-  <meta name="description" content="4-step pre-earnings analysis report with options flow, chart history, analyst coverage, and insider activity">
+  <meta name="description" content="Comprehensive pre-earnings analysis with AI insights, options flow, technicals, and smart money tracking">
   <link rel="stylesheet" href="styles.css?v=15">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    /* ── Report Page Layout ───────────────────────────── */
+    :root { --bg0: #0a0f1c; --bg1: rgba(15,23,42,0.6); --bg2: rgba(30,41,59,0.5); --border: rgba(51,65,85,0.4); --green: #34d399; --red: #ef4444; --amber: #f59e0b; --blue: #818cf8; --text1: #e2e8f0; --text2: #94a3b8; --text3: #64748b; --mono: 'JetBrains Mono', monospace; }
     .report-page { padding: 20px; max-width: 1100px; margin: 0 auto; }
+    .back-bar { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+    .back-btn { display:inline-flex; align-items:center; gap:6px; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); color:var(--blue); padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; text-decoration:none; transition:all 0.2s; }
+    .back-btn:hover { background:rgba(99,102,241,0.25); transform:translateY(-1px); }
 
-    /* Back button */
-    .back-bar {
-      display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-    }
-    .back-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3);
-      color: #818cf8; padding: 8px 18px; border-radius: 8px; cursor: pointer;
-      font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.2s;
-    }
-    .back-btn:hover { background: rgba(99, 102, 241, 0.25); transform: translateY(-1px); }
-
-    /* Report Header — Newsletter Style */
-    .report-header {
-      background: linear-gradient(135deg, #0c2e1a, #0a2540);
-      border-bottom: 3px solid #34d399; padding: 28px 32px; border-radius: 16px 16px 0 0;
-      display: flex; align-items: center; gap: 20px;
-    }
-    .rh-logo {
-      width: 64px; height: 64px; border-radius: 14px; background: rgba(52, 211, 153, 0.15);
-      border: 1px solid rgba(52, 211, 153, 0.3); display: flex; align-items: center; justify-content: center;
-      font-size: 28px; font-weight: 800; color: #34d399; flex-shrink: 0;
-    }
-    .rh-logo img { width: 100%; height: 100%; border-radius: 14px; object-fit: contain; }
-    .rh-info { flex: 1; }
-    .rh-ticker { font-size: 30px; font-weight: 800; color: #34d399; font-family: 'JetBrains Mono', monospace; }
-    .rh-name { font-size: 16px; color: #94a3b8; margin-top: 2px; }
-    .rh-date { font-size: 13px; color: #64748b; margin-top: 6px; }
-    .rh-price { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
-    .rh-price-val { font-size: 22px; font-weight: 700; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; }
-    .rh-price-chg { font-size: 14px; font-weight: 600; }
-    .rh-price-chg.up { color: #34d399; }
-    .rh-price-chg.down { color: #ef4444; }
+    /* Header */
+    .report-header { background:linear-gradient(135deg,#0c2e1a,#0a2540); border-bottom:3px solid var(--green); padding:28px 32px; border-radius:16px 16px 0 0; display:flex; align-items:center; gap:20px; }
+    .rh-logo { width:64px; height:64px; border-radius:14px; background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.3); display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:800; color:var(--green); flex-shrink:0; }
+    .rh-logo img { width:100%; height:100%; border-radius:14px; object-fit:contain; }
+    .rh-info { flex:1; }
+    .rh-ticker { font-size:30px; font-weight:800; color:var(--green); font-family:var(--mono); }
+    .rh-name { font-size:16px; color:var(--text2); margin-top:2px; }
+    .rh-date { font-size:13px; color:var(--text3); margin-top:6px; }
+    .rh-price { display:flex; align-items:baseline; gap:10px; margin-top:6px; }
+    .rh-price-val { font-size:22px; font-weight:700; color:var(--text1); font-family:var(--mono); }
 
     /* Prediction Banner */
-    .prediction-banner {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 32px; background: rgba(15, 23, 42, 0.6);
-      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-    }
-    .pred-verdict { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-    .pred-verdict.BEAT { color: #34d399; }
-    .pred-verdict.MISS { color: #ef4444; }
-    .pred-verdict.NEUTRAL { color: #f59e0b; }
-    .pred-confidence { text-align: right; }
-    .pred-confidence strong { font-size: 28px; font-weight: 800; display: block; }
-    .pred-confidence strong.BEAT { color: #34d399; }
-    .pred-confidence strong.MISS { color: #ef4444; }
-    .pred-confidence strong.NEUTRAL { color: #f59e0b; }
-    .pred-summary { font-size: 13px; color: #64748b; max-width: 500px; margin-top: 4px; }
+    .prediction-banner { display:flex; align-items:center; justify-content:space-between; padding:20px 32px; background:var(--bg1); border-bottom:1px solid var(--border); }
+    .pred-verdict { font-size:22px; font-weight:800; letter-spacing:1px; }
+    .pred-verdict.BEAT { color:var(--green); } .pred-verdict.MISS { color:var(--red); } .pred-verdict.NEUTRAL { color:var(--amber); }
+    .pred-confidence { text-align:right; }
+    .pred-confidence strong { font-size:28px; font-weight:800; display:block; }
+    .pred-confidence strong.BEAT { color:var(--green); } .pred-confidence strong.MISS { color:var(--red); } .pred-confidence strong.NEUTRAL { color:var(--amber); }
+    .pred-summary { font-size:13px; color:var(--text3); max-width:500px; margin-top:4px; }
 
-    /* Company Overview */
-    .company-overview {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
-      padding: 20px 32px; border-bottom: 1px solid rgba(51, 65, 85, 0.3);
-    }
-    .co-desc { font-size: 13px; color: #94a3b8; line-height: 1.7; }
-    .co-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .co-stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; }
-    .co-stat-value { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+    /* Narrative Summary */
+    .narrative-box { padding:20px 32px; background:rgba(99,102,241,0.06); border-bottom:1px solid var(--border); }
+    .narrative-box h3 { font-size:14px; color:var(--blue); margin-bottom:10px; text-transform:uppercase; letter-spacing:1px; }
+    .narrative-box p { font-size:14px; color:var(--text2); line-height:1.8; }
 
-    /* Step Cards */
-    .report-body { padding: 24px 32px; }
-    .step-card {
-      background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(51, 65, 85, 0.4);
-      border-radius: 14px; padding: 20px; margin-bottom: 20px;
-      transition: border-color 0.2s;
-    }
-    .step-card:hover { border-color: rgba(99, 102, 241, 0.4); }
-    .step-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .step-num {
-      font-size: 12px; font-weight: 700; color: #818cf8; text-transform: uppercase; letter-spacing: 1px;
-    }
-    .step-verdict {
-      font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px;
-    }
-    .step-verdict.BULLISH, .step-verdict.CLEAN, .step-verdict.positive { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
-    .step-verdict.BEARISH, .step-verdict.negative { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .step-verdict.NEUTRAL, .step-verdict.mixed { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
-
-    .step-data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-    .step-metric { background: rgba(30, 41, 59, 0.4); padding: 12px; border-radius: 8px; }
-    .step-metric-label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
-    .step-metric-value { font-size: 16px; font-weight: 600; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; }
+    /* Section styling */
+    .report-body { padding:24px 32px; }
+    .section { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:22px; margin-bottom:22px; transition:border-color 0.2s; }
+    .section:hover { border-color:rgba(99,102,241,0.4); }
+    .section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--blue); text-transform:uppercase; letter-spacing:1px; display:flex; align-items:center; gap:8px; }
+    .section-badge { font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; }
+    .badge-green { background:rgba(52,211,153,0.15); color:var(--green); border:1px solid rgba(52,211,153,0.3); }
+    .badge-red { background:rgba(239,68,68,0.15); color:var(--red); border:1px solid rgba(239,68,68,0.3); }
+    .badge-amber { background:rgba(245,158,11,0.15); color:var(--amber); border:1px solid rgba(245,158,11,0.3); }
+    .badge-blue { background:rgba(99,102,241,0.15); color:var(--blue); border:1px solid rgba(99,102,241,0.3); }
+    .section-narrative { font-size:13px; color:var(--text2); line-height:1.7; margin-bottom:16px; font-style:italic; background:rgba(0,0,0,0.2); padding:12px 16px; border-radius:8px; border-left:3px solid var(--blue); }
+    .metrics-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
+    .metric { background:rgba(15,23,42,0.5); padding:12px; border-radius:8px; }
+    .metric-label { font-size:10px; color:var(--text3); text-transform:uppercase; margin-bottom:3px; letter-spacing:0.5px; }
+    .metric-value { font-size:15px; font-weight:600; color:var(--text1); font-family:var(--mono); }
+    .metric-value.up { color:var(--green); } .metric-value.down { color:var(--red); } .metric-value.neutral { color:var(--amber); }
 
     /* Tables */
-    .analyst-table, .insider-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    .analyst-table th, .insider-table th {
-      font-size: 10px; color: #64748b; text-align: left; padding: 6px 8px;
-      border-bottom: 1px solid rgba(51,65,85,0.4); text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .analyst-table td, .insider-table td {
-      font-size: 12px; color: #cbd5e1; padding: 6px 8px; border-bottom: 1px solid rgba(51,65,85,0.2);
-    }
-    .insider-sale td { color: #ef4444; }
-    .insider-buy td { color: #34d399; }
+    .data-table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+    .data-table th { background:rgba(99,102,241,0.1); color:var(--blue); text-align:left; padding:8px 12px; font-size:10px; text-transform:uppercase; letter-spacing:1px; border-bottom:2px solid var(--border); }
+    .data-table td { padding:8px 12px; color:var(--text1); border-bottom:1px solid rgba(51,65,85,0.2); }
+    .data-table tr:hover td { background:rgba(99,102,241,0.05); }
+    .beat { color:var(--green); font-weight:600; } .miss { color:var(--red); font-weight:600; }
 
-    /* Earnings History Bar Chart */
-    .earnings-history-chart { display: flex; align-items: flex-end; gap: 8px; height: 90px; margin-top: 12px; padding-bottom: 20px; }
-    .eh-bar {
-      flex: 1; border-radius: 4px 4px 0 0; min-width: 40px; position: relative; transition: all 0.3s;
-    }
-    .eh-bar.beat { background: linear-gradient(180deg, #34d399, #059669); }
-    .eh-bar.miss { background: linear-gradient(180deg, #ef4444, #dc2626); }
-    .eh-bar-label { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #64748b; white-space: nowrap; }
-    .eh-bar-value { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #e2e8f0; font-weight: 600; white-space: nowrap; }
+    /* Price Chart canvas */
+    #priceChart { width:100%; height:280px; border-radius:8px; background:rgba(15,23,42,0.4); }
 
-    /* Report Container */
-    .report-container {
-      background: linear-gradient(180deg, #0f172a, #1e293b);
-      border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 16px;
-      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
-    }
+    /* Breakdown cards */
+    .breakdown-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:16px; }
+    .breakdown-card { background:rgba(15,23,42,0.5); padding:14px; border-radius:10px; text-align:center; }
+    .bc-label { font-size:10px; color:var(--text3); text-transform:uppercase; margin-bottom:6px; }
+    .bc-score { font-size:20px; font-weight:800; font-family:var(--mono); }
+    .bc-verdict { font-size:10px; font-weight:600; margin-top:4px; }
 
-    /* Loading State */
-    .report-loading {
-      text-align: center; padding: 80px 40px; color: #64748b; font-size: 15px;
-    }
-    .report-loading .spinner {
-      width: 48px; height: 48px; border: 3px solid rgba(99,102,241,0.2); border-top-color: #818cf8;
-      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 20px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Loading */
+    .loading-overlay { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:400px; gap:20px; }
+    .loading-spinner { width:48px; height:48px; border:3px solid var(--border); border-top-color:var(--green); border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-steps { display:flex; flex-direction:column; gap:8px; }
+    .loading-step { font-size:13px; color:var(--text3); display:flex; align-items:center; gap:8px; }
+    .loading-step.done { color:var(--green); }
+    .loading-step.active { color:var(--amber); }
 
-    /* Newsletter Timestamp */
-    .report-timestamp {
-      text-align: center; padding: 16px; color: #475569; font-size: 11px;
-      border-top: 1px solid rgba(51, 65, 85, 0.3);
-    }
+    /* Seasonality heatmap */
+    .season-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+    .season-cell { padding:10px 8px; border-radius:8px; text-align:center; }
+    .season-month { font-size:10px; font-weight:600; color:var(--text2); text-transform:uppercase; }
+    .season-return { font-size:14px; font-weight:700; font-family:var(--mono); margin-top:4px; }
 
-    /* Responsive */
-    @media (max-width: 768px) {
-      .report-page { padding: 10px; }
-      .report-header, .prediction-banner, .company-overview, .report-body { padding-left: 16px; padding-right: 16px; }
-      .company-overview { grid-template-columns: 1fr; }
+    @media(max-width:768px) {
+      .report-header { flex-direction:column; text-align:center; }
+      .prediction-banner { flex-direction:column; gap:12px; text-align:center; }
+      .breakdown-grid { grid-template-columns:1fr 1fr; }
+      .season-grid { grid-template-columns:repeat(3,1fr); }
+      .metrics-grid { grid-template-columns:1fr 1fr; }
     }
   </style>
 </head>
-
 <body>
-  <!-- Top Bar -->
-  <header class="topbar">
-    <div class="topbar-left">
-      <div class="logo">
-        <span class="logo-icon">&#9670;</span>
-        <span class="logo-text">COMMAND CENTER</span>
+  <div class="report-page" id="reportPage">
+    <div class="back-bar"><a class="back-btn" href="earnings.html">← Back to Earnings Calendar</a></div>
+    <div id="reportContent">
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-steps" id="loadingSteps">
+          <div class="loading-step active" id="ls1">⏳ Fetching company data...</div>
+          <div class="loading-step" id="ls2">⏳ Analyzing options flow & intelligence...</div>
+          <div class="loading-step" id="ls3">⏳ Running technical analysis...</div>
+          <div class="loading-step" id="ls4">⏳ Scanning smart money & volatility...</div>
+          <div class="loading-step" id="ls5">⏳ Building AI report narrative...</div>
+        </div>
       </div>
-    </div>
-    <div class="topbar-center">
-      <h2 style="color:#e2e8f0;margin:0;font-size:16px">📋 Earnings Report</h2>
-    </div>
-    <div class="topbar-right"></div>
-  </header>
-
-  <!-- Navigation -->
-  <nav class="nav-bar">
-    <a href="/" class="nav-link" id="navDashboard">
-      <span class="nav-icon">&#9632;</span> Dashboard
-    </a>
-    <a href="/paper-trading.html" class="nav-link" id="navPaperTrading">
-      <span class="nav-icon">&#9881;</span> Paper Trading
-    </a>
-    <a href="/options-paper-trading.html" class="nav-link" id="navOptionsPaper">
-      <span class="nav-icon">&#128203;</span> Options Paper
-    </a>
-    <a href="/earnings.html" class="nav-link active" id="navEarnings">
-      <span class="nav-icon">📅</span> Earnings
-    </a>
-    <a href="/reports.html" class="nav-link" id="navReports">
-      <span class="nav-icon">&#128202;</span> Reports
-    </a>
-  </nav>
-
-  <!-- Main Content -->
-  <div class="report-page">
-    <!-- Back Button -->
-    <div class="back-bar">
-      <a href="/earnings.html" class="back-btn">◀ Back to Calendar</a>
-      <span id="tickerBreadcrumb" style="color:#64748b;font-size:13px"></span>
-    </div>
-
-    <!-- Report Container -->
-    <div class="report-container" id="reportContainer">
-      <div class="report-loading" id="reportLoading">
-        <div class="spinner"></div>
-        Running 4-step pre-earnings analysis...
-      </div>
-      <div id="reportContent" style="display:none"></div>
     </div>
   </div>
 
-  <script>
-    // ── Get ticker from URL ────────────────────────────────
-    var params = new URLSearchParams(window.location.search);
-    var ticker = params.get('ticker');
+<script>
+(function() {
+  var ticker = new URLSearchParams(window.location.search).get('ticker');
+  if (!ticker) { document.getElementById('reportContent').innerHTML = '<p style="color:#ef4444;text-align:center;padding:80px 20px;font-size:18px;">No ticker specified. Use ?ticker=AAPL</p>'; return; }
 
-    if (!ticker) {
-      window.location.href = '/earnings.html';
-    } else {
-      document.title = ticker + ' Earnings Report — Command Center';
-      document.getElementById('tickerBreadcrumb').textContent = 'Earnings Calendar → ' + ticker + ' Report';
-      loadReport(ticker);
+  document.title = ticker.toUpperCase() + ' Earnings Report — Command Center';
+
+  // Animate loading steps
+  var steps = ['ls1','ls2','ls3','ls4','ls5'];
+  var si = 0;
+  var loadInterval = setInterval(function() {
+    if (si > 0 && si <= steps.length) { document.getElementById(steps[si-1]).className = 'loading-step done'; document.getElementById(steps[si-1]).textContent = '✅ ' + document.getElementById(steps[si-1]).textContent.substring(2); }
+    si++;
+    if (si <= steps.length) { document.getElementById(steps[si-1]).className = 'loading-step active'; }
+  }, 2500);
+
+  fetch('/api/earnings/report/' + ticker.toUpperCase())
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      clearInterval(loadInterval);
+      renderReport(d);
+    })
+    .catch(function(err) {
+      clearInterval(loadInterval);
+      document.getElementById('reportContent').innerHTML = '<p style="color:#ef4444;text-align:center;padding:80px;">Error loading report: ' + err.message + '</p>';
+    });
+
+  function renderReport(d) {
+    var c = d.company || {};
+    var p = d.prediction || {};
+    var dir = p.direction || 'NEUTRAL';
+    var html = '';
+
+    // ── HEADER ──
+    html += '<div class="report-header">';
+    html += '<div class="rh-logo">' + (c.logoUrl ? '<img src="' + c.logoUrl + '" alt="">' : d.ticker.substring(0,2)) + '</div>';
+    html += '<div class="rh-info">';
+    html += '<div class="rh-ticker">$' + d.ticker + '</div>';
+    html += '<div class="rh-name">' + (c.name || d.ticker) + '</div>';
+    if (d.earningsDate) html += '<div class="rh-date">📅 Next Earnings: ' + d.earningsDate.date + (d.earningsDate.time !== 'unknown' ? ' (' + d.earningsDate.time + ')' : '') + '</div>';
+    if (d.step2_chartHistory && d.step2_chartHistory.currentPrice) {
+      html += '<div class="rh-price"><span class="rh-price-val">$' + d.step2_chartHistory.currentPrice.toFixed(2) + '</span>';
+      if (d.step2_chartHistory.move20d !== undefined) {
+        var up = d.step2_chartHistory.move20d >= 0;
+        html += '<span style="color:' + (up ? '#34d399' : '#ef4444') + ';font-size:14px;font-weight:600;">' + (up ? '▲' : '▼') + ' ' + Math.abs(d.step2_chartHistory.move20d).toFixed(2) + '% (20d)</span>';
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
+
+    // ── PREDICTION BANNER ──
+    html += '<div class="prediction-banner">';
+    html += '<div><div class="pred-verdict ' + dir + '">PREDICTION: ' + dir + '</div><div class="pred-summary">' + (p.summary || '') + '</div></div>';
+    html += '<div class="pred-confidence"><strong class="' + dir + '">' + (p.confidence || '--') + '%</strong><span style="font-size:11px;color:#64748b;">CONFIDENCE</span></div>';
+    html += '</div>';
+
+    // ── NARRATIVE SUMMARY ──
+    if (d.narrativeSummary) {
+      html += '<div class="narrative-box"><h3>📊 Executive Analysis</h3><p>' + d.narrativeSummary + '</p></div>';
     }
 
-    // ── Load Report ────────────────────────────────────────
-    function loadReport(ticker) {
-      var loading = document.getElementById('reportLoading');
-      var content = document.getElementById('reportContent');
+    html += '<div class="report-body">';
 
-      fetch('/api/earnings/report/' + ticker)
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          loading.style.display = 'none';
-          content.style.display = 'block';
-          renderReport(data);
-        })
-        .catch(function (err) {
-          loading.innerHTML = '<div style="color:#ef4444;font-size:16px">⚠️ Error loading report for ' + ticker + '</div><div style="color:#64748b;margin-top:8px">' + err.message + '</div><div style="margin-top:20px"><a href="/earnings.html" class="back-btn">◀ Back to Calendar</a></div>';
-        });
+    // ── ACTUAL VS FORECAST ──
+    var avf = d.actualVsForecast || {};
+    if (avf.quarters && avf.quarters.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">📈 Actual vs Forecast</span>';
+      if (avf.beatRate !== null && avf.beatRate !== undefined) html += '<span class="section-badge ' + (avf.beatRate >= 75 ? 'badge-green' : avf.beatRate >= 50 ? 'badge-amber' : 'badge-red') + '">' + avf.beatRate + '% Beat Rate</span>';
+      html += '</div>';
+      if (avf.narrative) html += '<div class="section-narrative">' + avf.narrative + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Quarters Tracked', avf.totalQuarters || '--');
+      html += met('Beats', avf.beatCount || 0, 'up');
+      html += met('Misses', avf.missCount || 0, avf.missCount > 0 ? 'down' : '');
+      html += met('Avg Surprise', avf.avgSurprise ? avf.avgSurprise + '%' : '--');
+      html += '</div>';
+      // Table
+      html += '<table class="data-table"><thead><tr><th>Date</th><th>EPS Est</th><th>EPS Act</th><th>Surprise</th><th>Rev Est</th><th>Rev Act</th><th>Rev Surprise</th></tr></thead><tbody>';
+      for (var qi = 0; qi < avf.quarters.length; qi++) {
+        var qq = avf.quarters[qi];
+        html += '<tr><td>' + (qq.date || '--') + '</td>';
+        html += '<td>' + fmtN(qq.epsEstimate) + '</td>';
+        html += '<td class="' + (qq.beat === true ? 'beat' : qq.beat === false ? 'miss' : '') + '">' + fmtN(qq.epsActual) + '</td>';
+        html += '<td class="' + (qq.epsSurprisePct > 0 ? 'beat' : qq.epsSurprisePct < 0 ? 'miss' : '') + '">' + (qq.epsSurprisePct !== null && qq.epsSurprisePct !== undefined ? qq.epsSurprisePct + '%' : '--') + '</td>';
+        html += '<td>' + fmtRev(qq.revenueEstimate) + '</td>';
+        html += '<td>' + fmtRev(qq.revenueActual) + '</td>';
+        html += '<td class="' + (qq.revSurprisePct > 0 ? 'beat' : qq.revSurprisePct < 0 ? 'miss' : '') + '">' + (qq.revSurprisePct !== undefined ? qq.revSurprisePct + '%' : '--') + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
     }
 
-    // ── Render Report ─────────────────────────────────────
-    function renderReport(report) {
-      var content = document.getElementById('reportContent');
-      var company = report.company || {};
-      var pred = report.prediction || {};
-      var step1 = report.step1_optionsFlow || {};
-      var step2 = report.step2_chartHistory || {};
-      var step3 = report.step3_analystCoverage || {};
-      var step4 = report.step4_insiderActivity || {};
-
-      var html = '';
-
-      // ── Header ──
-      html += '<div class="report-header">';
-      html += '<div class="rh-logo">';
-      if (company.logoUrl) {
-        html += '<img src="' + company.logoUrl + '" alt="' + report.ticker + '" onerror="this.style.display=\'none\';this.parentElement.textContent=\'' + (report.ticker || '?').substring(0, 2) + '\'">';
-      } else {
-        html += (report.ticker || '?').substring(0, 2);
+    // ── OPTIONS INTELLIGENCE ──
+    var s1 = d.step1_optionsFlow || {};
+    var oi = d.optionsIntelligence || {};
+    html += '<div class="section">';
+    html += '<div class="section-header"><span class="section-title">🎯 Options Intelligence</span>' + verdictBadge(s1.verdict) + '</div>';
+    if (oi.narrative) html += '<div class="section-narrative">' + oi.narrative + '</div>';
+    html += '<div class="metrics-grid">';
+    html += met('IV Rank', s1.ivRank ? s1.ivRank.toFixed(0) + '%' : '--');
+    html += met('Put/Call Ratio', s1.putCallRatio || '--');
+    html += met('Call Premium', fmtRev(s1.callPremium));
+    html += met('Put Premium', fmtRev(s1.putPremium));
+    html += met('Net Premium', fmtRev(oi.netPremium), oi.netPremium > 0 ? 'up' : oi.netPremium < 0 ? 'down' : '');
+    html += met('Max Pain', oi.maxPain ? '$' + oi.maxPain.toFixed(2) : '--');
+    html += met('Call OI Change', fmtN(oi.callOIChange), oi.callOIChange > 0 ? 'up' : 'down');
+    html += met('Put OI Change', fmtN(oi.putOIChange), oi.putOIChange > 0 ? 'down' : 'up');
+    html += met('Premium Bias', s1.premiumBias || '--', s1.premiumBias === 'CALLS' ? 'up' : s1.premiumBias === 'PUTS' ? 'down' : '');
+    html += met('Total Trades', (s1.callCount || 0) + (s1.putCount || 0));
+    html += '</div>';
+    // Dark Pool
+    if (oi.darkPoolLevels && oi.darkPoolLevels.length > 0) {
+      html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">Dark Pool Levels</h4>';
+      html += '<table class="data-table"><thead><tr><th>Price</th><th>Volume</th><th>Date</th></tr></thead><tbody>';
+      for (var di = 0; di < oi.darkPoolLevels.length; di++) {
+        var dp = oi.darkPoolLevels[di];
+        html += '<tr><td>$' + dp.price.toFixed(2) + '</td><td>' + fmtNum(dp.volume) + '</td><td>' + (dp.date || '--') + '</td></tr>';
       }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+
+    // ── TECHNICAL SNAPSHOT ──
+    var ts = d.technicalSnapshot || {};
+    html += '<div class="section">';
+    html += '<div class="section-header"><span class="section-title">📉 Technical Snapshot</span>' + verdictBadge(ts.emaAlignment || 'NEUTRAL') + '</div>';
+    if (ts.narrative) html += '<div class="section-narrative">' + ts.narrative + '</div>';
+    if (ts.priceData && ts.priceData.length > 0) html += '<canvas id="priceChart"></canvas>';
+    html += '<div class="metrics-grid" style="margin-top:14px;">';
+    html += met('RSI (14)', ts.rsi || '--', ts.rsi > 70 ? 'down' : ts.rsi < 30 ? 'up' : 'neutral');
+    html += met('EMA 9', ts.ema9 ? '$' + ts.ema9.toFixed(2) : '--');
+    html += met('EMA 20', ts.ema20 ? '$' + ts.ema20.toFixed(2) : '--');
+    html += met('EMA 50', ts.ema50 ? '$' + ts.ema50.toFixed(2) : '--');
+    html += met('SMA 200', ts.sma200 ? '$' + ts.sma200.toFixed(2) : '--');
+    if (ts.macd) {
+      html += met('MACD', ts.macd.value, ts.macd.histogram > 0 ? 'up' : 'down');
+      html += met('Signal', ts.macd.signal);
+      html += met('Histogram', ts.macd.histogram, ts.macd.histogram > 0 ? 'up' : 'down');
+    }
+    html += met('EMA Alignment', ts.emaAlignment || '--', ts.emaAlignment === 'BULLISH' ? 'up' : ts.emaAlignment === 'BEARISH' ? 'down' : 'neutral');
+    html += '</div></div>';
+
+    // ── VOLATILITY PROFILE ──
+    var vp = d.volatilityProfile || {};
+    if (vp.iv30 || vp.hvol30 || s1.ivRank) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🌡️ Volatility Profile</span></div>';
+      if (vp.narrative) html += '<div class="section-narrative">' + vp.narrative + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('IV Rank', s1.ivRank ? s1.ivRank.toFixed(0) + '%' : '--');
+      html += met('IV Percentile', s1.ivPercentile ? s1.ivPercentile.toFixed(0) + '%' : '--');
+      html += met('IV 30-Day', vp.iv30 ? (vp.iv30 * 100).toFixed(1) + '%' : '--');
+      html += met('IV 60-Day', vp.iv60 ? (vp.iv60 * 100).toFixed(1) + '%' : '--');
+      html += met('HV 30-Day', vp.hvol30 ? (vp.hvol30 * 100).toFixed(1) + '%' : '--');
+      html += met('Realized Vol', vp.realizedVol ? (vp.realizedVol * 100).toFixed(1) + '%' : '--');
+      html += met('Implied Move', s1.impliedMove ? s1.impliedMove.toFixed(1) + '%' : '--');
       html += '</div>';
-      html += '<div class="rh-info">';
-      html += '<div class="rh-ticker">$' + report.ticker + '</div>';
-      html += '<div class="rh-name">' + (company.name || report.ticker) + '</div>';
-      var ed = report.earningsDate;
-      if (ed) {
-        html += '<div class="rh-date">📅 Earnings: ' + ed.date + ' (' + (ed.time || 'TBD') + ')  &nbsp; EPS Est: ' + (ed.epsEstimate ? '$' + ed.epsEstimate.toFixed(2) : 'N/A') + '</div>';
-      }
-      if (step2.currentPrice) {
-        var chgClass = step2.move20d > 0 ? 'up' : step2.move20d < 0 ? 'down' : '';
-        html += '<div class="rh-price">';
-        html += '<span class="rh-price-val">$' + step2.currentPrice.toFixed(2) + '</span>';
-        if (step2.move20d !== undefined) {
-          html += '<span class="rh-price-chg ' + chgClass + '">' + (step2.move20d > 0 ? '▲' : '▼') + ' ' + Math.abs(step2.move20d).toFixed(1) + '% (20d)</span>';
+      if (vp.termStructure && vp.termStructure.length > 0) {
+        html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">IV Term Structure</h4>';
+        html += '<table class="data-table"><thead><tr><th>Expiry</th><th>IV</th></tr></thead><tbody>';
+        for (var ti = 0; ti < vp.termStructure.length; ti++) {
+          html += '<tr><td>' + vp.termStructure[ti].expiry + '</td><td>' + (vp.termStructure[ti].iv * 100).toFixed(1) + '%</td></tr>';
         }
-        html += '</div>';
-      }
-      html += '</div>';
-      html += '</div>';
-
-      // ── Prediction Banner ──
-      var direction = pred.direction || 'NEUTRAL';
-      html += '<div class="prediction-banner">';
-      html += '<div>';
-      html += '<div class="pred-verdict ' + direction + '">' + (direction === 'BEAT' ? '🟢 PREDICTED: BEAT' : direction === 'MISS' ? '🔴 PREDICTED: MISS' : '🟡 NEUTRAL') + '</div>';
-      html += '<div class="pred-summary">' + (pred.summary || 'Insufficient data for prediction. Analysis based on available information.') + '</div>';
-      html += '</div>';
-      html += '<div class="pred-confidence">';
-      html += '<strong class="' + direction + '">' + (pred.confidence || '--') + '%</strong>';
-      html += '<div style="font-size:11px;color:#64748b">Confidence</div>';
-      html += '</div>';
-      html += '</div>';
-
-      // ── Company Overview ──
-      html += '<div class="company-overview">';
-      html += '<div class="co-desc">' + (company.description || 'No company description available. Data will populate as the earnings date approaches.') + '</div>';
-      html += '<div class="co-stats">';
-      html += '<div><div class="co-stat-label">Sector</div><div class="co-stat-value">' + (company.sector || 'N/A') + '</div></div>';
-      html += '<div><div class="co-stat-label">Market Cap</div><div class="co-stat-value">' + (company.marketCapFormatted || 'N/A') + '</div></div>';
-      html += '<div><div class="co-stat-label">Beat Rate</div><div class="co-stat-value">' + (report.historicalBeatRate !== null && report.historicalBeatRate !== undefined ? report.historicalBeatRate + '%' : 'N/A') + '</div></div>';
-      html += '<div><div class="co-stat-label">Exchange</div><div class="co-stat-value">' + (company.exchange || 'N/A') + '</div></div>';
-      html += '</div>';
-      html += '</div>';
-
-      // ── Report Body ──
-      html += '<div class="report-body">';
-
-      // ── STEP 1: Options Flow ──
-      html += '<div class="step-card">';
-      html += '<div class="step-card-header">';
-      html += '<div class="step-num">📊 Step 1 — Options Flow Analysis</div>';
-      html += '<div class="step-verdict ' + verdictClass(step1.verdict) + '">' + (step1.verdict || 'NO DATA') + '</div>';
-      html += '</div>';
-      html += '<div class="step-data-grid">';
-      html += metricBox('Put/Call Ratio', step1.putCallRatio !== undefined ? step1.putCallRatio.toFixed(2) : '--');
-      html += metricBox('Call Premium', step1.callPremium ? formatPremium(step1.callPremium) : '--');
-      html += metricBox('Put Premium', step1.putPremium ? formatPremium(step1.putPremium) : '--');
-      html += metricBox('Premium Bias', step1.premiumBias || '--');
-      html += metricBox('IV Rank', step1.ivRank !== undefined ? step1.ivRank.toFixed(1) + '%' : '--');
-      html += metricBox('Implied Move', step1.impliedMove ? step1.impliedMove.toFixed(1) + '%' : '--');
-      html += '</div>';
-      if (step1.verdict === 'NO DATA' || !step1.verdict) {
-        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">Options flow data not yet available. This typically populates 1-2 days before earnings.</div>';
-      }
-      html += '</div>';
-
-      // ── STEP 2: Chart & Price Action ──
-      html += '<div class="step-card">';
-      html += '<div class="step-card-header">';
-      html += '<div class="step-num">📈 Step 2 — Chart & Price Action (20-Day)</div>';
-      html += '<div class="step-verdict ' + (step2.pricedIn ? 'negative' : 'positive') + '">' + (step2.pricedIn ? '⚠️ MAY BE PRICED IN' : '✅ ROOM TO MOVE') + '</div>';
-      html += '</div>';
-      html += '<div class="step-data-grid">';
-      html += metricBox('20-Day Move', step2.move20d !== undefined ? (step2.move20d > 0 ? '+' : '') + step2.move20d.toFixed(1) + '%' : '--');
-      html += metricBox('Current Price', step2.currentPrice ? '$' + step2.currentPrice.toFixed(2) : '--');
-      html += metricBox('Anticipated Move', step2.anticipatedMove ? step2.anticipatedMove.toFixed(1) + '%' : '--');
-      html += metricBox('Avg Earnings Move', step2.avgEarningsMove ? step2.avgEarningsMove.toFixed(1) + '%' : '--');
-      html += '</div>';
-      // Past reactions
-      if (step2.pastReactions && step2.pastReactions.length > 0) {
-        html += '<div style="margin-top:14px"><div class="step-metric-label">Last ' + step2.pastReactions.length + ' Earnings Reactions</div>';
-        html += '<div class="earnings-history-chart">';
-        step2.pastReactions.forEach(function (r) {
-          var h = Math.min(70, Math.abs(r.reaction) * 5);
-          html += '<div class="eh-bar ' + (r.reaction >= 0 ? 'beat' : 'miss') + '" style="height:' + Math.max(8, h) + 'px">';
-          html += '<div class="eh-bar-value">' + (r.reaction > 0 ? '+' : '') + r.reaction + '%</div>';
-          html += '<div class="eh-bar-label">' + (r.date || '').substring(5) + '</div>';
-          html += '</div>';
-        });
-        html += '</div></div>';
-      }
-      html += '</div>';
-
-      // ── STEP 3: News & Sentiment ──
-      html += '<div class="step-card">';
-      html += '<div class="step-card-header">';
-      html += '<div class="step-num">🏦 Step 3 — News Sentiment & Valuation</div>';
-      html += '<div class="step-verdict ' + verdictClass(step3.verdict) + '">' + (step3.verdict || 'NO DATA') + '</div>';
-      html += '</div>';
-      html += '<div class="step-data-grid">';
-      html += metricBox('Bullish Mentions', step3.bullishMentions !== undefined ? step3.bullishMentions : '--');
-      html += metricBox('Bearish Mentions', step3.bearishMentions !== undefined ? step3.bearishMentions : '--');
-      html += metricBox('Total Articles', step3.totalArticles !== undefined ? step3.totalArticles : '--');
-      html += metricBox('P/E Ratio', step3.currentPE ? step3.currentPE.toFixed(1) + 'x' : '--');
-      html += metricBox('TTM EPS', step3.ttmEPS ? '$' + step3.ttmEPS.toFixed(2) : '--');
-      html += '</div>';
-      // Recent news
-      if (step3.recentNews && step3.recentNews.length > 0) {
-        html += '<div style="margin-top:12px"><div class="step-metric-label">Recent News</div>';
-        html += '<table class="analyst-table"><thead><tr><th>Date</th><th>Headline</th><th>Source</th><th>Tone</th></tr></thead><tbody>';
-        step3.recentNews.forEach(function (n) {
-          var toneColor = n.sentiment === 'BULLISH' ? '#34d399' : n.sentiment === 'BEARISH' ? '#ef4444' : '#94a3b8';
-          html += '<tr><td>' + (n.date || '').substring(0, 10) + '</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (n.title || '--') + '</td><td>' + (n.source || '--') + '</td><td style="color:' + toneColor + ';font-weight:600">' + (n.sentiment || '--') + '</td></tr>';
-        });
-        html += '</tbody></table></div>';
-      }
-      if (step3.verdict === 'NO DATA' || !step3.verdict) {
-        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">News data not available for this ticker.</div>';
-      }
-      html += '</div>';
-
-      // ── STEP 4: Financial Health ──
-      html += '<div class="step-card">';
-      html += '<div class="step-card-header">';
-      html += '<div class="step-num">💰 Step 4 — Financial Health</div>';
-      var s4Verdict = step4.verdict || 'NO DATA';
-      html += '<div class="step-verdict ' + (s4Verdict.indexOf('STRONG') >= 0 ? 'positive' : s4Verdict.indexOf('WEAK') >= 0 ? 'negative' : 'mixed') + '">' + s4Verdict + '</div>';
-      html += '</div>';
-      html += '<div class="step-data-grid">';
-      html += metricBox('Revenue Growth QoQ', step4.revenueGrowthQoQ !== undefined ? (step4.revenueGrowthQoQ > 0 ? '+' : '') + step4.revenueGrowthQoQ + '%' : '--');
-      html += metricBox('EPS Growth QoQ', step4.epsGrowthQoQ !== undefined ? (step4.epsGrowthQoQ > 0 ? '+' : '') + step4.epsGrowthQoQ + '%' : '--');
-      html += metricBox('Profit Margin', step4.profitMargin !== undefined ? step4.profitMargin + '%' : '--');
-      html += metricBox('Latest Revenue', step4.latestRevenue ? formatRevenue(step4.latestRevenue) : '--');
-      html += metricBox('Latest EPS', step4.latestEPS !== undefined && step4.latestEPS !== null ? '$' + step4.latestEPS.toFixed(2) : '--');
-      html += metricBox('Latest Net Income', step4.latestNetIncome ? formatRevenue(step4.latestNetIncome) : '--');
-      html += '</div>';
-      if (!step4.latestRevenue && !step4.revenueGrowthQoQ) {
-        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">Financial data not yet available for this company.</div>';
-      }
-      html += '</div>';
-
-      // ── Prediction Breakdown ──
-      if (pred.breakdown) {
-        html += '<div class="step-card" style="border-color:rgba(99,102,241,0.4);background:rgba(99,102,241,0.05)">';
-        html += '<div class="step-card-header"><div class="step-num" style="color:#34d399">📊 Prediction Breakdown</div></div>';
-        html += '<div class="step-data-grid">';
-        var bd = pred.breakdown;
-        for (var key in bd) {
-          if (bd.hasOwnProperty(key)) {
-            var s = bd[key];
-            html += '<div class="step-metric">';
-            html += '<div class="step-metric-label">' + s.label + '</div>';
-            html += '<div class="step-metric-value">' + (s.score > 0 ? '+' : '') + s.score.toFixed(2) + ' <span style="font-size:10px;color:#64748b">' + s.verdict + '</span></div>';
-            html += '</div>';
-          }
-        }
-        html += '<div class="step-metric"><div class="step-metric-label">Total Score</div><div class="step-metric-value" style="color:' + (pred.totalScore > 0 ? '#34d399' : pred.totalScore < 0 ? '#ef4444' : '#f59e0b') + '">' + (pred.totalScore > 0 ? '+' : '') + pred.totalScore.toFixed(2) + '</div></div>';
-        html += '</div>';
-        html += '</div>';
-      }
-
-      // ── Financials ──
-      if (report.financials && report.financials.length > 0) {
-        html += '<div class="step-card">';
-        html += '<div class="step-card-header"><div class="step-num">📈 Quarterly Financials</div></div>';
-        html += '<table class="analyst-table"><thead><tr><th>Period</th><th>Revenue</th><th>Net Income</th><th>EPS</th></tr></thead><tbody>';
-        report.financials.forEach(function (q) {
-          html += '<tr><td>' + (q.period || '') + ' ' + (q.year || '') + '</td><td>' + (q.revenue ? formatRevenue(q.revenue) : '--') + '</td><td>' + (q.netIncome ? formatRevenue(q.netIncome) : '--') + '</td><td>' + (q.eps !== null && q.eps !== undefined ? '$' + q.eps.toFixed(2) : '--') + '</td></tr>';
-        });
         html += '</tbody></table>';
+      }
+      html += '</div>';
+    }
+
+    // ── SMART MONEY ──
+    var sm = d.smartMoney || {};
+    if (sm.insiderTransactions || sm.shortInterestPct || sm.topInstitutions) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏛️ Smart Money & Ownership</span></div>';
+      if (sm.narrative) html += '<div class="section-narrative">' + sm.narrative + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Short Interest', sm.shortInterestPct ? sm.shortInterestPct.toFixed(1) + '%' : '--');
+      html += met('Days to Cover', sm.daysToCover ? sm.daysToCover.toFixed(1) : '--');
+      html += met('Short Vol Ratio', sm.shortVolumeRatio ? sm.shortVolumeRatio.toFixed(2) : '--');
+      html += met('Insider Buys', sm.insiderBuys || 0, sm.insiderBuys > 0 ? 'up' : '');
+      html += met('Insider Sells', sm.insiderSells || 0, sm.insiderSells > 0 ? 'down' : '');
+      html += '</div>';
+      if (sm.insiderTransactions && sm.insiderTransactions.length > 0) {
+        html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">Recent Insider Transactions</h4>';
+        html += '<table class="data-table"><thead><tr><th>Date</th><th>Name</th><th>Title</th><th>Type</th><th>Shares</th><th>Value</th></tr></thead><tbody>';
+        for (var ii = 0; ii < sm.insiderTransactions.length; ii++) {
+          var ins = sm.insiderTransactions[ii];
+          html += '<tr><td>' + ins.date + '</td><td>' + ins.name + '</td><td>' + ins.title + '</td>';
+          html += '<td class="' + (ins.isBuy ? 'beat' : 'miss') + '">' + (ins.isBuy ? 'BUY' : 'SELL') + '</td>';
+          html += '<td>' + fmtNum(ins.shares) + '</td><td>' + fmtRev(ins.value) + '</td></tr>';
+        }
+        html += '</tbody></table>';
+      }
+      if (sm.topInstitutions && sm.topInstitutions.length > 0) {
+        html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">Top Institutional Holders</h4>';
+        html += '<table class="data-table"><thead><tr><th>Institution</th><th>Shares</th><th>Change</th></tr></thead><tbody>';
+        for (var ji = 0; ji < sm.topInstitutions.length; ji++) {
+          var inst = sm.topInstitutions[ji];
+          html += '<tr><td>' + inst.name + '</td><td>' + fmtNum(inst.shares) + '</td>';
+          html += '<td class="' + (inst.changeShares > 0 ? 'beat' : inst.changeShares < 0 ? 'miss' : '') + '">' + (inst.changeShares > 0 ? '+' : '') + fmtNum(inst.changeShares) + '</td></tr>';
+        }
+        html += '</tbody></table>';
+      }
+      html += '</div>';
+    }
+
+    // ── NEWS & SENTIMENT ──
+    var s3 = d.step3_analystCoverage || {};
+    if (s3.recentNews && s3.recentNews.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">📰 News & Sentiment</span>' + verdictBadge(s3.verdict) + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Bullish Mentions', s3.bullishMentions || 0, 'up');
+      html += met('Bearish Mentions', s3.bearishMentions || 0, 'down');
+      html += met('P/E Ratio', s3.currentPE ? s3.currentPE.toFixed(1) + 'x' : '--');
+      html += met('TTM EPS', s3.ttmEPS ? '$' + s3.ttmEPS.toFixed(2) : '--');
+      html += '</div>';
+      html += '<table class="data-table" style="margin-top:12px;"><thead><tr><th>Date</th><th>Headline</th><th>Source</th><th>Sentiment</th></tr></thead><tbody>';
+      for (var ni = 0; ni < s3.recentNews.length; ni++) {
+        var n = s3.recentNews[ni];
+        var sentCls = n.sentiment === 'BULLISH' ? 'beat' : n.sentiment === 'BEARISH' ? 'miss' : '';
+        html += '<tr><td style="white-space:nowrap;">' + (n.date ? n.date.substring(0,10) : '--') + '</td>';
+        html += '<td><a href="' + n.url + '" target="_blank" style="color:#818cf8;text-decoration:none;">' + n.title + '</a></td>';
+        html += '<td>' + n.source + '</td><td class="' + sentCls + '">' + n.sentiment + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+
+    // ── FINANCIAL HEALTH ──
+    var s4 = d.step4_insiderActivity || {};
+    if (s4.latestRevenue || s4.revenueGrowthQoQ !== undefined) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">💰 Financial Health</span>' + verdictBadge(s4.verdict) + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Revenue Growth QoQ', s4.revenueGrowthQoQ !== undefined ? s4.revenueGrowthQoQ + '%' : '--', s4.revenueGrowthQoQ > 0 ? 'up' : 'down');
+      html += met('EPS Growth QoQ', s4.epsGrowthQoQ !== undefined ? s4.epsGrowthQoQ + '%' : '--', s4.epsGrowthQoQ > 0 ? 'up' : 'down');
+      html += met('Profit Margin', s4.profitMargin !== undefined ? s4.profitMargin + '%' : '--', s4.profitMargin > 10 ? 'up' : s4.profitMargin < 0 ? 'down' : 'neutral');
+      html += met('Latest Revenue', fmtRev(s4.latestRevenue));
+      html += met('Latest EPS', s4.latestEPS !== null ? '$' + s4.latestEPS : '--');
+      html += met('Net Income', fmtRev(s4.latestNetIncome));
+      html += '</div></div>';
+    }
+
+    // ── SEASONALITY ──
+    var seas = d.seasonality || {};
+    if (seas.monthlyReturns && seas.monthlyReturns.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">📅 Seasonality</span></div>';
+      if (seas.narrative) html += '<div class="section-narrative">' + seas.narrative + '</div>';
+      html += '<div class="season-grid">';
+      for (var si2 = 0; si2 < seas.monthlyReturns.length; si2++) {
+        var sm2 = seas.monthlyReturns[si2];
+        var ret = sm2.avgReturn * 100;
+        var bg = ret > 0 ? 'rgba(52,211,153,' + Math.min(0.3, Math.abs(ret)/10) + ')' : 'rgba(239,68,68,' + Math.min(0.3, Math.abs(ret)/10) + ')';
+        var isCurrent = seas.currentMonth && sm2.month.toLowerCase().startsWith(seas.currentMonth.toLowerCase().substring(0,3));
+        html += '<div class="season-cell" style="background:' + bg + ';' + (isCurrent ? 'border:2px solid #818cf8;' : '') + '">';
+        html += '<div class="season-month">' + sm2.month.substring(0,3) + '</div>';
+        html += '<div class="season-return" style="color:' + (ret >= 0 ? '#34d399' : '#ef4444') + ';">' + (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%</div>';
         html += '</div>';
       }
-
-      html += '</div>'; // end report-body
-
-      // ── Timestamp ──
-      html += '<div class="report-timestamp">Report generated ' + new Date().toLocaleString() + ' by Command Center AI • Data from Unusual Whales & Polygon.io</div>';
-
-      content.innerHTML = html;
+      html += '</div></div>';
     }
 
-    // ── Helper Functions ──────────────────────────────────
-    function metricBox(label, value) {
-      return '<div class="step-metric"><div class="step-metric-label">' + label + '</div><div class="step-metric-value">' + value + '</div></div>';
+    // ── PREDICTION BREAKDOWN ──
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
     }
 
-    function verdictClass(v) {
-      if (!v) return 'mixed';
-      if (v === 'BULLISH' || v === 'CLEAN' || v.indexOf('BUYING') >= 0 || v.indexOf('BULLISH') >= 0 || v.indexOf('STRONG') >= 0) return 'BULLISH';
-      if (v === 'BEARISH' || v.indexOf('RED') >= 0 || v.indexOf('SELLING') >= 0 || v.indexOf('BEARISH') >= 0 || v.indexOf('WEAK') >= 0) return 'BEARISH';
-      return 'NEUTRAL';
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
     }
 
-    function formatMarketCap(val) {
-      if (!val) return 'N/A';
-      if (val >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
-      if (val >= 1e9) return '$' + (val / 1e9).toFixed(1) + 'B';
-      if (val >= 1e6) return '$' + (val / 1e6).toFixed(0) + 'M';
-      return '$' + val.toLocaleString();
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
     }
 
-    function formatRevenue(val) {
-      if (!val) return '--';
-      var abs = Math.abs(val);
-      var sign = val < 0 ? '-' : '';
-      if (abs >= 1e9) return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return sign + '$' + (abs / 1e6).toFixed(1) + 'M';
-      if (abs >= 1e3) return sign + '$' + (abs / 1e3).toFixed(0) + 'K';
-      return sign + '$' + abs.toFixed(2);
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
+    ctx.stroke();
 
-    function formatPremium(val) {
-      if (!val) return '--';
-      var abs = Math.abs(val);
-      if (abs >= 1e6) return '$' + (val / 1e6).toFixed(1) + 'M';
-      if (abs >= 1e3) return '$' + (val / 1e3).toFixed(0) + 'K';
-      return '$' + val.toFixed(0);
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
     }
-  </script>
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
 </body>
 </html>

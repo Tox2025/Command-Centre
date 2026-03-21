@@ -264,10 +264,17 @@ class EarningsCalendar {
             type: 'PRE_EARNINGS',
             generatedAt: new Date().toISOString(),
             company: {},
+            actualVsForecast: {},
             step1_optionsFlow: {},
+            optionsIntelligence: {},
             step2_chartHistory: {},
+            technicalSnapshot: {},
+            volatilityProfile: {},
             step3_analystCoverage: {},
+            smartMoney: {},
             step4_insiderActivity: {},
+            seasonality: {},
+            narrativeSummary: '',
             prediction: {}
         };
 
@@ -403,6 +410,97 @@ class EarningsCalendar {
             report.step1_optionsFlow.score = step1Score;
         } catch (e) { console.error('EarningsReport: Step1 options flow error for ' + ticker + ':', e.message); report.step1_optionsFlow.verdict = 'NO DATA'; }
 
+        // ── ACTUAL vs FORECAST ───────────────────────────────
+        try {
+            if (report.earningsHistory && report.earningsHistory.length > 0) {
+                var avf = { quarters: [], beatCount: 0, missCount: 0, avgSurprise: 0, narrative: '' };
+                var surprises = [];
+                for (var avi = 0; avi < report.earningsHistory.length; avi++) {
+                    var eh = report.earningsHistory[avi];
+                    var q = {
+                        date: eh.date, epsEstimate: eh.epsEstimate, epsActual: eh.epsActual,
+                        epsSurprise: eh.epsSurprise || null, epsSurprisePct: eh.epsSurprisePct || null,
+                        revenueEstimate: eh.revenueEstimate, revenueActual: eh.revenueActual,
+                        beat: eh.beat
+                    };
+                    if (eh.revenueEstimate && eh.revenueActual) {
+                        q.revSurprise = eh.revenueActual - eh.revenueEstimate;
+                        q.revSurprisePct = +((q.revSurprise / Math.abs(eh.revenueEstimate)) * 100).toFixed(2);
+                    }
+                    if (eh.beat === true) avf.beatCount++;
+                    else if (eh.beat === false) avf.missCount++;
+                    if (eh.epsSurprisePct) surprises.push(eh.epsSurprisePct);
+                    avf.quarters.push(q);
+                }
+                if (surprises.length > 0) avf.avgSurprise = +(surprises.reduce(function(a,b){return a+b;},0) / surprises.length).toFixed(2);
+                avf.totalQuarters = avf.quarters.length;
+                avf.beatRate = avf.quarters.length > 0 ? Math.round((avf.beatCount / avf.quarters.length) * 100) : null;
+                // AI narrative
+                var lastQ = avf.quarters[0];
+                if (lastQ && lastQ.epsActual && lastQ.epsEstimate) {
+                    var beatWord = lastQ.beat ? 'beat' : 'missed';
+                    avf.narrative = (report.company.name || ticker) + ' reported EPS of $' + lastQ.epsActual.toFixed(2) + ' vs $' + lastQ.epsEstimate.toFixed(2) + ' estimate, a ' + Math.abs(lastQ.epsSurprisePct || 0).toFixed(1) + '% ' + beatWord + '.';
+                    if (lastQ.revenueActual && lastQ.revenueEstimate) {
+                        var revBeat = lastQ.revenueActual > lastQ.revenueEstimate;
+                        avf.narrative += ' Revenue of ' + this._fmtRev(lastQ.revenueActual) + (revBeat ? ' topped ' : ' missed ') + 'expectations of ' + this._fmtRev(lastQ.revenueEstimate) + '.';
+                    }
+                    if (avf.beatRate !== null) avf.narrative += ' The company has beaten EPS estimates in ' + avf.beatCount + ' of the last ' + avf.totalQuarters + ' quarters (' + avf.beatRate + '% beat rate).';
+                }
+                report.actualVsForecast = avf;
+            }
+        } catch (e) { console.error('EarningsReport: ActualVsForecast error:', e.message); }
+
+        // ── OPTIONS INTELLIGENCE (enhanced) ───────────────────
+        try {
+            var oi = {};
+            // Net Premium
+            var netPremData = await this.uw.getNetPremium(ticker).catch(function() { return null; });
+            var npArr = this._extractEarningsArray(netPremData);
+            if (npArr && npArr.length > 0) {
+                var lastNP = npArr[npArr.length - 1] || npArr[0];
+                oi.netPremium = parseFloat(lastNP.net_premium || lastNP.value || 0);
+                oi.netPremiumBias = oi.netPremium > 0 ? 'BULLISH' : oi.netPremium < 0 ? 'BEARISH' : 'NEUTRAL';
+            }
+            // OI Change
+            var oiChangeData = await this.uw.getOIChange(ticker).catch(function() { return null; });
+            var oiArr = this._extractEarningsArray(oiChangeData);
+            if (oiArr && oiArr.length > 0) {
+                var lastOI = oiArr[0];
+                oi.callOIChange = parseFloat(lastOI.call_oi_change || lastOI.calls_change || 0);
+                oi.putOIChange = parseFloat(lastOI.put_oi_change || lastOI.puts_change || 0);
+                oi.totalOI = parseFloat(lastOI.total_oi || lastOI.open_interest || 0);
+            }
+            // Max Pain
+            var maxPainData = await this.uw.getMaxPain(ticker).catch(function() { return null; });
+            var mpArr = this._extractEarningsArray(maxPainData);
+            if (mpArr && mpArr.length > 0) {
+                oi.maxPain = parseFloat(mpArr[0].price || mpArr[0].max_pain || mpArr[0].value || 0);
+                if (report.step2_chartHistory && report.step2_chartHistory.currentPrice && oi.maxPain > 0) {
+                    oi.maxPainDiff = +((report.step2_chartHistory.currentPrice - oi.maxPain) / oi.maxPain * 100).toFixed(1);
+                }
+            }
+            // Dark Pool
+            var dpData = await this.uw.getDarkPoolLevels(ticker).catch(function() { return null; });
+            var dpArr = this._extractEarningsArray(dpData);
+            if (dpArr && dpArr.length > 0) {
+                oi.darkPoolLevels = dpArr.slice(0, 5).map(function(d) {
+                    return { price: parseFloat(d.price || d.level || 0), volume: parseFloat(d.volume || d.shares || 0), date: d.date || '' };
+                });
+                oi.darkPoolVolume = dpArr.reduce(function(s,d) { return s + parseFloat(d.volume || d.shares || 0); }, 0);
+            }
+            // AI narrative for options
+            var optParts = [];
+            if (report.step1_optionsFlow.premiumBias) optParts.push('Options positioning is ' + report.step1_optionsFlow.premiumBias.toLowerCase() + '-biased');
+            if (report.step1_optionsFlow.callPremium && report.step1_optionsFlow.putPremium) {
+                var ratio = (report.step1_optionsFlow.callPremium / Math.max(1, report.step1_optionsFlow.putPremium)).toFixed(1);
+                optParts.push('with call premium outpacing puts ' + ratio + ':1');
+            }
+            if (oi.netPremium) optParts.push(this._fmtRev(Math.abs(oi.netPremium)) + ' in net ' + (oi.netPremium > 0 ? 'call' : 'put') + ' buying');
+            if (oi.maxPain) optParts.push('Max pain at $' + oi.maxPain.toFixed(2));
+            oi.narrative = optParts.length > 0 ? optParts.join('. ') + '.' : '';
+            report.optionsIntelligence = oi;
+        } catch (e) { console.error('EarningsReport: Options Intel error:', e.message); }
+
         // ── STEP 2: Chart & Historical Earnings Reaction ─────
         var step2Score = 0;
         try {
@@ -474,7 +572,161 @@ class EarningsCalendar {
             report.step2_chartHistory.score = step2Score;
         } catch (e) { console.error('EarningsReport: Step2 chart history error for ' + ticker + ':', e.message); report.step2_chartHistory.verdict = 'NO DATA'; }
 
-        // ── STEP 3: Analyst / News Context (uses Polygon news) ─
+        // ── TECHNICAL SNAPSHOT ────────────────────────────────
+        try {
+            if (this.polygon) {
+                var today90 = new Date();
+                var ago90 = new Date(today90); ago90.setDate(ago90.getDate() - 90);
+                var candles90 = await this.polygon.getAggregates(ticker, 1, 'day', this._formatDate(ago90), this._formatDate(today90));
+                if (candles90 && candles90.length > 0) {
+                    report.technicalSnapshot.priceData = candles90.map(function(c) { return { d: c.date ? c.date.toISOString().substring(0,10) : '', o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume }; });
+                }
+                var taResults = await Promise.allSettled([
+                    this.polygon.getRSI(ticker, 'day', 14),
+                    this.polygon.getEMA(ticker, 'day', 9),
+                    this.polygon.getEMA(ticker, 'day', 20),
+                    this.polygon.getEMA(ticker, 'day', 50),
+                    this.polygon.getSMA(ticker, 'day', 200),
+                    this.polygon.getMACD(ticker, 'day')
+                ]);
+                var rsi = taResults[0].status === 'fulfilled' && taResults[0].value.length > 0 ? taResults[0].value[0].value : null;
+                var ema9 = taResults[1].status === 'fulfilled' && taResults[1].value.length > 0 ? taResults[1].value[0].value : null;
+                var ema20 = taResults[2].status === 'fulfilled' && taResults[2].value.length > 0 ? taResults[2].value[0].value : null;
+                var ema50 = taResults[3].status === 'fulfilled' && taResults[3].value.length > 0 ? taResults[3].value[0].value : null;
+                var sma200 = taResults[4].status === 'fulfilled' && taResults[4].value.length > 0 ? taResults[4].value[0].value : null;
+                var macdData = taResults[5].status === 'fulfilled' && taResults[5].value.length > 0 ? taResults[5].value[0] : null;
+                report.technicalSnapshot.rsi = rsi ? +rsi.toFixed(1) : null;
+                report.technicalSnapshot.ema9 = ema9 ? +ema9.toFixed(2) : null;
+                report.technicalSnapshot.ema20 = ema20 ? +ema20.toFixed(2) : null;
+                report.technicalSnapshot.ema50 = ema50 ? +ema50.toFixed(2) : null;
+                report.technicalSnapshot.sma200 = sma200 ? +sma200.toFixed(2) : null;
+                if (macdData) {
+                    report.technicalSnapshot.macd = { value: +macdData.value.toFixed(2), signal: +macdData.signal.toFixed(2), histogram: +macdData.histogram.toFixed(2) };
+                }
+                // EMA alignment
+                if (ema9 && ema20 && ema50) {
+                    report.technicalSnapshot.emaAlignment = ema9 > ema20 && ema20 > ema50 ? 'BULLISH' : ema9 < ema20 && ema20 < ema50 ? 'BEARISH' : 'MIXED';
+                }
+                // Narrative
+                var taParts = [];
+                var cp = report.step2_chartHistory.currentPrice;
+                if (cp) taParts.push(ticker + ' trades at $' + cp.toFixed(2));
+                if (rsi) taParts.push('RSI(14) at ' + rsi.toFixed(0) + ' is ' + (rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral'));
+                if (report.technicalSnapshot.emaAlignment) taParts.push('EMAs are ' + report.technicalSnapshot.emaAlignment.toLowerCase() + '-aligned');
+                if (macdData) taParts.push('MACD histogram is ' + (macdData.histogram > 0 ? 'positive' : 'negative'));
+                if (sma200 && cp) taParts.push('Price is ' + (cp > sma200 ? 'above' : 'below') + ' the 200-day SMA ($' + sma200.toFixed(0) + ')');
+                report.technicalSnapshot.narrative = taParts.join('. ') + '.';
+            }
+        } catch (e) { console.error('EarningsReport: Technical snapshot error:', e.message); }
+
+        // ── VOLATILITY PROFILE ────────────────────────────────
+        try {
+            var volResults = await Promise.allSettled([
+                this.uw.getVolStats(ticker),
+                this.uw.getRealizedVol(ticker),
+                this.uw.getTermStructure(ticker)
+            ]);
+            var volStats = volResults[0].status === 'fulfilled' ? this._extractEarningsArray(volResults[0].value) : [];
+            var realVol = volResults[1].status === 'fulfilled' ? this._extractEarningsArray(volResults[1].value) : [];
+            var termStruct = volResults[2].status === 'fulfilled' ? this._extractEarningsArray(volResults[2].value) : [];
+            if (volStats.length > 0) {
+                var vs = volStats[0];
+                report.volatilityProfile.iv30 = parseFloat(vs.iv_30 || vs.implied_volatility_30d || 0) || null;
+                report.volatilityProfile.iv60 = parseFloat(vs.iv_60 || vs.implied_volatility_60d || 0) || null;
+                report.volatilityProfile.hvol30 = parseFloat(vs.hv_30 || vs.historical_volatility_30d || 0) || null;
+            }
+            if (realVol.length > 0) {
+                report.volatilityProfile.realizedVol = parseFloat(realVol[0].realized_vol || realVol[0].value || 0) || null;
+            }
+            if (termStruct.length > 0) {
+                report.volatilityProfile.termStructure = termStruct.slice(0, 6).map(function(t) {
+                    return { expiry: t.expiry || t.date || '', iv: parseFloat(t.iv || t.implied_volatility || 0) };
+                });
+            }
+            // Narrative
+            var volParts = [];
+            if (report.step1_optionsFlow.ivRank) volParts.push('IV Rank at ' + report.step1_optionsFlow.ivRank.toFixed(0) + '% indicates ' + (report.step1_optionsFlow.ivRank > 50 ? 'elevated' : 'low') + ' premium');
+            if (report.volatilityProfile.iv30 && report.volatilityProfile.hvol30) {
+                var ivPrem = ((report.volatilityProfile.iv30 - report.volatilityProfile.hvol30) / report.volatilityProfile.hvol30 * 100).toFixed(0);
+                volParts.push('IV30 of ' + (report.volatilityProfile.iv30 * 100).toFixed(0) + '% vs ' + (report.volatilityProfile.hvol30 * 100).toFixed(0) + '% realized (' + ivPrem + '% premium)');
+            }
+            report.volatilityProfile.narrative = volParts.join('. ') + (volParts.length > 0 ? '.' : '');
+        } catch (e) { console.error('EarningsReport: Volatility profile error:', e.message); }
+
+        // ── SMART MONEY ──────────────────────────────────────
+        try {
+            var smResults = await Promise.allSettled([
+                this.uw.getInsiderByTicker(ticker),
+                this.uw.getShortInterest(ticker),
+                this.uw.getShortVolume(ticker),
+                this.uw.getInstitutionOwnership(ticker)
+            ]);
+            var sm = {};
+            // Insiders
+            var insiders = smResults[0].status === 'fulfilled' ? this._extractEarningsArray(smResults[0].value) : [];
+            if (insiders.length > 0) {
+                sm.insiderTransactions = insiders.slice(0, 10).map(function(ins) {
+                    return {
+                        date: ins.filing_date || ins.date || '', name: ins.full_name || ins.name || '',
+                        title: ins.title || '', type: ins.acquisition_or_disposition || ins.transaction_type || '',
+                        shares: parseInt(ins.shares || ins.transaction_shares || 0),
+                        value: parseFloat(ins.value || ins.total_value || 0),
+                        isBuy: (ins.acquisition_or_disposition || '').toUpperCase() === 'A'
+                    };
+                });
+                sm.insiderBuys = sm.insiderTransactions.filter(function(t) { return t.isBuy; }).length;
+                sm.insiderSells = sm.insiderTransactions.filter(function(t) { return !t.isBuy; }).length;
+            }
+            // Short Interest
+            var shorts = smResults[1].status === 'fulfilled' ? this._extractEarningsArray(smResults[1].value) : [];
+            if (shorts.length > 0) {
+                var sh = shorts[0];
+                sm.shortInterestPct = parseFloat(sh.short_interest || sh.si_pct_float || sh.percent_float || 0);
+                sm.daysToCover = parseFloat(sh.days_to_cover || sh.dtc || 0);
+                sm.shortInterestShares = parseInt(sh.short_interest_shares || sh.shares_short || 0);
+            }
+            // Short Volume
+            var shortVol = smResults[2].status === 'fulfilled' ? this._extractEarningsArray(smResults[2].value) : [];
+            if (shortVol.length > 0) {
+                sm.shortVolumeRatio = parseFloat(shortVol[0].short_volume_ratio || shortVol[0].ratio || 0);
+            }
+            // Institutions
+            var instit = smResults[3].status === 'fulfilled' ? this._extractEarningsArray(smResults[3].value) : [];
+            if (instit.length > 0) {
+                sm.topInstitutions = instit.slice(0, 5).map(function(inst) {
+                    return { name: inst.name || inst.institution_name || '', shares: parseInt(inst.shares || inst.position || 0), changeShares: parseInt(inst.change_in_shares || inst.shares_change || 0) };
+                });
+                sm.institutionalOwnershipPct = parseFloat(instit[0].total_pct || instit[0].institution_pct || 0);
+            }
+            // Narrative
+            var smParts = [];
+            if (sm.insiderBuys > 0 || sm.insiderSells > 0) smParts.push(sm.insiderBuys + ' insider buy(s) and ' + sm.insiderSells + ' sell(s) recently');
+            if (sm.shortInterestPct) smParts.push('Short interest at ' + sm.shortInterestPct.toFixed(1) + '% of float');
+            if (sm.daysToCover) smParts.push(sm.daysToCover.toFixed(1) + ' days to cover');
+            sm.narrative = smParts.join('. ') + (smParts.length > 0 ? '.' : '');
+            report.smartMoney = sm;
+        } catch (e) { console.error('EarningsReport: Smart money error:', e.message); }
+
+        // ── SEASONALITY ──────────────────────────────────────
+        try {
+            var seasData = await this.uw.getTickerSeasonality(ticker).catch(function() { return null; });
+            var seasArr = this._extractEarningsArray(seasData);
+            if (seasArr && seasArr.length > 0) {
+                report.seasonality.monthlyReturns = seasArr.map(function(s) {
+                    return { month: s.month || '', avgReturn: parseFloat(s.avg_return || s.mean_return || 0), winRate: parseFloat(s.win_rate || s.pct_positive || 0) };
+                });
+                var currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
+                var thisMonthSeas = seasArr.find(function(s) { return (s.month || '').toLowerCase() === currentMonth.toLowerCase(); });
+                if (thisMonthSeas) {
+                    report.seasonality.currentMonth = currentMonth;
+                    report.seasonality.currentMonthReturn = parseFloat(thisMonthSeas.avg_return || thisMonthSeas.mean_return || 0);
+                    report.seasonality.currentMonthWinRate = parseFloat(thisMonthSeas.win_rate || thisMonthSeas.pct_positive || 0);
+                    report.seasonality.narrative = ticker + ' has posted positive returns in ' + currentMonth + ' ' + (report.seasonality.currentMonthWinRate * 100).toFixed(0) + '% of the time with an average return of ' + (report.seasonality.currentMonthReturn * 100).toFixed(1) + '%.';
+                }
+            }
+        } catch (e) { console.error('EarningsReport: Seasonality error:', e.message); }
+
+
         var step3Score = 0;
         try {
             // Use Polygon news to extract recent analyst mentions and sentiment
@@ -601,7 +853,7 @@ class EarningsCalendar {
 
         // ── FINAL PREDICTION ─────────────────────────────────
         var totalScore = step1Score + step2Score + step3Score + step4Score;
-        var maxPossible = 3.75; // max from all steps
+        var maxPossible = 3.75;
         var confidencePct = Math.min(90, Math.max(30, Math.round(50 + (totalScore / maxPossible) * 40)));
 
         report.prediction = {
@@ -611,11 +863,21 @@ class EarningsCalendar {
             summary: this._buildPredictionSummary(report, totalScore),
             breakdown: {
                 step1: { label: 'Options Flow', score: step1Score, verdict: report.step1_optionsFlow.verdict },
-                step2: { label: 'Chart/Price Action', score: step2Score, verdict: report.step2_chartHistory.pricedIn ? 'PRICED IN' : 'ROOM TO MOVE' },
-                step3: { label: 'Analyst Coverage', score: step3Score, verdict: report.step3_analystCoverage.verdict },
-                step4: { label: 'Insider Activity', score: step4Score, verdict: report.step4_insiderActivity.verdict }
+                step2: { label: 'Chart & Price Action', score: step2Score, verdict: report.step2_chartHistory.pricedIn ? 'PRICED IN' : 'ROOM TO MOVE' },
+                step3: { label: 'News & Sentiment', score: step3Score, verdict: report.step3_analystCoverage.verdict },
+                step4: { label: 'Financial Health', score: step4Score, verdict: report.step4_insiderActivity.verdict }
             }
         };
+
+        // ── NARRATIVE SUMMARY ─────────────────────────────────
+        var narr = [];
+        if (report.actualVsForecast.narrative) narr.push(report.actualVsForecast.narrative);
+        if (report.optionsIntelligence.narrative) narr.push(report.optionsIntelligence.narrative);
+        if (report.technicalSnapshot.narrative) narr.push(report.technicalSnapshot.narrative);
+        if (report.volatilityProfile.narrative) narr.push(report.volatilityProfile.narrative);
+        if (report.smartMoney.narrative) narr.push(report.smartMoney.narrative);
+        if (report.seasonality.narrative) narr.push(report.seasonality.narrative);
+        report.narrativeSummary = narr.join(' ');
 
         // Save report
         this.reports[ticker] = report;
@@ -836,6 +1098,16 @@ class EarningsCalendar {
         if (val >= 1e9) return '$' + (val / 1e9).toFixed(2) + 'B';
         if (val >= 1e6) return '$' + (val / 1e6).toFixed(0) + 'M';
         return '$' + val.toLocaleString();
+    }
+
+    _fmtRev(val) {
+        if (val === null || val === undefined) return 'N/A';
+        var abs = Math.abs(val);
+        if (abs >= 1e12) return '$' + (val / 1e12).toFixed(2) + 'T';
+        if (abs >= 1e9) return '$' + (val / 1e9).toFixed(2) + 'B';
+        if (abs >= 1e6) return '$' + (val / 1e6).toFixed(1) + 'M';
+        if (abs >= 1e3) return '$' + (val / 1e3).toFixed(0) + 'K';
+        return '$' + val.toFixed(0);
     }
 }
 

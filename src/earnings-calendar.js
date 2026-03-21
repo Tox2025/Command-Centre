@@ -280,7 +280,7 @@ class EarningsCalendar {
                     };
                 }
             }
-        } catch (e) { report.company = { name: ticker, description: 'Error fetching details' }; }
+        } catch (e) { console.error('EarningsReport: Company details error for ' + ticker + ':', e.message); report.company = { name: ticker, description: 'Error fetching details' }; }
 
         // ── Earnings Date / History ──────────────────────────
         try {
@@ -321,7 +321,7 @@ class EarningsCalendar {
             var beats = report.earningsHistory.filter(function (h) { return h.beat === true; }).length;
             var withData = report.earningsHistory.filter(function (h) { return h.beat !== undefined; }).length;
             report.historicalBeatRate = withData > 0 ? Math.round((beats / withData) * 100) : null;
-        } catch (e) { /* continue */ }
+        } catch (e) { console.error('EarningsReport: Earnings history error for ' + ticker + ':', e.message); }
 
         // ── Polygon Financials (quarterly) ───────────────────
         try {
@@ -343,7 +343,7 @@ class EarningsCalendar {
                     });
                 }
             }
-        } catch (e) { /* continue */ }
+        } catch (e) { console.error('EarningsReport: Polygon financials error for ' + ticker + ':', e.message); }
 
         // ── STEP 1: Options Flow ─────────────────────────────
         var step1Score = 0;
@@ -356,7 +356,7 @@ class EarningsCalendar {
                 report.step1_optionsFlow.ivPercentile = parseFloat(latest.iv_percentile || latest.ivPercentile || 0);
                 report.step1_optionsFlow.impliedMove = parseFloat(latest.implied_move || latest.expected_move || 0);
             }
-        } catch (e) { /* continue */ }
+        } catch (e) { console.error('EarningsReport: Step1 IV rank error for ' + ticker + ':', e.message); }
 
         try {
             var flowData = await this.uw.getFlowByTicker(ticker);
@@ -391,7 +391,7 @@ class EarningsCalendar {
             }
             report.step1_optionsFlow.verdict = step1Score > 0 ? 'BULLISH' : step1Score < 0 ? 'BEARISH' : 'NEUTRAL';
             report.step1_optionsFlow.score = step1Score;
-        } catch (e) { report.step1_optionsFlow.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step1 options flow error for ' + ticker + ':', e.message); report.step1_optionsFlow.verdict = 'NO DATA'; }
 
         // ── STEP 2: Chart & Historical Earnings Reaction ─────
         var step2Score = 0;
@@ -462,12 +462,12 @@ class EarningsCalendar {
                 }
             }
             report.step2_chartHistory.score = step2Score;
-        } catch (e) { report.step2_chartHistory.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step2 chart history error for ' + ticker + ':', e.message); report.step2_chartHistory.verdict = 'NO DATA'; }
 
         // ── STEP 3: Analyst Upgrades & Price Targets ─────────
         var step3Score = 0;
         try {
-            var analystData = await this.uw._fetch('/analyst/' + ticker + '/ratings');
+            var analystData = await this.uw._fetch('/stock/' + ticker + '/analyst-ratings');
             var analysts = this._extractEarningsArray(analystData);
             if (analysts && analysts.length > 0) {
                 var recentUpgrades = [];
@@ -533,12 +533,12 @@ class EarningsCalendar {
                 report.step3_analystCoverage.verdict = 'NO DATA';
             }
             report.step3_analystCoverage.score = step3Score;
-        } catch (e) { report.step3_analystCoverage.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step3 analyst error for ' + ticker + ':', e.message); report.step3_analystCoverage.verdict = 'NO DATA'; }
 
         // ── STEP 4: Insider Activity ─────────────────────────
         var step4Score = 0;
         try {
-            var insiderData = await this.uw._fetch('/insider/' + ticker);
+            var insiderData = await this.uw._fetch('/stock/' + ticker + '/insider-trades');
             var insiders = this._extractEarningsArray(insiderData);
             if (insiders && insiders.length > 0) {
                 var now30d = new Date(); now30d.setDate(now30d.getDate() - 30);
@@ -597,7 +597,7 @@ class EarningsCalendar {
                 report.step4_insiderActivity.verdict = 'NO DATA';
             }
             report.step4_insiderActivity.score = step4Score;
-        } catch (e) { report.step4_insiderActivity.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step4 insider error for ' + ticker + ':', e.message); report.step4_insiderActivity.verdict = 'NO DATA'; }
 
         // ── FINAL PREDICTION ─────────────────────────────────
         var totalScore = step1Score + step2Score + step3Score + step4Score;

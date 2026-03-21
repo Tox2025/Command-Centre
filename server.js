@@ -504,6 +504,44 @@ app.get('/api/earnings/report/:ticker', async (req, res) => {
         res.json({ error: e.message });
     }
 });
+// Temporary diagnostic endpoint — dumps raw UW responses for field mapping
+app.get('/api/debug/uw-raw/:ticker', async (req, res) => {
+    try {
+        var t = req.params.ticker.toUpperCase();
+        var results = {};
+        var endpoints = [
+            { name: 'earnings', fn: () => uw._fetch('/earnings/' + t) },
+            { name: 'insiderByTicker', fn: () => uw._fetch('/insider/' + t) },
+            { name: 'shortInterest', fn: () => uw._fetch('/shorts/' + t + '/interest-float') },
+            { name: 'shortVolume', fn: () => uw._fetch('/shorts/' + t + '/volume-and-ratio') },
+            { name: 'institutionOwnership', fn: () => uw._fetch('/institution/' + t + '/ownership') },
+            { name: 'oiChange', fn: () => uw._fetch('/stock/' + t + '/oi-change') },
+            { name: 'netPremTicks', fn: () => uw._fetch('/stock/' + t + '/net-prem-ticks') },
+            { name: 'maxPain', fn: () => uw._fetch('/stock/' + t + '/max-pain') },
+            { name: 'darkpool', fn: () => uw._fetch('/darkpool/' + t) },
+            { name: 'seasonality', fn: () => uw._fetch('/seasonality/' + t + '/monthly') },
+            { name: 'volStats', fn: () => uw._fetch('/stock/' + t + '/volatility/stats') },
+            { name: 'termStructure', fn: () => uw._fetch('/stock/' + t + '/volatility/term-structure') },
+            { name: 'analystRatings', fn: () => uw._fetch('/screener/analysts', { ticker: t }) },
+            { name: 'analystByTicker', fn: () => uw._fetch('/analyst/' + t + '/ratings') },
+            { name: 'ivRank', fn: () => uw._fetch('/stock/' + t + '/iv-rank') },
+            { name: 'flowRecent', fn: () => uw._fetch('/stock/' + t + '/flow-recent') },
+        ];
+        for (var i = 0; i < endpoints.length; i++) {
+            try {
+                var data = await endpoints[i].fn();
+                // Grab first 2 items for inspection
+                var arr = Array.isArray(data) ? data : (data && data.data ? data.data : (data && data.results ? data.results : data));
+                results[endpoints[i].name] = { raw_keys: arr && arr[0] ? Object.keys(arr[0]) : (data ? Object.keys(data) : []), sample: Array.isArray(arr) ? arr.slice(0,2) : arr };
+            } catch (e) {
+                results[endpoints[i].name] = { error: e.message };
+            }
+        }
+        res.json(results);
+    } catch (e) {
+        res.json({ error: e.message });
+    }
+});
 app.get('/api/shorts/:ticker', (req, res) => {
     const t = req.params.ticker.toUpperCase();
     res.json(state.shortInterest[t] || null);

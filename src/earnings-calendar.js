@@ -249,6 +249,16 @@ class EarningsCalendar {
         ticker = (ticker || '').toUpperCase();
         if (!ticker) return { error: 'No ticker provided' };
 
+        // ── Cache check: return cached report if less than 1 hour old ──
+        var cached = this.reports[ticker];
+        if (cached && cached.generatedAt) {
+            var age = Date.now() - new Date(cached.generatedAt).getTime();
+            if (age < 3600000) {
+                console.log('EarningsReport: Returning cached report for ' + ticker + ' (age: ' + Math.round(age / 60000) + 'min)');
+                return cached;
+            }
+        }
+
         var report = {
             ticker: ticker,
             type: 'PRE_EARNINGS',
@@ -464,140 +474,130 @@ class EarningsCalendar {
             report.step2_chartHistory.score = step2Score;
         } catch (e) { console.error('EarningsReport: Step2 chart history error for ' + ticker + ':', e.message); report.step2_chartHistory.verdict = 'NO DATA'; }
 
-        // ── STEP 3: Analyst Upgrades & Price Targets ─────────
+        // ── STEP 3: Analyst / News Context (uses Polygon news) ─
         var step3Score = 0;
         try {
-            var analystData = await this.uw._fetch('/stock/' + ticker + '/analyst-ratings');
-            var analysts = this._extractEarningsArray(analystData);
-            if (analysts && analysts.length > 0) {
-                var recentUpgrades = [];
-                var recentDowngrades = [];
-                var targets = [];
-                var now10d = new Date(); now10d.setDate(now10d.getDate() - 10);
+            // Use Polygon news to extract recent analyst mentions and sentiment
+            if (this.polygon) {
+                var newsData = await this.polygon._restGet('/v2/reference/news?ticker=' + ticker + '&limit=10&order=desc');
+                var newsArticles = (newsData && newsData.results) ? newsData.results : [];
+                var bullishMentions = 0, bearishMentions = 0;
+                var recentNews = [];
 
-                for (var ai = 0; ai < analysts.length; ai++) {
-                    var a = analysts[ai];
-                    var aDate = new Date(a.date || a.rating_date || '');
-                    var rating = (a.rating || a.action || a.type || '').toLowerCase();
-                    var target = parseFloat(a.price_target || a.target || a.pt || 0);
-                    if (target > 0) targets.push(target);
+                for (var ni = 0; ni < newsArticles.length; ni++) {
+                    var article = newsArticles[ni];
+                    var title = (article.title || '').toLowerCase();
+                    var desc = (article.description || '').toLowerCase();
+                    var combined = title + ' ' + desc;
 
-                    // Check if within last 10 days
-                    if (aDate >= now10d) {
-                        var entry = {
-                            date: a.date || a.rating_date || '',
-                            firm: a.firm || a.analyst_firm || a.analyst || '',
-                            analyst: a.analyst_name || a.analyst || '',
-                            rating: a.rating || a.action || '',
-                            priceTarget: target,
-                            previousTarget: parseFloat(a.previous_target || a.prev_pt || 0) || null,
-                            comment: a.comment || a.note || a.summary || ''
-                        };
-                        if (rating.includes('upgrade') || rating.includes('buy') || rating.includes('outperform') ||
-                            rating.includes('overweight') || rating.includes('initiated')) {
-                            recentUpgrades.push(entry);
-                        } else if (rating.includes('downgrade') || rating.includes('sell') || rating.includes('underperform') ||
-                            rating.includes('underweight')) {
-                            recentDowngrades.push(entry);
-                        } else {
-                            recentUpgrades.push(entry); // maintained/reiterated = mild positive
+                    var newsEntry = {
+                        date: article.published_utc || '',
+                        title: article.title || '',
+                        source: article.publisher ? article.publisher.name : '',
+                        url: article.article_url || ''
+                    };
+                    recentNews.push(newsEntry);
+
+                    // Simple sentiment from keywords
+                    if (combined.match(/upgrade|outperform|buy|bullish|beat|strong|raises|positive|overweight/)) {
+                        bullishMentions++;
+                        newsEntry.sentiment = 'BULLISH';
+                    } else if (combined.match(/downgrade|underperform|sell|bearish|miss|weak|cuts|negative|underweight/)) {
+                        bearishMentions++;
+                        newsEntry.sentiment = 'BEARISH';
+                    } else {
+                        newsEntry.sentiment = 'NEUTRAL';
+                    }
+                }
+
+                report.step3_analystCoverage.recentNews = recentNews.slice(0, 5);
+                report.step3_analystCoverage.totalArticles = newsArticles.length;
+                report.step3_analystCoverage.bullishMentions = bullishMentions;
+                report.step3_analystCoverage.bearishMentions = bearishMentions;
+
+                // Price target from snapshot if available
+                if (report.step2_chartHistory.currentPrice && report.company.marketCap) {
+                    // Use financials EPS to derive a basic P/E implied target
+                    if (report.financials && report.financials.length > 0) {
+                        var ttmEps = null;
+                        for (var fi2 = 0; fi2 < report.financials.length; fi2++) {
+                            if (report.financials[fi2].period === 'TTM' && report.financials[fi2].eps) {
+                                ttmEps = report.financials[fi2].eps;
+                                break;
+                            }
+                        }
+                        if (ttmEps && ttmEps > 0) {
+                            var currentPE = report.step2_chartHistory.currentPrice / ttmEps;
+                            report.step3_analystCoverage.currentPE = +currentPE.toFixed(1);
+                            report.step3_analystCoverage.ttmEPS = +ttmEps.toFixed(2);
                         }
                     }
                 }
 
-                report.step3_analystCoverage.totalAnalysts = analysts.length;
-                report.step3_analystCoverage.recentUpgrades = recentUpgrades;
-                report.step3_analystCoverage.recentDowngrades = recentDowngrades;
-                report.step3_analystCoverage.upgradesLast10d = recentUpgrades.length;
-                report.step3_analystCoverage.downgradesLast10d = recentDowngrades.length;
-
-                if (targets.length > 0) {
-                    var avgTarget = targets.reduce(function (s, t) { return s + t; }, 0) / targets.length;
-                    report.step3_analystCoverage.consensusTarget = +avgTarget.toFixed(2);
-                    report.step3_analystCoverage.highTarget = Math.max.apply(null, targets);
-                    report.step3_analystCoverage.lowTarget = Math.min.apply(null, targets);
-
-                    if (report.step2_chartHistory.currentPrice) {
-                        var upside = ((avgTarget - report.step2_chartHistory.currentPrice) / report.step2_chartHistory.currentPrice) * 100;
-                        report.step3_analystCoverage.upsidePercent = +upside.toFixed(2);
-                    }
-                }
-
-                // Score
-                step3Score = (recentUpgrades.length - recentDowngrades.length) * 0.3;
+                step3Score = (bullishMentions - bearishMentions) * 0.2;
                 step3Score = Math.max(-1, Math.min(1, step3Score));
 
-                report.step3_analystCoverage.verdict = step3Score > 0.3 ? 'BULLISH'
-                    : step3Score < -0.3 ? 'BEARISH' : 'NEUTRAL';
+                report.step3_analystCoverage.verdict = newsArticles.length === 0 ? 'NO DATA'
+                    : step3Score > 0.3 ? 'BULLISH SENTIMENT'
+                    : step3Score < -0.3 ? 'BEARISH SENTIMENT' : 'NEUTRAL';
             } else {
                 report.step3_analystCoverage.verdict = 'NO DATA';
             }
             report.step3_analystCoverage.score = step3Score;
-        } catch (e) { console.error('EarningsReport: Step3 analyst error for ' + ticker + ':', e.message); report.step3_analystCoverage.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step3 news/analyst error for ' + ticker + ':', e.message); report.step3_analystCoverage.verdict = 'NO DATA'; report.step3_analystCoverage.score = 0; }
 
-        // ── STEP 4: Insider Activity ─────────────────────────
+        // ── STEP 4: Financial Health & Insider Signals ────────
         var step4Score = 0;
         try {
-            var insiderData = await this.uw._fetch('/stock/' + ticker + '/insider-trades');
-            var insiders = this._extractEarningsArray(insiderData);
-            if (insiders && insiders.length > 0) {
-                var now30d = new Date(); now30d.setDate(now30d.getDate() - 30);
-                var recentSales = [];
-                var recentBuys = [];
+            // Use financials data to assess company health heading into earnings
+            if (report.financials && report.financials.length >= 2) {
+                var quarters = report.financials.filter(function (q) { return q.period !== 'TTM' && q.period !== 'FY'; });
+                if (quarters.length >= 2) {
+                    var latest = quarters[0];
+                    var previous = quarters[1];
 
-                for (var ii = 0; ii < insiders.length; ii++) {
-                    var ins = insiders[ii];
-                    var insDate = new Date(ins.date || ins.filing_date || ins.transaction_date || '');
-                    if (insDate < now30d) continue;
+                    report.step4_insiderActivity.latestRevenue = latest.revenue;
+                    report.step4_insiderActivity.previousRevenue = previous.revenue;
+                    report.step4_insiderActivity.latestEPS = latest.eps;
+                    report.step4_insiderActivity.previousEPS = previous.eps;
+                    report.step4_insiderActivity.latestNetIncome = latest.netIncome;
 
-                    var txn = {
-                        date: ins.date || ins.filing_date || ins.transaction_date || '',
-                        name: ins.name || ins.owner_name || ins.insider_name || '',
-                        title: ins.title || ins.owner_title || ins.position || '',
-                        type: (ins.transaction_type || ins.type || ins.acquisition_or_disposition || '').toUpperCase(),
-                        shares: parseInt(ins.shares || ins.share_count || ins.transaction_shares || 0),
-                        value: parseFloat(ins.value || ins.total_value || 0)
-                    };
+                    // Revenue growth
+                    if (latest.revenue && previous.revenue && previous.revenue > 0) {
+                        var revGrowth = ((latest.revenue - previous.revenue) / Math.abs(previous.revenue)) * 100;
+                        report.step4_insiderActivity.revenueGrowthQoQ = +revGrowth.toFixed(1);
+                    }
+                    // EPS growth
+                    if (latest.eps !== null && previous.eps !== null && previous.eps !== 0) {
+                        var epsGrowth = ((latest.eps - previous.eps) / Math.abs(previous.eps)) * 100;
+                        report.step4_insiderActivity.epsGrowthQoQ = +epsGrowth.toFixed(1);
+                    }
+                    // Profit margin
+                    if (latest.revenue && latest.netIncome) {
+                        var margin = (latest.netIncome / latest.revenue) * 100;
+                        report.step4_insiderActivity.profitMargin = +margin.toFixed(1);
+                    }
 
-                    var isSale = txn.type.includes('SALE') || txn.type.includes('SELL') ||
-                        txn.type === 'D' || txn.type === 'S' || txn.type.includes('DISPOSITION');
-                    var isBuy = txn.type.includes('BUY') || txn.type.includes('PURCHASE') ||
-                        txn.type === 'A' || txn.type === 'P' || txn.type.includes('ACQUISITION');
+                    // Score: growing revenue & EPS = positive signal
+                    if (report.step4_insiderActivity.revenueGrowthQoQ > 5) step4Score += 0.3;
+                    if (report.step4_insiderActivity.revenueGrowthQoQ < -5) step4Score -= 0.3;
+                    if (report.step4_insiderActivity.epsGrowthQoQ > 10) step4Score += 0.3;
+                    if (report.step4_insiderActivity.epsGrowthQoQ < -10) step4Score -= 0.3;
+                    if (report.step4_insiderActivity.profitMargin > 15) step4Score += 0.2;
+                    if (report.step4_insiderActivity.profitMargin < 0) step4Score -= 0.3;
+                    step4Score = Math.max(-1, Math.min(1, step4Score));
 
-                    if (isSale) recentSales.push(txn);
-                    else if (isBuy) recentBuys.push(txn);
+                    report.step4_insiderActivity.verdict = step4Score > 0.3 ? '📈 STRONG FUNDAMENTALS'
+                        : step4Score < -0.3 ? '📉 WEAK FUNDAMENTALS'
+                        : '📊 STABLE FUNDAMENTALS';
+                } else {
+                    report.step4_insiderActivity.verdict = 'LIMITED DATA';
                 }
-
-                report.step4_insiderActivity.recentSales = recentSales.slice(0, 10);
-                report.step4_insiderActivity.recentBuys = recentBuys.slice(0, 10);
-                report.step4_insiderActivity.totalSalesValue = recentSales.reduce(function (s, t) { return s + t.value; }, 0);
-                report.step4_insiderActivity.totalBuysValue = recentBuys.reduce(function (s, t) { return s + t.value; }, 0);
-                report.step4_insiderActivity.salesCount = recentSales.length;
-                report.step4_insiderActivity.buysCount = recentBuys.length;
-
-                // Red flag: C-suite selling large amounts near earnings
-                var cSuiteSales = recentSales.filter(function (s) {
-                    var t = (s.title || '').toUpperCase();
-                    return t.includes('CEO') || t.includes('CFO') || t.includes('COO') ||
-                        t.includes('CHIEF') || t.includes('PRESIDENT') || t.includes('DIRECTOR');
-                });
-                report.step4_insiderActivity.cSuiteSales = cSuiteSales;
-                report.step4_insiderActivity.redFlag = cSuiteSales.length > 0 && cSuiteSales.some(function (s) { return s.value > 500000; });
-
-                // Score
-                if (report.step4_insiderActivity.redFlag) step4Score = -1;
-                else if (recentBuys.length > recentSales.length) step4Score = 0.5;
-                else if (recentSales.length > 3) step4Score = -0.5;
-
-                report.step4_insiderActivity.verdict = report.step4_insiderActivity.redFlag ? '🚨 RED FLAG'
-                    : step4Score >= 0.5 ? '✅ INSIDER BUYING'
-                        : step4Score <= -0.5 ? '⚠️ INSIDER SELLING'
-                            : '✅ CLEAN';
             } else {
                 report.step4_insiderActivity.verdict = 'NO DATA';
             }
             report.step4_insiderActivity.score = step4Score;
-        } catch (e) { console.error('EarningsReport: Step4 insider error for ' + ticker + ':', e.message); report.step4_insiderActivity.verdict = 'NO DATA'; }
+        } catch (e) { console.error('EarningsReport: Step4 fundamentals error for ' + ticker + ':', e.message); report.step4_insiderActivity.verdict = 'NO DATA'; report.step4_insiderActivity.score = 0; }
 
         // ── FINAL PREDICTION ─────────────────────────────────
         var totalScore = step1Score + step2Score + step3Score + step4Score;
@@ -630,11 +630,13 @@ class EarningsCalendar {
         else if (report.step1_optionsFlow.verdict === 'BEARISH') parts.push('Options flow favors puts');
 
         if (report.step2_chartHistory.pricedIn) parts.push('recent move may have priced in earnings');
-        if (report.step3_analystCoverage.upgradesLast10d > 0) parts.push(report.step3_analystCoverage.upgradesLast10d + ' analyst upgrade(s) in last 10 days');
-        if (report.step4_insiderActivity.redFlag) parts.push('⚠️ C-suite insider selling detected');
+        if (report.step3_analystCoverage.bullishMentions > 0) parts.push(report.step3_analystCoverage.bullishMentions + ' bullish news mention(s)');
+        if (report.step3_analystCoverage.bearishMentions > 0) parts.push(report.step3_analystCoverage.bearishMentions + ' bearish news mention(s)');
+        if (report.step4_insiderActivity.revenueGrowthQoQ > 5) parts.push('revenue growing ' + report.step4_insiderActivity.revenueGrowthQoQ + '% QoQ');
+        else if (report.step4_insiderActivity.revenueGrowthQoQ < -5) parts.push('revenue declining ' + report.step4_insiderActivity.revenueGrowthQoQ + '% QoQ');
         if (report.historicalBeatRate) parts.push('historical beat rate: ' + report.historicalBeatRate + '%');
 
-        return parts.join('. ') + '.';
+        return parts.length > 0 ? parts.join('. ') + '.' : 'Insufficient data for detailed summary.';
     }
 
     // ══════════════════════════════════════════════════════════

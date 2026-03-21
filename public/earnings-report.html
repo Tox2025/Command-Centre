@@ -347,70 +347,51 @@
       }
       html += '</div>';
 
-      // ── STEP 3: Analyst Coverage ──
+      // ── STEP 3: News & Sentiment ──
       html += '<div class="step-card">';
       html += '<div class="step-card-header">';
-      html += '<div class="step-num">🏦 Step 3 — Analyst Coverage & Upgrades</div>';
+      html += '<div class="step-num">🏦 Step 3 — News Sentiment & Valuation</div>';
       html += '<div class="step-verdict ' + verdictClass(step3.verdict) + '">' + (step3.verdict || 'NO DATA') + '</div>';
       html += '</div>';
       html += '<div class="step-data-grid">';
-      html += metricBox('Consensus Target', step3.consensusTarget ? '$' + step3.consensusTarget.toFixed(2) : '--');
-      html += metricBox('Target Range', step3.lowTarget && step3.highTarget ? '$' + step3.lowTarget + ' - $' + step3.highTarget : '--');
-      html += metricBox('Upside/Downside', step3.upsidePercent !== undefined ? (step3.upsidePercent > 0 ? '+' : '') + step3.upsidePercent.toFixed(1) + '%' : '--');
-      html += metricBox('Upgrades (10d)', step3.upgradesLast10d !== undefined ? step3.upgradesLast10d : '--');
-      html += metricBox('Downgrades (10d)', step3.downgradesLast10d !== undefined ? step3.downgradesLast10d : '--');
-      html += metricBox('Total Analysts', step3.totalAnalysts || '--');
+      html += metricBox('Bullish Mentions', step3.bullishMentions !== undefined ? step3.bullishMentions : '--');
+      html += metricBox('Bearish Mentions', step3.bearishMentions !== undefined ? step3.bearishMentions : '--');
+      html += metricBox('Total Articles', step3.totalArticles !== undefined ? step3.totalArticles : '--');
+      html += metricBox('P/E Ratio', step3.currentPE ? step3.currentPE.toFixed(1) + 'x' : '--');
+      html += metricBox('TTM EPS', step3.ttmEPS ? '$' + step3.ttmEPS.toFixed(2) : '--');
       html += '</div>';
-      // Recent upgrades table
-      if (step3.recentUpgrades && step3.recentUpgrades.length > 0) {
-        html += '<table class="analyst-table"><thead><tr><th>Date</th><th>Firm</th><th>Rating</th><th>Price Target</th></tr></thead><tbody>';
-        step3.recentUpgrades.slice(0, 8).forEach(function (u) {
-          html += '<tr><td>' + (u.date || '').substring(0, 10) + '</td><td>' + (u.firm || '--') + '</td><td>' + (u.rating || '--') + '</td><td>' + (u.priceTarget ? '$' + u.priceTarget.toFixed(2) : '--') + '</td></tr>';
+      // Recent news
+      if (step3.recentNews && step3.recentNews.length > 0) {
+        html += '<div style="margin-top:12px"><div class="step-metric-label">Recent News</div>';
+        html += '<table class="analyst-table"><thead><tr><th>Date</th><th>Headline</th><th>Source</th><th>Tone</th></tr></thead><tbody>';
+        step3.recentNews.forEach(function (n) {
+          var toneColor = n.sentiment === 'BULLISH' ? '#34d399' : n.sentiment === 'BEARISH' ? '#ef4444' : '#94a3b8';
+          html += '<tr><td>' + (n.date || '').substring(0, 10) + '</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (n.title || '--') + '</td><td>' + (n.source || '--') + '</td><td style="color:' + toneColor + ';font-weight:600">' + (n.sentiment || '--') + '</td></tr>';
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
+      }
+      if (step3.verdict === 'NO DATA' || !step3.verdict) {
+        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">News data not available for this ticker.</div>';
       }
       html += '</div>';
 
-      // ── STEP 4: Insider Activity ──
+      // ── STEP 4: Financial Health ──
       html += '<div class="step-card">';
       html += '<div class="step-card-header">';
-      html += '<div class="step-num">👤 Step 4 — Insider Activity</div>';
-      var insVerdict = step4.verdict || 'NO DATA';
-      html += '<div class="step-verdict ' + (insVerdict.includes('RED') ? 'negative' : insVerdict.includes('BUYING') ? 'positive' : insVerdict.includes('SELLING') ? 'negative' : 'mixed') + '">' + insVerdict + '</div>';
+      html += '<div class="step-num">💰 Step 4 — Financial Health</div>';
+      var s4Verdict = step4.verdict || 'NO DATA';
+      html += '<div class="step-verdict ' + (s4Verdict.indexOf('STRONG') >= 0 ? 'positive' : s4Verdict.indexOf('WEAK') >= 0 ? 'negative' : 'mixed') + '">' + s4Verdict + '</div>';
       html += '</div>';
       html += '<div class="step-data-grid">';
-      html += metricBox('Recent Sales', step4.salesCount !== undefined ? step4.salesCount : '--');
-      html += metricBox('Recent Buys', step4.buysCount !== undefined ? step4.buysCount : '--');
-      html += metricBox('Total Sales Value', step4.totalSalesValue ? formatPremium(step4.totalSalesValue) : '--');
-      html += metricBox('Total Buys Value', step4.totalBuysValue ? formatPremium(step4.totalBuysValue) : '--');
+      html += metricBox('Revenue Growth QoQ', step4.revenueGrowthQoQ !== undefined ? (step4.revenueGrowthQoQ > 0 ? '+' : '') + step4.revenueGrowthQoQ + '%' : '--');
+      html += metricBox('EPS Growth QoQ', step4.epsGrowthQoQ !== undefined ? (step4.epsGrowthQoQ > 0 ? '+' : '') + step4.epsGrowthQoQ + '%' : '--');
+      html += metricBox('Profit Margin', step4.profitMargin !== undefined ? step4.profitMargin + '%' : '--');
+      html += metricBox('Latest Revenue', step4.latestRevenue ? formatRevenue(step4.latestRevenue) : '--');
+      html += metricBox('Latest EPS', step4.latestEPS !== undefined && step4.latestEPS !== null ? '$' + step4.latestEPS.toFixed(2) : '--');
+      html += metricBox('Latest Net Income', step4.latestNetIncome ? formatRevenue(step4.latestNetIncome) : '--');
       html += '</div>';
-      // C-suite sales warning
-      if (step4.cSuiteSales && step4.cSuiteSales.length > 0) {
-        html += '<div style="margin-top:12px;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px">';
-        html += '<div style="color:#ef4444;font-weight:700;font-size:13px;margin-bottom:8px">🚨 C-Suite / Director Sales Detected</div>';
-        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
-        step4.cSuiteSales.forEach(function (s) {
-          html += '<tr class="insider-sale"><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
-        });
-        html += '</tbody></table>';
-        html += '</div>';
-      }
-      // Recent insider transactions
-      if (step4.recentSales && step4.recentSales.length > 0) {
-        html += '<div style="margin-top:10px"><div class="step-metric-label">All Recent Sales (30d)</div>';
-        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
-        step4.recentSales.slice(0, 10).forEach(function (s) {
-          html += '<tr><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
-        });
-        html += '</tbody></table></div>';
-      }
-      if (step4.recentBuys && step4.recentBuys.length > 0) {
-        html += '<div style="margin-top:10px"><div class="step-metric-label">All Recent Buys (30d)</div>';
-        html += '<table class="insider-table"><thead><tr><th>Name</th><th>Title</th><th>Shares</th><th>Value</th><th>Date</th></tr></thead><tbody>';
-        step4.recentBuys.slice(0, 10).forEach(function (s) {
-          html += '<tr class="insider-buy"><td>' + (s.name || '--') + '</td><td>' + (s.title || '--') + '</td><td>' + (s.shares ? s.shares.toLocaleString() : '--') + '</td><td>' + (s.value ? formatPremium(s.value) : '--') + '</td><td>' + (s.date || '').substring(0, 10) + '</td></tr>';
-        });
-        html += '</tbody></table></div>';
+      if (!step4.latestRevenue && !step4.revenueGrowthQoQ) {
+        html += '<div style="color:#475569;font-size:12px;margin-top:10px;font-style:italic">Financial data not yet available for this company.</div>';
       }
       html += '</div>';
 
@@ -461,8 +442,8 @@
 
     function verdictClass(v) {
       if (!v) return 'mixed';
-      if (v === 'BULLISH' || v === 'CLEAN' || v.indexOf('BUYING') >= 0) return 'BULLISH';
-      if (v === 'BEARISH' || v.indexOf('RED') >= 0 || v.indexOf('SELLING') >= 0) return 'BEARISH';
+      if (v === 'BULLISH' || v === 'CLEAN' || v.indexOf('BUYING') >= 0 || v.indexOf('BULLISH') >= 0 || v.indexOf('STRONG') >= 0) return 'BULLISH';
+      if (v === 'BEARISH' || v.indexOf('RED') >= 0 || v.indexOf('SELLING') >= 0 || v.indexOf('BEARISH') >= 0 || v.indexOf('WEAK') >= 0) return 'BEARISH';
       return 'NEUTRAL';
     }
 

@@ -194,7 +194,7 @@
       html += met('Avg Surprise', avf.avgSurprise ? avf.avgSurprise + '%' : '--');
       html += '</div>';
       // Table
-      html += '<table class="data-table"><thead><tr><th>Date</th><th>EPS Est</th><th>EPS Act</th><th>Surprise</th><th>Rev Est</th><th>Rev Act</th><th>Rev Surprise</th></tr></thead><tbody>';
+      html += '<table class="data-table"><thead><tr><th>Date</th><th>EPS Est</th><th>EPS Act</th><th>Surprise</th><th>Rev Est</th><th>Rev Act</th><th>Rev Surprise</th><th>1d Move</th></tr></thead><tbody>';
       for (var qi = 0; qi < avf.quarters.length; qi++) {
         var qq = avf.quarters[qi];
         html += '<tr><td>' + (qq.date || '--') + '</td>';
@@ -204,6 +204,7 @@
         html += '<td>' + fmtRev(qq.revenueEstimate) + '</td>';
         html += '<td>' + fmtRev(qq.revenueActual) + '</td>';
         html += '<td class="' + (qq.revSurprisePct > 0 ? 'beat' : qq.revSurprisePct < 0 ? 'miss' : '') + '">' + (qq.revSurprisePct !== undefined ? qq.revSurprisePct + '%' : '--') + '</td>';
+        html += '<td class="' + (qq.postMove1d > 0 ? 'beat' : qq.postMove1d < 0 ? 'miss' : '') + '">' + (qq.postMove1d !== null && qq.postMove1d !== undefined ? (qq.postMove1d > 0 ? '+' : '') + qq.postMove1d + '%' : '--') + '</td>';
         html += '</tr>';
       }
       html += '</tbody></table></div>';
@@ -230,10 +231,10 @@
     // Dark Pool
     if (oi.darkPoolLevels && oi.darkPoolLevels.length > 0) {
       html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">Dark Pool Levels</h4>';
-      html += '<table class="data-table"><thead><tr><th>Price</th><th>Volume</th><th>Date</th></tr></thead><tbody>';
+      html += '<table class="data-table"><thead><tr><th>Price</th><th>Size</th><th>Premium</th><th>Date</th></tr></thead><tbody>';
       for (var di = 0; di < oi.darkPoolLevels.length; di++) {
         var dp = oi.darkPoolLevels[di];
-        html += '<tr><td>$' + dp.price.toFixed(2) + '</td><td>' + fmtNum(dp.volume) + '</td><td>' + (dp.date || '--') + '</td></tr>';
+        html += '<tr><td>$' + dp.price.toFixed(2) + '</td><td>' + fmtNum(dp.size || dp.volume) + '</td><td>' + fmtRev(dp.premium) + '</td><td>' + (dp.date || '--') + '</td></tr>';
       }
       html += '</tbody></table>';
     }
@@ -267,18 +268,19 @@
       if (vp.narrative) html += '<div class="section-narrative">' + vp.narrative + '</div>';
       html += '<div class="metrics-grid">';
       html += met('IV Rank', s1.ivRank ? s1.ivRank.toFixed(0) + '%' : '--');
-      html += met('IV Percentile', s1.ivPercentile ? s1.ivPercentile.toFixed(0) + '%' : '--');
+      html += met('Current IV', s1.currentIV ? (s1.currentIV * 100).toFixed(1) + '%' : (vp.iv30 ? (vp.iv30 * 100).toFixed(1) + '%' : '--'));
       html += met('IV 30-Day', vp.iv30 ? (vp.iv30 * 100).toFixed(1) + '%' : '--');
-      html += met('IV 60-Day', vp.iv60 ? (vp.iv60 * 100).toFixed(1) + '%' : '--');
+      html += met('IV High (1Y)', vp.ivHigh ? (vp.ivHigh * 100).toFixed(1) + '%' : '--');
+      html += met('IV Low (1Y)', vp.ivLow ? (vp.ivLow * 100).toFixed(1) + '%' : '--');
       html += met('HV 30-Day', vp.hvol30 ? (vp.hvol30 * 100).toFixed(1) + '%' : '--');
       html += met('Realized Vol', vp.realizedVol ? (vp.realizedVol * 100).toFixed(1) + '%' : '--');
       html += met('Implied Move', s1.impliedMove ? s1.impliedMove.toFixed(1) + '%' : '--');
       html += '</div>';
       if (vp.termStructure && vp.termStructure.length > 0) {
         html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">IV Term Structure</h4>';
-        html += '<table class="data-table"><thead><tr><th>Expiry</th><th>IV</th></tr></thead><tbody>';
+        html += '<table class="data-table"><thead><tr><th>Expiry</th><th>DTE</th><th>IV</th><th>Impl Move</th></tr></thead><tbody>';
         for (var ti = 0; ti < vp.termStructure.length; ti++) {
-          html += '<tr><td>' + vp.termStructure[ti].expiry + '</td><td>' + (vp.termStructure[ti].iv * 100).toFixed(1) + '%</td></tr>';
+          html += '<tr><td>' + vp.termStructure[ti].expiry + '</td><td>' + (vp.termStructure[ti].dte || '--') + '</td><td>' + (vp.termStructure[ti].iv * 100).toFixed(1) + '%</td><td>' + (vp.termStructure[ti].impliedMove ? (vp.termStructure[ti].impliedMove * 100).toFixed(1) + '%' : '--') + '</td></tr>';
         }
         html += '</tbody></table>';
       }
@@ -311,11 +313,11 @@
       }
       if (sm.topInstitutions && sm.topInstitutions.length > 0) {
         html += '<h4 style="font-size:12px;color:#818cf8;margin:14px 0 8px;text-transform:uppercase;">Top Institutional Holders</h4>';
-        html += '<table class="data-table"><thead><tr><th>Institution</th><th>Shares</th><th>Change</th></tr></thead><tbody>';
+        html += '<table class="data-table"><thead><tr><th>Institution</th><th>Shares</th><th>Change</th><th>Value</th><th>Filed</th></tr></thead><tbody>';
         for (var ji = 0; ji < sm.topInstitutions.length; ji++) {
           var inst = sm.topInstitutions[ji];
           html += '<tr><td>' + inst.name + '</td><td>' + fmtNum(inst.shares) + '</td>';
-          html += '<td class="' + (inst.changeShares > 0 ? 'beat' : inst.changeShares < 0 ? 'miss' : '') + '">' + (inst.changeShares > 0 ? '+' : '') + fmtNum(inst.changeShares) + '</td></tr>';
+          html += '<td class="' + (inst.changeShares > 0 ? 'beat' : inst.changeShares < 0 ? 'miss' : '') + '">' + (inst.changeShares > 0 ? '+' : '') + fmtNum(inst.changeShares) + '</td><td>' + fmtRev(inst.value) + '</td><td style="font-size:11px;">' + (inst.filingDate || '--') + '</td></tr>';
         }
         html += '</tbody></table>';
       }
@@ -377,6 +379,758 @@
         html += '</div>';
       }
       html += '</div></div>';
+    }
+
+    // ── ANALYST RATINGS ──
+    var ar = d.analystRatings || {};
+    if (ar.ratings && ar.ratings.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">📊 Analyst Ratings & Price Targets</span>';
+      if (ar.avgPriceTarget) html += '<span class="section-badge badge-blue">Avg Target 
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
+    }
+
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
+    }
+
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
+    }
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
+</body>
+</html>
+ + ar.avgPriceTarget + '</span>';
+      html += '</div>';
+      if (ar.narrative) html += '<div class="section-narrative">' + ar.narrative + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Buy Ratings', ar.buyCount || 0, 'up');
+      html += met('Hold Ratings', ar.holdCount || 0, 'neutral');
+      html += met('Sell Ratings', ar.sellCount || 0, ar.sellCount > 0 ? 'down' : '');
+      html += met('Avg Target', ar.avgPriceTarget ? '
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
+    }
+
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
+    }
+
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
+    }
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
+</body>
+</html>
+ + ar.avgPriceTarget : '--');
+      html += met('High Target', ar.highTarget ? '
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
+    }
+
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
+    }
+
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
+    }
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
+</body>
+</html>
+ + ar.highTarget : '--', 'up');
+      html += met('Low Target', ar.lowTarget ? '
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
+    }
+
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
+    }
+
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
+    }
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
+</body>
+</html>
+ + ar.lowTarget : '--', 'down');
+      if (d.step2_chartHistory && d.step2_chartHistory.currentPrice && ar.avgPriceTarget) {
+        var upsidePct = ((ar.avgPriceTarget - d.step2_chartHistory.currentPrice) / d.step2_chartHistory.currentPrice * 100).toFixed(1);
+        html += met('Upside/Downside', (upsidePct > 0 ? '+' : '') + upsidePct + '%', upsidePct > 0 ? 'up' : 'down');
+      }
+      html += '</div>';
+      html += '<table class="data-table"><thead><tr><th>Date</th><th>Firm</th><th>Analyst</th><th>Action</th><th>Rating</th><th>Target</th></tr></thead><tbody>';
+      for (var ari = 0; ari < ar.ratings.length; ari++) {
+        var rat = ar.ratings[ari];
+        var recCls = (rat.recommendation || '').toLowerCase();
+        var rColor = recCls.match(/buy|overweight|strong/) ? 'beat' : recCls.match(/sell|underweight|underperform/) ? 'miss' : '';
+        html += '<tr><td>' + (rat.date || '--') + '</td><td>' + rat.firm + '</td><td>' + rat.analyst + '</td>';
+        html += '<td>' + rat.action + '</td><td class="' + rColor + '">' + rat.recommendation + '</td>';
+        html += '<td>' + (rat.priceTarget ? '
+    if (p.breakdown) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🎯 Prediction Breakdown</span><span class="section-badge ' + (dir === 'BEAT' ? 'badge-green' : dir === 'MISS' ? 'badge-red' : 'badge-amber') + '">Score: ' + (p.totalScore || 0) + '</span></div>';
+      html += '<div class="breakdown-grid">';
+      var bk = p.breakdown;
+      var keys = ['step1','step2','step3','step4'];
+      for (var bi = 0; bi < keys.length; bi++) {
+        var b = bk[keys[bi]];
+        if (!b) continue;
+        var sc = b.score || 0;
+        var col = sc > 0 ? '#34d399' : sc < 0 ? '#ef4444' : '#f59e0b';
+        html += '<div class="breakdown-card"><div class="bc-label">' + b.label + '</div>';
+        html += '<div class="bc-score" style="color:' + col + ';">' + (sc > 0 ? '+' : '') + sc.toFixed(1) + '</div>';
+        html += '<div class="bc-verdict" style="color:' + col + ';">' + b.verdict + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ── COMPANY OVERVIEW ──
+    if (c.description) {
+      html += '<div class="section">';
+      html += '<div class="section-header"><span class="section-title">🏢 Company Overview</span></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">';
+      html += '<div style="font-size:13px;color:#94a3b8;line-height:1.7;">' + (c.description || '').substring(0,500) + (c.description && c.description.length > 500 ? '...' : '') + '</div>';
+      html += '<div class="metrics-grid">';
+      html += met('Sector', c.sector || '--');
+      html += met('Market Cap', c.marketCapFormatted || '--');
+      html += met('Exchange', c.exchange || '--');
+      html += met('Historical Beat Rate', d.historicalBeatRate ? d.historicalBeatRate + '%' : '--');
+      html += '</div></div></div>';
+    }
+
+    html += '</div>'; // report-body
+    document.getElementById('reportContent').innerHTML = html;
+
+    // Draw price chart
+    if (ts.priceData && ts.priceData.length > 0) drawPriceChart(ts);
+  }
+
+  // ── HELPERS ──
+  function met(label, value, cls) {
+    return '<div class="metric"><div class="metric-label">' + label + '</div><div class="metric-value ' + (cls || '') + '">' + (value !== null && value !== undefined ? value : '--') + '</div></div>';
+  }
+  function verdictBadge(v) {
+    if (!v || v === 'NO DATA') return '';
+    var cls = 'badge-amber';
+    var vl = (v || '').toLowerCase();
+    if (vl.match(/bullish|strong|beat|clean|buy|positive|room/)) cls = 'badge-green';
+    else if (vl.match(/bearish|weak|miss|sell|negative|priced/)) cls = 'badge-red';
+    return '<span class="section-badge ' + cls + '">' + v + '</span>';
+  }
+  function fmtN(v) { return v !== null && v !== undefined ? v : '--'; }
+  function fmtRev(v) {
+    if (v === null || v === undefined) return '--';
+    var abs = Math.abs(v);
+    if (abs >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+    if (abs >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+    if (abs >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+    if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString();
+  }
+
+  // ── Price Chart (Canvas) ──
+  function drawPriceChart(ts) {
+    var canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth;
+    var h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    var data = ts.priceData;
+    var closes = data.map(function(d) { return d.c; });
+    var min = Math.min.apply(null, closes) * 0.995;
+    var max = Math.max.apply(null, closes) * 1.005;
+    var range = max - min || 1;
+    var padL = 60, padR = 20, padT = 20, padB = 30;
+    var cw = w - padL - padR;
+    var ch = h - padT - padB;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(51,65,85,0.3)';
+    ctx.lineWidth = 0.5;
+    for (var gi = 0; gi <= 4; gi++) {
+      var gy = padT + (ch / 4) * gi;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+      ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+      ctx.fillText('$' + (max - (range / 4) * gi).toFixed(0), 4, gy + 4);
+    }
+
+    // Price line
+    ctx.beginPath();
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 1.5;
+    for (var pi = 0; pi < closes.length; pi++) {
+      var x = padL + (pi / (closes.length - 1)) * cw;
+      var y = padT + ((max - closes[pi]) / range) * ch;
+      pi === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill gradient
+    ctx.lineTo(padL + cw, padT + ch);
+    ctx.lineTo(padL, padT + ch);
+    ctx.closePath();
+    var grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+    grad.addColorStop(0, 'rgba(52,211,153,0.15)');
+    grad.addColorStop(1, 'rgba(52,211,153,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // EMA lines
+    if (ts.ema20) drawHLine(ctx, ts.ema20, min, max, padT, ch, padL, cw, '#f59e0b', 'EMA20');
+    if (ts.ema50) drawHLine(ctx, ts.ema50, min, max, padT, ch, padL, cw, '#818cf8', 'EMA50');
+    if (ts.sma200) drawHLine(ctx, ts.sma200, min, max, padT, ch, padL, cw, '#ef4444', 'SMA200');
+
+    // Date labels
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Inter';
+    for (var dl = 0; dl < data.length; dl += Math.floor(data.length / 6)) {
+      var dx = padL + (dl / (data.length - 1)) * cw;
+      ctx.fillText(data[dl].d.substring(5), dx - 12, h - 5);
+    }
+  }
+
+  function drawHLine(ctx, price, min, max, padT, ch, padL, cw, color, label) {
+    if (price < min || price > max) return;
+    var y = padT + ((max - price) / (max - min)) * ch;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '9px Inter';
+    ctx.fillText(label + ' $' + price.toFixed(0), padL + cw - 80, y - 4);
+  }
+})();
+</script>
+</body>
+</html>
+ + rat.priceTarget : '--') + '</td></tr>';
+      }
+      html += '</tbody></table></div>';
     }
 
     // ── PREDICTION BREAKDOWN ──

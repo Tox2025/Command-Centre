@@ -309,14 +309,20 @@ class EarningsCalendar {
             var now = new Date();
             for (var i = 0; i < earningsArr.length; i++) {
                 var e = earningsArr[i];
-                var d = new Date(e.date || e.earnings_date || e.report_date || '');
+                var d = new Date(e.report_date || e.date || '');
                 var entry = {
-                    date: e.date || e.earnings_date || e.report_date || '',
-                    epsEstimate: parseFloat(e.eps_estimate || e.consensus || e.eps_consensus || 0) || null,
-                    epsActual: parseFloat(e.eps_actual || e.eps || e.reported_eps || 0) || null,
+                    date: e.report_date || e.date || '',
+                    epsEstimate: parseFloat(e.street_mean_est || e.eps_estimate || e.consensus || 0) || null,
+                    epsActual: parseFloat(e.actual_eps || e.eps_actual || 0) || null,
                     revenueEstimate: parseFloat(e.revenue_estimate || e.rev_consensus || 0) || null,
                     revenueActual: parseFloat(e.revenue_actual || e.revenue || 0) || null,
-                    time: e.time || e.when || 'unknown'
+                    time: e.report_time || e.time || 'unknown',
+                    expectedMove: parseFloat(e.expected_move || 0) || null,
+                    expectedMovePct: parseFloat(e.expected_move_perc || 0) || null,
+                    postMove1d: e.post_earnings_move_1d ? +(parseFloat(e.post_earnings_move_1d) * 100).toFixed(2) : null,
+                    postMove1w: e.post_earnings_move_1w ? +(parseFloat(e.post_earnings_move_1w) * 100).toFixed(2) : null,
+                    preMove1w: e.pre_earnings_move_1w ? +(parseFloat(e.pre_earnings_move_1w) * 100).toFixed(2) : null,
+                    source: e.source || ''
                 };
                 if (entry.epsEstimate && entry.epsActual) {
                     entry.epsSurprise = +(entry.epsActual - entry.epsEstimate).toFixed(4);
@@ -327,7 +333,7 @@ class EarningsCalendar {
                 if (d > now && !report.earningsDate) {
                     report.earningsDate = entry;
                 }
-                if (d <= now) {
+                if (d <= now && e.source !== 'estimation') {
                     report.earningsHistory.push(entry);
                 }
             }
@@ -474,7 +480,8 @@ class EarningsCalendar {
             var maxPainData = await this.uw.getMaxPain(ticker).catch(function() { return null; });
             var mpArr = this._extractEarningsArray(maxPainData);
             if (mpArr && mpArr.length > 0) {
-                oi.maxPain = parseFloat(mpArr[0].price || mpArr[0].max_pain || mpArr[0].value || 0);
+                oi.maxPain = parseFloat(mpArr[0].max_pain || mpArr[0].price || 0);
+                oi.maxPainExpiry = mpArr[0].expiry || '';
                 if (report.step2_chartHistory && report.step2_chartHistory.currentPrice && oi.maxPain > 0) {
                     oi.maxPainDiff = +((report.step2_chartHistory.currentPrice - oi.maxPain) / oi.maxPain * 100).toFixed(1);
                 }
@@ -495,7 +502,10 @@ class EarningsCalendar {
                 var ratio = (report.step1_optionsFlow.callPremium / Math.max(1, report.step1_optionsFlow.putPremium)).toFixed(1);
                 optParts.push('with call premium outpacing puts ' + ratio + ':1');
             }
-            if (oi.netPremium) optParts.push(this._fmtRev(Math.abs(oi.netPremium)) + ' in net ' + (oi.netPremium > 0 ? 'call' : 'put') + ' buying');
+            if (oi.aggregateNetCallPremium || oi.aggregateNetPutPremium) {
+                var netFlow = (oi.aggregateNetCallPremium || 0) + (oi.aggregateNetPutPremium || 0);
+                optParts.push(this._fmtRev(Math.abs(netFlow)) + ' in aggregate net ' + (netFlow > 0 ? 'call' : 'put') + ' flow');
+            }
             if (oi.maxPain) optParts.push('Max pain at $' + oi.maxPain.toFixed(2));
             oi.narrative = optParts.length > 0 ? optParts.join('. ') + '.' : '';
             report.optionsIntelligence = oi;
@@ -645,64 +655,94 @@ class EarningsCalendar {
             }
             // Narrative
             var volParts = [];
-            if (report.step1_optionsFlow.ivRank) volParts.push('IV Rank at ' + report.step1_optionsFlow.ivRank.toFixed(0) + '% indicates ' + (report.step1_optionsFlow.ivRank > 50 ? 'elevated' : 'low') + ' premium');
+            if (report.step1_optionsFlow.ivRank) volParts.push('IV Rank at ' + report.step1_optionsFlow.ivRank.toFixed(0) + '% indicates ' + (report.step1_optionsFlow.ivRank > 50 ? 'elevated' : 'low') + ' premium relative to the past year');
             if (report.volatilityProfile.iv30 && report.volatilityProfile.hvol30) {
                 var ivPrem = ((report.volatilityProfile.iv30 - report.volatilityProfile.hvol30) / report.volatilityProfile.hvol30 * 100).toFixed(0);
                 volParts.push('IV30 of ' + (report.volatilityProfile.iv30 * 100).toFixed(0) + '% vs ' + (report.volatilityProfile.hvol30 * 100).toFixed(0) + '% realized (' + ivPrem + '% premium)');
             }
+            if (report.volatilityProfile.ivHigh && report.volatilityProfile.ivLow) volParts.push('1Y IV range: ' + (report.volatilityProfile.ivLow * 100).toFixed(0) + '%-' + (report.volatilityProfile.ivHigh * 100).toFixed(0) + '%');
             report.volatilityProfile.narrative = volParts.join('. ') + (volParts.length > 0 ? '.' : '');
         } catch (e) { console.error('EarningsReport: Volatility profile error:', e.message); }
 
         // ── SMART MONEY ──────────────────────────────────────
         try {
             var smResults = await Promise.allSettled([
-                this.uw.getInsiderByTicker(ticker),
-                this.uw.getShortInterest(ticker),
-                this.uw.getShortVolume(ticker),
-                this.uw.getInstitutionOwnership(ticker)
+                this.uw._fetch('/insider/' + ticker + '/transactions'),
+                this.uw._fetch('/shorts/' + ticker + '/interest-float'),
+                this.uw._fetch('/shorts/' + ticker + '/volume-and-ratio'),
+                this.uw._fetch('/institution/' + ticker + '/ownership')
             ]);
             var sm = {};
-            // Insiders
-            var insiders = smResults[0].status === 'fulfilled' ? this._extractEarningsArray(smResults[0].value) : [];
+            // Insiders (from /insider/:ticker/transactions)
+            var insRaw = smResults[0].status === 'fulfilled' ? smResults[0].value : null;
+            var insiders = this._extractEarningsArray(insRaw);
             if (insiders.length > 0) {
                 sm.insiderTransactions = insiders.slice(0, 10).map(function(ins) {
+                    var isBuy = (ins.acquisition_or_disposition || '').toUpperCase() === 'A' || (ins.transaction_code || '').toUpperCase() === 'P';
                     return {
-                        date: ins.filing_date || ins.date || '', name: ins.full_name || ins.name || '',
-                        title: ins.title || '', type: ins.acquisition_or_disposition || ins.transaction_type || '',
-                        shares: parseInt(ins.shares || ins.transaction_shares || 0),
-                        value: parseFloat(ins.value || ins.total_value || 0),
-                        isBuy: (ins.acquisition_or_disposition || '').toUpperCase() === 'A'
+                        date: ins.filing_date || ins.period_of_report || ins.date || '',
+                        name: ins.full_name || ins.reporting_name || ins.name || '',
+                        title: ins.title || ins.officer_title || '',
+                        type: ins.acquisition_or_disposition === 'A' ? 'Purchase' : ins.acquisition_or_disposition === 'D' ? 'Sale' : (ins.transaction_type || ''),
+                        shares: parseInt(ins.shares || ins.transaction_shares || ins.number_of_shares || 0),
+                        value: parseFloat(ins.total_value || ins.value || ins.price_per_share || 0) * (parseInt(ins.shares || ins.transaction_shares || 0) || 1),
+                        pricePerShare: parseFloat(ins.price_per_share || 0),
+                        isBuy: isBuy
                     };
                 });
                 sm.insiderBuys = sm.insiderTransactions.filter(function(t) { return t.isBuy; }).length;
                 sm.insiderSells = sm.insiderTransactions.filter(function(t) { return !t.isBuy; }).length;
             }
-            // Short Interest
-            var shorts = smResults[1].status === 'fulfilled' ? this._extractEarningsArray(smResults[1].value) : [];
+            // Short Interest (percent_returned, days_to_cover_returned, si_float_returned)
+            var shortsRaw = smResults[1].status === 'fulfilled' ? smResults[1].value : null;
+            var shorts = this._extractEarningsArray(shortsRaw);
             if (shorts.length > 0) {
                 var sh = shorts[0];
-                sm.shortInterestPct = parseFloat(sh.short_interest || sh.si_pct_float || sh.percent_float || 0);
-                sm.daysToCover = parseFloat(sh.days_to_cover || sh.dtc || 0);
-                sm.shortInterestShares = parseInt(sh.short_interest_shares || sh.shares_short || 0);
+                sm.shortInterestPct = parseFloat(sh.percent_returned || sh.short_interest || 0);
+                sm.daysToCover = parseFloat(sh.days_to_cover_returned || sh.days_to_cover || 0);
+                sm.shortInterestShares = parseInt(sh.si_float_returned || sh.short_interest_shares || 0);
+                sm.totalFloat = parseInt(sh.total_float_returned || 0);
+                sm.shortInterestDate = sh.market_date || '';
             }
-            // Short Volume
-            var shortVol = smResults[2].status === 'fulfilled' ? this._extractEarningsArray(smResults[2].value) : [];
-            if (shortVol.length > 0) {
-                sm.shortVolumeRatio = parseFloat(shortVol[0].short_volume_ratio || shortVol[0].ratio || 0);
+            // Short Volume (wrapped in .si array)
+            var shortVolRaw = smResults[2].status === 'fulfilled' ? smResults[2].value : null;
+            var shortVolData = shortVolRaw && shortVolRaw.si ? shortVolRaw.si : (shortVolRaw && shortVolRaw.data && shortVolRaw.data.si ? shortVolRaw.data.si : this._extractEarningsArray(shortVolRaw));
+            if (Array.isArray(shortVolData) && shortVolData.length > 0) {
+                sm.shortVolumeRatio = parseFloat(shortVolData[0].short_volume_ratio || 0);
+                sm.shortVolume = parseInt(shortVolData[0].short_volume || 0);
+                sm.totalVolume = parseInt(shortVolData[0].total_volume || 0);
+                sm.shortVolumeDate = shortVolData[0].market_date || '';
+                var last5sv = shortVolData.slice(0, 5);
+                sm.avg5dShortVolumeRatio = +(last5sv.reduce(function(s,d) { return s + parseFloat(d.short_volume_ratio || 0); }, 0) / last5sv.length).toFixed(4);
             }
-            // Institutions
-            var instit = smResults[3].status === 'fulfilled' ? this._extractEarningsArray(smResults[3].value) : [];
+            // Institutions (units, units_changed, value, filing_date)
+            var instRaw = smResults[3].status === 'fulfilled' ? smResults[3].value : null;
+            var instit = this._extractEarningsArray(instRaw);
             if (instit.length > 0) {
-                sm.topInstitutions = instit.slice(0, 5).map(function(inst) {
-                    return { name: inst.name || inst.institution_name || '', shares: parseInt(inst.shares || inst.position || 0), changeShares: parseInt(inst.change_in_shares || inst.shares_change || 0) };
+                sm.topInstitutions = instit.slice(0, 8).map(function(inst) {
+                    return {
+                        name: inst.short_name || inst.name || '',
+                        shares: parseInt(inst.units || inst.shares || 0),
+                        changeShares: parseInt(inst.units_changed || inst.change_in_shares || 0),
+                        value: parseFloat(inst.value || 0),
+                        avgPrice: parseFloat(inst.avg_price || 0),
+                        filingDate: inst.filing_date || '',
+                        reportDate: inst.report_date || ''
+                    };
                 });
-                sm.institutionalOwnershipPct = parseFloat(instit[0].total_pct || instit[0].institution_pct || 0);
+                if (instit[0].shares_outstanding) {
+                    var totalInstShares = instit.reduce(function(s, i) { return s + parseInt(i.units || 0); }, 0);
+                    sm.institutionalOwnershipPct = +(totalInstShares / parseInt(instit[0].shares_outstanding) * 100).toFixed(1);
+                }
             }
             // Narrative
             var smParts = [];
             if (sm.insiderBuys > 0 || sm.insiderSells > 0) smParts.push(sm.insiderBuys + ' insider buy(s) and ' + sm.insiderSells + ' sell(s) recently');
             if (sm.shortInterestPct) smParts.push('Short interest at ' + sm.shortInterestPct.toFixed(1) + '% of float');
-            if (sm.daysToCover) smParts.push(sm.daysToCover.toFixed(1) + ' days to cover');
+            if (sm.daysToCover && sm.daysToCover > 0) smParts.push(sm.daysToCover.toFixed(1) + ' days to cover');
+            if (sm.shortVolumeRatio) smParts.push('Short vol ratio: ' + (sm.shortVolumeRatio * 100).toFixed(1) + '%');
+            if (sm.institutionalOwnershipPct) smParts.push('Institutional ownership ~' + sm.institutionalOwnershipPct + '%');
+            if (sm.topInstitutions && sm.topInstitutions.length > 0) smParts.push('Top holder: ' + sm.topInstitutions[0].name + ' (' + (sm.topInstitutions[0].shares / 1e6).toFixed(0) + 'M shares)');
             sm.narrative = smParts.join('. ') + (smParts.length > 0 ? '.' : '');
             report.smartMoney = sm;
         } catch (e) { console.error('EarningsReport: Smart money error:', e.message); }
@@ -713,21 +753,55 @@ class EarningsCalendar {
             var seasArr = this._extractEarningsArray(seasData);
             if (seasArr && seasArr.length > 0) {
                 report.seasonality.monthlyReturns = seasArr.map(function(s) {
-                    return { month: s.month || '', avgReturn: parseFloat(s.avg_return || s.mean_return || 0), winRate: parseFloat(s.win_rate || s.pct_positive || 0) };
+                    var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    return { month: monthNames[(parseInt(s.month) || 1) - 1] || s.month, monthNum: parseInt(s.month) || 0, avgReturn: parseFloat(s.avg_change || s.avg_return || 0), medianReturn: parseFloat(s.median_change || 0), maxReturn: parseFloat(s.max_change || 0), minReturn: parseFloat(s.min_change || 0), winRate: parseFloat(s.positive_months_perc || s.win_rate || 0), posCloses: parseInt(s.positive_closes || 0), years: parseInt(s.years || 0) };
                 });
-                var currentMonth = new Date().toLocaleString('en-US', { month: 'long' });
-                var thisMonthSeas = seasArr.find(function(s) { return (s.month || '').toLowerCase() === currentMonth.toLowerCase(); });
+                var currentMonthNum = new Date().getMonth() + 1;
+                var thisMonthSeas = seasArr.find(function(s) { return parseInt(s.month) === currentMonthNum; });
                 if (thisMonthSeas) {
-                    report.seasonality.currentMonth = currentMonth;
-                    report.seasonality.currentMonthReturn = parseFloat(thisMonthSeas.avg_return || thisMonthSeas.mean_return || 0);
-                    report.seasonality.currentMonthWinRate = parseFloat(thisMonthSeas.win_rate || thisMonthSeas.pct_positive || 0);
-                    report.seasonality.narrative = ticker + ' has posted positive returns in ' + currentMonth + ' ' + (report.seasonality.currentMonthWinRate * 100).toFixed(0) + '% of the time with an average return of ' + (report.seasonality.currentMonthReturn * 100).toFixed(1) + '%.';
+                    var fullMonthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                    report.seasonality.currentMonth = fullMonthNames[currentMonthNum - 1];
+                    report.seasonality.currentMonthReturn = parseFloat(thisMonthSeas.avg_change || thisMonthSeas.avg_return || 0);
+                    report.seasonality.currentMonthWinRate = parseFloat(thisMonthSeas.positive_months_perc || thisMonthSeas.win_rate || 0);
+                    report.seasonality.narrative = ticker + ' has posted positive returns in ' + fullMonthNames[currentMonthNum - 1] + ' ' + (report.seasonality.currentMonthWinRate * 100).toFixed(0) + '% of the time (over ' + (thisMonthSeas.years || '--') + ' years) with an average return of ' + (report.seasonality.currentMonthReturn * 100).toFixed(1) + '%.';
                 }
             }
         } catch (e) { console.error('EarningsReport: Seasonality error:', e.message); }
 
 
-        var step3Score = 0;
+        
+        // ── ANALYST RATINGS ──────────────────────────────────
+        try {
+            var analystData = await this.uw._fetch('/screener/analysts', { ticker: ticker }).catch(function() { return null; });
+            var analystArr = this._extractEarningsArray(analystData);
+            if (analystArr && analystArr.length > 0) {
+                report.analystRatings = {
+                    ratings: analystArr.slice(0, 10).map(function(a) {
+                        return { date: a.timestamp ? a.timestamp.substring(0, 10) : '', firm: a.firm || '', analyst: a.analyst_name || '', action: a.action || '', recommendation: a.recommendation || '', priceTarget: parseFloat(a.target || 0) || null };
+                    }),
+                    totalRatings: analystArr.length,
+                    buyCount: analystArr.filter(function(a) { var r = (a.recommendation || '').toLowerCase(); return r === 'buy' || r === 'overweight' || r === 'strong buy'; }).length,
+                    holdCount: analystArr.filter(function(a) { var r = (a.recommendation || '').toLowerCase(); return r === 'hold' || r === 'neutral' || r === 'equal-weight'; }).length,
+                    sellCount: analystArr.filter(function(a) { var r = (a.recommendation || '').toLowerCase(); return r === 'sell' || r === 'underweight' || r === 'underperform'; }).length,
+                };
+                var targets = analystArr.filter(function(a) { return a.target && parseFloat(a.target) > 0; }).map(function(a) { return parseFloat(a.target); });
+                if (targets.length > 0) {
+                    report.analystRatings.avgPriceTarget = +(targets.reduce(function(s, t) { return s + t; }, 0) / targets.length).toFixed(2);
+                    report.analystRatings.highTarget = Math.max.apply(null, targets);
+                    report.analystRatings.lowTarget = Math.min.apply(null, targets);
+                }
+                var anParts = [];
+                anParts.push(report.analystRatings.buyCount + ' buy, ' + report.analystRatings.holdCount + ' hold, ' + report.analystRatings.sellCount + ' sell ratings');
+                if (report.analystRatings.avgPriceTarget) anParts.push('Avg target $' + report.analystRatings.avgPriceTarget + ' (range $' + report.analystRatings.lowTarget + '-$' + report.analystRatings.highTarget + ')');
+                if (report.step2_chartHistory && report.step2_chartHistory.currentPrice && report.analystRatings.avgPriceTarget) {
+                    var upsidePct = ((report.analystRatings.avgPriceTarget - report.step2_chartHistory.currentPrice) / report.step2_chartHistory.currentPrice * 100).toFixed(1);
+                    anParts.push(upsidePct > 0 ? upsidePct + '% upside to avg target' : Math.abs(upsidePct) + '% downside to avg target');
+                }
+                report.analystRatings.narrative = anParts.join('. ') + '.';
+            }
+        } catch (e) { console.error('EarningsReport: Analyst ratings error:', e.message); }
+
+var step3Score = 0;
         try {
             // Use Polygon news to extract recent analyst mentions and sentiment
             if (this.polygon) {

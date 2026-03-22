@@ -730,6 +730,8 @@ class EarningsCalendar {
             var shortsRaw = smResults[1].status === 'fulfilled' ? smResults[1].value : null;
             var shorts = this._extractEarningsArray(shortsRaw);
             if (shorts.length > 0) {
+                // Sort by market_date descending to get most recent first
+                shorts.sort(function(a, b) { return (b.market_date || '').localeCompare(a.market_date || ''); });
                 var sh = shorts[0];
                 sm.shortInterestPct = parseFloat(sh.percent_returned || sh.short_interest || 0);
                 sm.daysToCover = parseFloat(sh.days_to_cover_returned || sh.days_to_cover || 0);
@@ -741,6 +743,8 @@ class EarningsCalendar {
             var shortVolRaw = smResults[2].status === 'fulfilled' ? smResults[2].value : null;
             var shortVolData = shortVolRaw && shortVolRaw.si ? shortVolRaw.si : (shortVolRaw && shortVolRaw.data && shortVolRaw.data.si ? shortVolRaw.data.si : this._extractEarningsArray(shortVolRaw));
             if (Array.isArray(shortVolData) && shortVolData.length > 0) {
+                // Sort by market_date descending to get most recent first
+                shortVolData.sort(function(a, b) { return (b.market_date || '').localeCompare(a.market_date || ''); });
                 sm.shortVolumeRatio = parseFloat(shortVolData[0].short_volume_ratio || 0);
                 sm.shortVolume = parseInt(shortVolData[0].short_volume || 0);
                 sm.totalVolume = parseInt(shortVolData[0].total_volume || 0);

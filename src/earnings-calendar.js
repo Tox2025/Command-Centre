@@ -374,10 +374,10 @@ class EarningsCalendar {
             var ivData = await this.uw.getIVRank(ticker);
             var ivArr = this._extractEarningsArray(ivData);
             if (ivArr && ivArr.length > 0) {
-                var latest = ivArr[0];
-                report.step1_optionsFlow.ivRank = parseFloat(latest.iv_rank || latest.ivRank || 0);
-                report.step1_optionsFlow.ivPercentile = parseFloat(latest.iv_percentile || latest.ivPercentile || 0);
-                report.step1_optionsFlow.impliedMove = parseFloat(latest.implied_move || latest.expected_move || 0);
+                var latestIV = ivArr[ivArr.length - 1] || ivArr[0];
+                report.step1_optionsFlow.ivRank = parseFloat(latestIV.iv_rank_1y || latestIV.iv_rank || 0);
+                report.step1_optionsFlow.currentIV = parseFloat(latestIV.volatility || latestIV.iv || 0);
+                report.step1_optionsFlow.impliedMove = parseFloat(latestIV.implied_move || latestIV.expected_move || 0);
             }
         } catch (e) { console.error('EarningsReport: Step1 IV rank error for ' + ticker + ':', e.message); }
 
@@ -459,22 +459,41 @@ class EarningsCalendar {
         // ── OPTIONS INTELLIGENCE (enhanced) ───────────────────
         try {
             var oi = {};
-            // Net Premium
+            // Net Premium Ticks (net_call_premium, net_put_premium, net_delta)
             var netPremData = await this.uw.getNetPremium(ticker).catch(function() { return null; });
             var npArr = this._extractEarningsArray(netPremData);
             if (npArr && npArr.length > 0) {
-                var lastNP = npArr[npArr.length - 1] || npArr[0];
-                oi.netPremium = parseFloat(lastNP.net_premium || lastNP.value || 0);
-                oi.netPremiumBias = oi.netPremium > 0 ? 'BULLISH' : oi.netPremium < 0 ? 'BEARISH' : 'NEUTRAL';
+                var lastNP = npArr[npArr.length - 1];
+                oi.netCallPremium = parseFloat(lastNP.net_call_premium || 0);
+                oi.netPutPremium = parseFloat(lastNP.net_put_premium || 0);
+                oi.netPremium = oi.netCallPremium + oi.netPutPremium;
+                oi.netDelta = parseFloat(lastNP.net_delta || 0);
+                oi.netPremiumBias = oi.netCallPremium > Math.abs(oi.netPutPremium) ? 'BULLISH' : 'BEARISH';
+                var totalNetCall = 0, totalNetPut = 0;
+                for (var npi = Math.max(0, npArr.length - 30); npi < npArr.length; npi++) {
+                    totalNetCall += parseFloat(npArr[npi].net_call_premium || 0);
+                    totalNetPut += parseFloat(npArr[npi].net_put_premium || 0);
+                }
+                oi.aggregateNetCallPremium = totalNetCall;
+                oi.aggregateNetPutPremium = totalNetPut;
             }
-            // OI Change
+            // OI Change (oi_diff_plain, curr_oi, option_symbol)
             var oiChangeData = await this.uw.getOIChange(ticker).catch(function() { return null; });
             var oiArr = this._extractEarningsArray(oiChangeData);
             if (oiArr && oiArr.length > 0) {
-                var lastOI = oiArr[0];
-                oi.callOIChange = parseFloat(lastOI.call_oi_change || lastOI.calls_change || 0);
-                oi.putOIChange = parseFloat(lastOI.put_oi_change || lastOI.puts_change || 0);
-                oi.totalOI = parseFloat(lastOI.total_oi || lastOI.open_interest || 0);
+                var callOIDiff = 0, putOIDiff = 0, callOICurr = 0, putOICurr = 0;
+                for (var oii = 0; oii < Math.min(oiArr.length, 20); oii++) {
+                    var oiItem = oiArr[oii];
+                    var optSym = oiItem.option_symbol || '';
+                    var oiDiff = parseInt(oiItem.oi_diff_plain || 0);
+                    var oiCurr = parseInt(oiItem.curr_oi || 0);
+                    if (optSym.includes('C0')) { callOIDiff += oiDiff; callOICurr += oiCurr; }
+                    else if (optSym.includes('P0')) { putOIDiff += oiDiff; putOICurr += oiCurr; }
+                }
+                oi.callOIChange = callOIDiff;
+                oi.putOIChange = putOIDiff;
+                oi.totalCallOI = callOICurr;
+                oi.totalPutOI = putOICurr;
             }
             // Max Pain
             var maxPainData = await this.uw.getMaxPain(ticker).catch(function() { return null; });
@@ -486,14 +505,22 @@ class EarningsCalendar {
                     oi.maxPainDiff = +((report.step2_chartHistory.currentPrice - oi.maxPain) / oi.maxPain * 100).toFixed(1);
                 }
             }
-            // Dark Pool
+            // Dark Pool (executed_at, size, premium, nbbo)
             var dpData = await this.uw.getDarkPoolLevels(ticker).catch(function() { return null; });
             var dpArr = this._extractEarningsArray(dpData);
             if (dpArr && dpArr.length > 0) {
-                oi.darkPoolLevels = dpArr.slice(0, 5).map(function(d) {
-                    return { price: parseFloat(d.price || d.level || 0), volume: parseFloat(d.volume || d.shares || 0), date: d.date || '' };
+                oi.darkPoolLevels = dpArr.slice(0, 8).map(function(d) {
+                    return {
+                        price: parseFloat(d.price || 0),
+                        size: parseInt(d.size || 0),
+                        premium: parseFloat(d.premium || 0),
+                        date: d.executed_at ? d.executed_at.substring(0, 19).replace('T', ' ') : '',
+                        nbboBid: parseFloat(d.nbbo_bid || 0),
+                        nbboAsk: parseFloat(d.nbbo_ask || 0),
+                        volume: parseInt(d.volume || 0)
+                    };
                 });
-                oi.darkPoolVolume = dpArr.reduce(function(s,d) { return s + parseFloat(d.volume || d.shares || 0); }, 0);
+                oi.darkPoolTotalSize = dpArr.slice(0, 50).reduce(function(s, d) { return s + parseInt(d.size || 0); }, 0);
             }
             // AI narrative for options
             var optParts = [];
@@ -636,21 +663,27 @@ class EarningsCalendar {
                 this.uw.getRealizedVol(ticker),
                 this.uw.getTermStructure(ticker)
             ]);
-            var volStats = volResults[0].status === 'fulfilled' ? this._extractEarningsArray(volResults[0].value) : [];
+            // volStats wraps in {data: {iv, rv, iv_rank, iv_high, iv_low}}
+            var volStatsRaw = volResults[0].status === 'fulfilled' ? volResults[0].value : null;
+            var vsData = volStatsRaw && volStatsRaw.data ? volStatsRaw.data : (typeof volStatsRaw === 'object' && !Array.isArray(volStatsRaw) ? volStatsRaw : null);
+            if (vsData) {
+                report.volatilityProfile.iv30 = parseFloat(vsData.iv || 0) || null;
+                report.volatilityProfile.ivHigh = parseFloat(vsData.iv_high || 0) || null;
+                report.volatilityProfile.ivLow = parseFloat(vsData.iv_low || 0) || null;
+                report.volatilityProfile.hvol30 = parseFloat(vsData.rv || 0) || null;
+                report.volatilityProfile.rvHigh = parseFloat(vsData.rv_high || 0) || null;
+                report.volatilityProfile.rvLow = parseFloat(vsData.rv_low || 0) || null;
+                report.volatilityProfile.ivRank = parseFloat(vsData.iv_rank || 0) || null;
+            }
             var realVol = volResults[1].status === 'fulfilled' ? this._extractEarningsArray(volResults[1].value) : [];
-            var termStruct = volResults[2].status === 'fulfilled' ? this._extractEarningsArray(volResults[2].value) : [];
-            if (volStats.length > 0) {
-                var vs = volStats[0];
-                report.volatilityProfile.iv30 = parseFloat(vs.iv_30 || vs.implied_volatility_30d || 0) || null;
-                report.volatilityProfile.iv60 = parseFloat(vs.iv_60 || vs.implied_volatility_60d || 0) || null;
-                report.volatilityProfile.hvol30 = parseFloat(vs.hv_30 || vs.historical_volatility_30d || 0) || null;
-            }
             if (realVol.length > 0) {
-                report.volatilityProfile.realizedVol = parseFloat(realVol[0].realized_vol || realVol[0].value || 0) || null;
+                report.volatilityProfile.realizedVol = parseFloat(realVol[0].realized_vol || realVol[0].rv || 0) || null;
             }
+            // Term structure: volatility field, dte, implied_move_perc
+            var termStruct = volResults[2].status === 'fulfilled' ? this._extractEarningsArray(volResults[2].value) : [];
             if (termStruct.length > 0) {
-                report.volatilityProfile.termStructure = termStruct.slice(0, 6).map(function(t) {
-                    return { expiry: t.expiry || t.date || '', iv: parseFloat(t.iv || t.implied_volatility || 0) };
+                report.volatilityProfile.termStructure = termStruct.slice(0, 8).map(function(t) {
+                    return { expiry: t.expiry || t.date || '', iv: parseFloat(t.volatility || t.iv || 0), dte: parseInt(t.dte || 0), impliedMove: parseFloat(t.implied_move_perc || 0) };
                 });
             }
             // Narrative

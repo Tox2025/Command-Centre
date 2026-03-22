@@ -700,10 +700,10 @@ class EarningsCalendar {
         // ── SMART MONEY ──────────────────────────────────────
         try {
             var smResults = await Promise.allSettled([
-                this.uw._fetch('/insider/' + ticker + '/transactions'),
-                this.uw._fetch('/shorts/' + ticker + '/interest-float'),
-                this.uw._fetch('/shorts/' + ticker + '/volume-and-ratio'),
-                this.uw._fetch('/institution/' + ticker + '/ownership')
+                this.uw.getInsiderByTicker(ticker).catch(function() { return null; }),
+                this.uw.getShortInterest(ticker).catch(function() { return null; }),
+                this.uw.getShortVolume(ticker).catch(function() { return null; }),
+                this.uw.getInstitutionOwnership(ticker).catch(function() { return null; })
             ]);
             var sm = {};
             // Insiders (from /insider/:ticker/transactions)
@@ -805,7 +805,7 @@ class EarningsCalendar {
         
         // ── ANALYST RATINGS ──────────────────────────────────
         try {
-            var analystData = await this.uw._fetch('/screener/analysts', { ticker: ticker }).catch(function() { return null; });
+            var analystData = await this.uw.getAnalystRatings(ticker).catch(function() { return null; });
             var analystArr = this._extractEarningsArray(analystData);
             if (analystArr && analystArr.length > 0) {
                 report.analystRatings = {

@@ -701,7 +701,7 @@ class EarningsCalendar {
         try {
             var smResults = await Promise.allSettled([
                 this.uw.getInsiderByTicker(ticker).catch(function() { return null; }),
-                this.uw.getShortInterest(ticker).catch(function() { return null; }),
+                this.uw.getShortInterestV2(ticker).catch(function() { return null; }),
                 this.uw.getShortVolume(ticker).catch(function() { return null; }),
                 this.uw.getInstitutionOwnership(ticker).catch(function() { return null; })
             ]);
@@ -726,17 +726,19 @@ class EarningsCalendar {
                 sm.insiderBuys = sm.insiderTransactions.filter(function(t) { return t.isBuy; }).length;
                 sm.insiderSells = sm.insiderTransactions.filter(function(t) { return !t.isBuy; }).length;
             }
-            // Short Interest (percent_returned, days_to_cover_returned, si_float_returned)
+            // Short Interest V2 (si_float, short_interest, days_to_cover, fee_rate)
             var shortsRaw = smResults[1].status === 'fulfilled' ? smResults[1].value : null;
             var shorts = this._extractEarningsArray(shortsRaw);
             if (shorts.length > 0) {
-                // Sort by market_date descending to get most recent first
                 shorts.sort(function(a, b) { return (b.market_date || '').localeCompare(a.market_date || ''); });
                 var sh = shorts[0];
-                sm.shortInterestPct = parseFloat(sh.percent_returned || sh.short_interest || 0);
-                sm.daysToCover = parseFloat(sh.days_to_cover_returned || sh.days_to_cover || 0);
-                sm.shortInterestShares = parseInt(sh.si_float_returned || sh.short_interest_shares || 0);
-                sm.totalFloat = parseInt(sh.total_float_returned || 0);
+                sm.shortInterestPct = parseFloat(sh.si_float || 0) * 100;
+                sm.daysToCover = parseFloat(sh.days_to_cover || 0);
+                sm.shortInterestShares = parseInt(sh.short_interest || 0);
+                sm.totalFloat = parseInt(sh.total_float || 0);
+                sm.feeRate = parseFloat(sh.fee_rate || 0);
+                sm.rebateRate = parseFloat(sh.rebate_rate || 0);
+                sm.shortSharesAvailable = parseInt(sh.short_shares_available || 0);
                 sm.shortInterestDate = sh.market_date || '';
             }
             // Short Volume (wrapped in .si array)

@@ -27,7 +27,7 @@ const DATA_TIERS = {
         COLD: ['getShortInterest', 'getStockState', 'getInsiderByTicker', 'getEarnings']
     },
     market: {
-        HOT: ['getMarketTide', 'getFlowAlerts', 'getDarkPoolRecent', 'getNewsHeadlines', 'getMarketSpike', 'getTopNetImpact'],
+        HOT: ['getMarketTide', 'getFlowAlerts', 'getDarkPoolRecent', 'getNewsHeadlines', 'getTopNetImpact'],
         WARM: ['getTotalOptionsVolume', 'getMarketOIChange', 'getInsiderBuySells'],
         COLD: ['getCongressTrades', 'getCongressTrader', 'getCongressLateReports', 'getInsiderTransactions', 'getEarningsPremarket', 'getEarningsAfterhours']
     }

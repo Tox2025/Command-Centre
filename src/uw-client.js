@@ -230,9 +230,10 @@ class UWClient {
     return this._fetch('/market/spike');
   }
 
-  async getMarketCorrelations(tickers) {
+  async getMarketCorrelations(tickers, endDate) {
     var params = {};
     if (tickers && tickers.length > 0) params.tickers = tickers.join(',');
+    if (endDate) params.end_date = endDate;
     return this._fetch('/market/correlations', params);
   }
 

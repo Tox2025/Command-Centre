@@ -3754,9 +3754,8 @@ async function fetchMarketData(tier) {
         if (news?.data) state.news = Array.isArray(news.data) ? news.data.slice(0, 25) : [];
         callCount++;
 
-        const spike = await uw.getMarketSpike();
-        if (spike?.data) state.marketSpike = spike.data;
-        callCount++;
+        // getMarketSpike removed — endpoint returns 404 (not in UW API)
+        // spike data was never populated
 
         const tni = await uw.getTopNetImpact();
         if (tni?.data) state.topNetImpact = Array.isArray(tni.data) ? tni.data.slice(0, 20) : [];
@@ -3990,7 +3989,10 @@ async function fetchMarketData(tier) {
 
             // Tier 2: Market Correlations (cross-asset hedging) — COLD
             try {
-                const mc = await uw.getMarketCorrelations(state.tickers);
+                // Pass yesterday's date as end_date to avoid UW 422 'future date' error
+                var corrYesterday = new Date(); corrYesterday.setDate(corrYesterday.getDate() - 1);
+                var corrEndDate = corrYesterday.toISOString().slice(0, 10);
+                const mc = await uw.getMarketCorrelations(state.tickers, corrEndDate);
                 if (mc?.data) state.marketCorrelations = mc.data;
                 callCount++;
             } catch (e) { /* optional */ }
@@ -4011,8 +4013,7 @@ async function fetchMarketData(tier) {
     console.log('📊 Feed health: tide=' + (state.marketTide ? '✅' : '❌') +
         ' flow=' + (state.optionsFlow?.length || 0) +
         ' sectors=' + Object.keys(state.sectorTide || {}).length + '/7' +
-        ' etfFlows=' + Object.keys(state.etfFlows || {}).length + '/7' +
-        ' spike=' + (state.marketSpike ? '✅' : '❌'));
+        ' etfFlows=' + Object.keys(state.etfFlows || {}).length + '/7');
 
     return callCount;
 }

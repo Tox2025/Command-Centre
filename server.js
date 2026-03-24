@@ -1178,6 +1178,12 @@ app.post('/api/chat', async (req, res) => {
         var ticker = req.body.ticker || null;
         if (!userMsg) return res.status(400).json({ error: 'Message required' });
 
+        // Keep connection alive during long Gemini response (~20s)
+        req.setTimeout(120000);
+        res.setTimeout(120000);
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Keep-Alive', 'timeout=120');
+
         // Backend ticker detection fallback (handles lowercase, e.g. "when are nvda earnings")
         if (!ticker) {
             var upperMsg = userMsg.toUpperCase();
@@ -2216,6 +2222,11 @@ const server = app.listen(PORT, () => {
         console.log('🐋 UW WebSocket: connecting for lit/off-lit trades');
     }
 });
+
+// Increase server timeouts for long-running requests (Gemini chat takes ~20s)
+server.keepAliveTimeout = 120000;   // 2 min — prevents dropping browser connections
+server.headersTimeout = 125000;     // Must be > keepAliveTimeout
+server.requestTimeout = 300000;     // 5 min max request time
 
 const wss = new WebSocketServer({ server });
 const clients = new Set();

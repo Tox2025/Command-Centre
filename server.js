@@ -4019,13 +4019,13 @@ async function fetchMarketData(tier) {
 }
 
 async function refreshAll() {
-    // Weekend gate — market is closed Sat/Sun (before Sunday 8PM)
-    if (!scheduler.isMarketDay()) {
+    // Weekend gate — UW data paused but Polygon keeps running
+    var isMarketDay = scheduler.isMarketDay();
+    if (!isMarketDay) {
         if (!refreshAll._lastWeekendLog || Date.now() - refreshAll._lastWeekendLog > 3600000) {
-            console.log('📅 Weekend/non-market day — UW data paused (ML grinding in background)');
+            console.log('📅 Weekend — UW data paused, Polygon + ML still running');
             refreshAll._lastWeekendLog = Date.now();
         }
-        return;
     }
 
     // ML training — moved to fast Polygon loop (polygonTick)
@@ -4038,20 +4038,19 @@ async function refreshAll() {
         scheduler.lastResetDate = todayDate;
     }
 
-    // UW blackout — no UW calls from 11 PM to 7:30 AM EST
-    if (!scheduler.isUWActive()) {
+    // UW blackout flag — no UW calls from 11 PM to 7:30 AM EST
+    var uwActive = scheduler.isUWActive() && isMarketDay;
+    if (!uwActive) {
         if (!refreshAll._lastBlackoutLog || Date.now() - refreshAll._lastBlackoutLog > 3600000) {
-            console.log('🌙 UW blackout (11PM-7:30AM EST) — Polygon + ML running, UW paused');
+            console.log('🌙 UW paused — Polygon + ML running 24/7');
             refreshAll._lastBlackoutLog = Date.now();
         }
-        return;
     }
 
     // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
     // Runs BEFORE budget check — uses Polygon only, no UW calls
     try {
-        var activeForPolyScan = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR', 'EARLY_PRE'].includes(state.session);
-        if (activeForPolyScan) {
+        // Polygon scanner runs 24/7 — no session gate (no API budget cost)
             var gainers = await polygonClient.getGainers().catch(function () { return []; });
             var losers = await polygonClient.getLosers().catch(function () { return []; });
             var polyMovers = (gainers || []).concat(losers || []);
@@ -4135,8 +4134,13 @@ async function refreshAll() {
                     } catch (msErr) { /* optional */ }
                 }
             }
-        }
     } catch (e) { console.error('Polygon mover scanner error:', e.message); }
+
+    // Gate UW-specific API calls — skip if blackout/weekend but let Polygon continue
+    if (!uwActive) {
+        state.lastUpdate = new Date().toISOString();
+        return;
+    }
 
     // Check API budget before UW fetching
     if (!scheduler.isWithinBudget()) {
@@ -4763,8 +4767,8 @@ async function fetchTradingHalts() {
         // ── Halt Resume Auto-Ingestion ──────────────────────────
         // When any ticker resumes from halt (especially LULD/volatility),
         // auto-score it and alert — these often move 20%+ post-resume
-        // ONLY during market hours — no alerts after hours
-        var activeForHalts = ['OPEN_RUSH', 'POWER_OPEN', 'PRE_MARKET', 'MIDDAY', 'POWER_HOUR'].includes(state.session);
+        // Halt scoring runs whenever trades are active (pre-market through after-hours)
+        var activeForHalts = true; // Was gated to market hours only — now 24/7 with Polygon
         var resumedTickers = halts.filter(function (h) {
             return h.status === 'RESUMED' && !prevResumed.includes(h.ticker);
         });

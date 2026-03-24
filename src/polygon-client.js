@@ -91,11 +91,11 @@ class PolygonTickClient {
                             } else if (msg.status === 'auth_failed') {
                                 console.error('❌ Polygon auth failed:', msg.message);
                             }
-                        } else if (msg.ev === 'T') {
+                        } else if (msg.ev === 'T' || msg.ev === 'XT') {
                             self._handleTrade(msg);
                         } else if (msg.ev === 'AM') {
                             self._handleMinuteBar(msg);
-                        } else if (msg.ev === 'A') {
+                        } else if (msg.ev === 'A' || msg.ev === 'XA') {
                             self._handleSecondBar(msg);
                         }
                     });
@@ -120,14 +120,16 @@ class PolygonTickClient {
     _subscribeTickers() {
         if (!this.ws || !this.connected || this.subscribedTickers.length === 0) return;
 
-        // Subscribe to Trades, Minute Aggregates, and Second Aggregates
+        // Subscribe to Trades (T + XT for extended hours), Minute Aggregates, and Second Aggregates (A + XA)
         var tradeSubs = this.subscribedTickers.map(function (t) { return 'T.' + t; }).join(',');
+        var extTradeSubs = this.subscribedTickers.map(function (t) { return 'XT.' + t; }).join(',');
         var minuteSubs = this.subscribedTickers.map(function (t) { return 'AM.' + t; }).join(',');
         var secondSubs = this.subscribedTickers.map(function (t) { return 'A.' + t; }).join(',');
+        var extSecondSubs = this.subscribedTickers.map(function (t) { return 'XA.' + t; }).join(',');
 
-        this.ws.send(JSON.stringify({ action: 'subscribe', params: tradeSubs + ',' + minuteSubs + ',' + secondSubs }));
+        this.ws.send(JSON.stringify({ action: 'subscribe', params: tradeSubs + ',' + extTradeSubs + ',' + minuteSubs + ',' + secondSubs + ',' + extSecondSubs }));
 
-        console.log('📊 Polygon subscribed: ' + this.subscribedTickers.length + ' tickers (trades + AM + A)');
+        console.log('📊 Polygon subscribed: ' + this.subscribedTickers.length + ' tickers (T + XT + AM + A + XA)');
 
         // Initialize tickers
         var self = this;
@@ -278,13 +280,13 @@ class PolygonTickClient {
 
         var removed = this.subscribedTickers.filter(function (t) { return newSet.indexOf(t) === -1; });
         if (removed.length > 0) {
-            var unsub = removed.map(function (t) { return 'T.' + t + ',AM.' + t + ',A.' + t; }).join(',');
+            var unsub = removed.map(function (t) { return 'T.' + t + ',XT.' + t + ',AM.' + t + ',A.' + t + ',XA.' + t; }).join(',');
             this.ws.send(JSON.stringify({ action: 'unsubscribe', params: unsub }));
         }
 
         var added = newSet.filter(function (t) { return self.subscribedTickers.indexOf(t) === -1; });
         if (added.length > 0) {
-            var sub = added.map(function (t) { return 'T.' + t + ',AM.' + t + ',A.' + t; }).join(',');
+            var sub = added.map(function (t) { return 'T.' + t + ',XT.' + t + ',AM.' + t + ',A.' + t + ',XA.' + t; }).join(',');
             this.ws.send(JSON.stringify({ action: 'subscribe', params: sub }));
             added.forEach(function (t) { self._initTicker(t); });
         }

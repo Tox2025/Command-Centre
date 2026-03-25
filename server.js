@@ -2239,13 +2239,43 @@ app.get('/api/options-recommend/:ticker', async (req, res) => {
 // ── AI Chatbot Endpoint ──────────────────────────────────
 // (Dead /api/chat duplicate removed — first handler at line 789 is active)
 
-const server = app.listen(PORT, () => {
-    console.log(`\n🚀 Trading Dashboard running at http://localhost:${PORT}`);
-    console.log(`📡 Watching: ${TICKERS.join(', ')}`);
-    console.log(`🕐 Session: ${AlertEngine.sessionLabel(AlertEngine.getCurrentSession())}`);
-    console.log(`\n💡 TradingView Webhook URL: http://localhost:${PORT}/webhook/tradingview`);
-    console.log('');
+// ── Server Creation (HTTPS on 443 or HTTP) ──────────────
+const fs = require('fs');
+const https = require('https');
+let server;
+if (process.env.HTTPS_ENABLED === 'true') {
+    try {
+        const certDir = path.join(__dirname, 'certs');
+        const httpsOptions = {
+            key: fs.readFileSync(path.join(certDir, 'key.pem')),
+            cert: fs.readFileSync(path.join(certDir, 'cert.pem'))
+        };
+        server = https.createServer(httpsOptions, app);
+        server.listen(PORT, () => {
+            console.log(`\n🔒 Trading Dashboard running at https://localhost:${PORT}`);
+            console.log(`📡 Watching: ${TICKERS.join(', ')}`);
+            console.log(`🕐 Session: ${AlertEngine.sessionLabel(AlertEngine.getCurrentSession())}`);
+            console.log(`\n💡 TradingView Webhook URL: https://localhost:${PORT}/webhook/tradingview`);
+            console.log('');
+        });
+    } catch (e) {
+        console.error('⚠️ HTTPS cert load failed, falling back to HTTP:', e.message);
+        server = app.listen(PORT, () => {
+            console.log(`\n🚀 Trading Dashboard running at http://localhost:${PORT} (HTTP fallback)`);
+        });
+    }
+} else {
+    server = app.listen(PORT, () => {
+        console.log(`\n🚀 Trading Dashboard running at http://localhost:${PORT}`);
+        console.log(`📡 Watching: ${TICKERS.join(', ')}`);
+        console.log(`🕐 Session: ${AlertEngine.sessionLabel(AlertEngine.getCurrentSession())}`);
+        console.log(`\n💡 TradingView Webhook URL: http://localhost:${PORT}/webhook/tradingview`);
+        console.log('');
+    });
+}
 
+// Shared startup logic after server is listening
+function onServerReady() {
     // Connect Polygon.io real-time tick data
     if (process.env.POLYGON_API_KEY) {
         polygonClient.connect(TICKERS);
@@ -2259,7 +2289,9 @@ const server = app.listen(PORT, () => {
         uwWS.connect(TICKERS);
         console.log('🐋 UW WebSocket: connecting for lit/off-lit trades');
     }
-});
+}
+// Delay slightly to ensure server is ready
+setTimeout(onServerReady, 2000);
 
 // Increase server timeouts for long-running requests (Gemini chat takes ~20s)
 server.keepAliveTimeout = 120000;   // 2 min — prevents dropping browser connections

@@ -248,10 +248,21 @@ const state = {
 // WHITELIST approach: only pick fields the dashboard client needs
 // Prevents OOM by never touching heavy server-only data
 function getSerializableState() {
+    // Filter quotes to watchlist + active discoveries only (prevents 800+ mover quotes bloating WS)
+    var dashboardQuotes = {};
+    var relevantTickers = new Set(state.tickers || []);
+    // Include scanner results and active discoveries
+    (state.scannerResults || []).forEach(function (s) { if (s.ticker) relevantTickers.add(s.ticker); });
+    Object.keys(state.volatilityRunners || {}).forEach(function (t) { relevantTickers.add(t); });
+    Object.keys(state.hotOpportunities || {}).forEach(function (t) { relevantTickers.add(t); });
+    relevantTickers.forEach(function (t) {
+        if (state.quotes[t]) dashboardQuotes[t] = state.quotes[t];
+    });
+
     var safe = {
         // Core
         tickers: state.tickers,
-        quotes: state.quotes,
+        quotes: dashboardQuotes,
         session: state.session,
         lastUpdate: state.lastUpdate,
         lastBroadcast: state.lastBroadcast,
@@ -347,6 +358,31 @@ function trimStateArrays() {
     if (Array.isArray(state.insiderTransactions) && state.insiderTransactions.length > 200) state.insiderTransactions = state.insiderTransactions.slice(-200);
     if (Array.isArray(state.xAlerts) && state.xAlerts.length > 100) state.xAlerts = state.xAlerts.slice(-100);
     if (Array.isArray(state.halts) && state.halts.length > 100) state.halts = state.halts.slice(-100);
+    // Cap discovered movers to prevent unbounded growth from 24/7 scanning
+    if (state.polygonMovers && Object.keys(state.polygonMovers).length > 50) {
+        var moverKeys = Object.keys(state.polygonMovers).sort(function (a, b) {
+            return (state.polygonMovers[b].discoveredAt || '') > (state.polygonMovers[a].discoveredAt || '') ? 1 : -1;
+        });
+        var keep = {};
+        moverKeys.slice(0, 50).forEach(function (k) { keep[k] = state.polygonMovers[k]; });
+        state.polygonMovers = keep;
+    }
+    if (state.volatilityRunners && Object.keys(state.volatilityRunners).length > 50) {
+        var runnerKeys = Object.keys(state.volatilityRunners).sort(function (a, b) {
+            return (state.volatilityRunners[b].discoveredAt || '') > (state.volatilityRunners[a].discoveredAt || '') ? 1 : -1;
+        });
+        var keepR = {};
+        runnerKeys.slice(0, 50).forEach(function (k) { keepR[k] = state.volatilityRunners[k]; });
+        state.volatilityRunners = keepR;
+    }
+    // Also cap quotes to prevent unbounded growth (keep watchlist + last 100 discoveries)
+    var quoteKeys = Object.keys(state.quotes || {});
+    if (quoteKeys.length > 200) {
+        var watchlistSet = new Set(state.tickers || []);
+        var nonWatchlist = quoteKeys.filter(function (k) { return !watchlistSet.has(k); });
+        nonWatchlist.slice(0, nonWatchlist.length - 100).forEach(function (k) { delete state.quotes[k]; });
+        console.log('🧹 Trimmed quotes: ' + quoteKeys.length + ' → ' + Object.keys(state.quotes).length);
+    }
 }
 
 // ── Express Setup ─────────────────────────────────────────

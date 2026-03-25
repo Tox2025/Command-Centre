@@ -252,7 +252,9 @@ function getSerializableState() {
     var dashboardQuotes = {};
     var relevantTickers = new Set(state.tickers || []);
     // Include scanner results and active discoveries
-    (state.scannerResults || []).forEach(function (s) { if (s.ticker) relevantTickers.add(s.ticker); });
+    var sr = state.scannerResults || {};
+    (Array.isArray(sr) ? sr : Object.values(sr)).forEach(function (s) { if (s && s.ticker) relevantTickers.add(s.ticker); });
+    Object.keys(sr).forEach(function (t) { relevantTickers.add(t); });
     Object.keys(state.volatilityRunners || {}).forEach(function (t) { relevantTickers.add(t); });
     Object.keys(state.hotOpportunities || {}).forEach(function (t) { relevantTickers.add(t); });
     relevantTickers.forEach(function (t) {

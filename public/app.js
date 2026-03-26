@@ -3068,34 +3068,47 @@ function sendChat() {
     // Only use it if it's a known ticker
     if (ticker && !state.quotes[ticker]) ticker = null;
 
-    // 60s timeout for Gemini thinking time
-    var controller = new AbortController();
-    var timeout = setTimeout(function () { controller.abort(); }, 60000);
+    // 90s timeout for Gemini thinking time (multi-ticker requests take longer)
+    var maxRetries = 2;
+    var attempt = 0;
 
-    fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, ticker: ticker }),
-        signal: controller.signal
-    })
-        .then(function (r) { clearTimeout(timeout); return r.json(); })
-        .then(function (data) {
-            msgs.removeChild(typingDiv);
-            var botDiv = document.createElement('div');
-            botDiv.className = 'chat-msg bot';
-            botDiv.innerHTML = (data.reply || data.error || 'No response').replace(/\n/g, '<br>');
-            msgs.appendChild(botDiv);
-            msgs.scrollTop = msgs.scrollHeight;
+    function tryFetch() {
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 90000);
+        attempt++;
+
+        fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg, ticker: ticker }),
+            signal: controller.signal
         })
-        .catch(function (e) {
-            clearTimeout(timeout);
-            msgs.removeChild(typingDiv);
-            var errDiv = document.createElement('div');
-            errDiv.className = 'chat-msg bot';
-            var errMsg = e.name === 'AbortError' ? 'Request timed out. Try a simpler question.'
-                : 'Error: ' + e.message + '. Try again in a moment.';
-            errDiv.textContent = errMsg;
-            msgs.appendChild(errDiv);
-            msgs.scrollTop = msgs.scrollHeight;
-        });
+            .then(function (r) { clearTimeout(timeout); return r.json(); })
+            .then(function (data) {
+                msgs.removeChild(typingDiv);
+                var botDiv = document.createElement('div');
+                botDiv.className = 'chat-msg bot';
+                botDiv.innerHTML = (data.reply || data.error || 'No response').replace(/\n/g, '<br>');
+                msgs.appendChild(botDiv);
+                msgs.scrollTop = msgs.scrollHeight;
+            })
+            .catch(function (e) {
+                clearTimeout(timeout);
+                if (e.name !== 'AbortError' && attempt <= maxRetries) {
+                    // Retry on network errors
+                    typingDiv.textContent = '🔄 Connection hiccup — retrying (' + attempt + '/' + maxRetries + ')...';
+                    setTimeout(tryFetch, 1000);
+                    return;
+                }
+                msgs.removeChild(typingDiv);
+                var errDiv = document.createElement('div');
+                errDiv.className = 'chat-msg bot';
+                var errMsg = e.name === 'AbortError' ? 'Request timed out. Try a simpler question.'
+                    : 'Error: ' + e.message + '. Try again in a moment.';
+                errDiv.textContent = errMsg;
+                msgs.appendChild(errDiv);
+                msgs.scrollTop = msgs.scrollHeight;
+            });
+    }
+    tryFetch();
 }

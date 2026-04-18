@@ -14,7 +14,8 @@ class SetupDetector {
      * Returns array of { setup, direction, strength, detail }
      */
     detectAll(ta, quote, flow, regime) {
-        if (!ta || !ta.rsi) return [];
+        if (!ta || typeof ta !== 'object') return [];
+
         const setups = [];
         const q = quote || {};
         const bb = ta.bollingerBands || {};
@@ -22,15 +23,15 @@ class SetupDetector {
         const adx = ta.adx || {};
         const ema = ta.ema || {};
 
-        // Derived values
-        const price = ta.price || q.price || 0;
-        const hasVolSpike = ta.volumeSpike || false;
-        const rsi = ta.rsi || 50;
-        const bbPos = bb.position != null ? bb.position : 0.5;
-        const bbBW = bb.bandwidth || 5;
-        const hist = macd.histogram || 0;
+        // Derived values with safe fallbacks
+        const price = ta.price || q.price || q.last || 0;
+        const hasVolSpike = !!ta.volumeSpike;
+        const rsi = typeof ta.rsi === 'number' ? ta.rsi : 50;
+        const bbPos = (bb && bb.position != null) ? bb.position : 0.5;
+        const bbBW = (bb && bb.bandwidth != null) ? bb.bandwidth : 5;
+        const hist = (macd && macd.histogram != null) ? macd.histogram : 0;
         const macdSlope = ta.macdSlope || 0;
-        const adxVal = adx.adx || 0;
+        const adxVal = (adx && adx.adx != null) ? adx.adx : 0;
         const emaBias = ta.emaBias || 'NEUTRAL';
 
         // Flow data (real options data when available)
@@ -108,9 +109,9 @@ class SetupDetector {
 
         // TECHNICAL_CONFLUENCE_LONG — 65%+ estimated (replicated from options logic)
         if (adxVal > 25 && emaBias === 'BULLISH' && macdSlope > 0) {
-            const rsiDiv = ta.rsiDivergence || [];
-            const hasBullDiv = rsiDiv.some(d => d.direction === 'BULL' && d.strength > 0.5);
-            const mtf = (ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
+            const rsiDiv = (ta && ta.rsiDivergence) || [];
+            const hasBullDiv = Array.isArray(rsiDiv) && rsiDiv.some(d => d && d.direction === 'BULL' && d.strength > 0.5);
+            const mtf = (ta && ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
 
             if (hasBullDiv || mtf) {
                 setups.push({
@@ -123,9 +124,9 @@ class SetupDetector {
 
         // TECHNICAL_CONFLUENCE_SHORT — 65%+ estimated
         if (adxVal > 25 && emaBias === 'BEARISH' && macdSlope < 0) {
-            const rsiDiv = ta.rsiDivergence || [];
-            const hasBearDiv = rsiDiv.some(d => d.direction === 'BEAR' && d.strength > 0.5);
-            const mtf = (ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
+            const rsiDiv = (ta && ta.rsiDivergence) || [];
+            const hasBearDiv = Array.isArray(rsiDiv) && rsiDiv.some(d => d && d.direction === 'BEAR' && d.strength > 0.5);
+            const mtf = (ta && ta.multiTF && ta.multiTF.confluence && ta.multiTF.confluence.score > 0.8);
 
             if (hasBearDiv || mtf) {
                 setups.push({

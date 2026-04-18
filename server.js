@@ -91,7 +91,10 @@ const mlTrainingScheduler = new MLTrainingScheduler(process.env.POLYGON_API_KEY 
 })();
 
 // Bootstrap ML from Polygon 15-year historical data (runs in background)
+var isBootstrapping = false;
 function _bootstrapML() {
+    if (isBootstrapping) return;
+    isBootstrapping = true;
     setTimeout(async function () {
         try {
             var histTrainer = new PolygonHistorical(process.env.POLYGON_API_KEY || '');
@@ -106,6 +109,7 @@ function _bootstrapML() {
             var result = await histTrainer.generateAndConvert(tickers, 15);
             if (!result || result.mlSamples < 30) {
                 console.log('🧠 ML Bootstrap: Insufficient data (' + (result ? result.mlSamples : 0) + ' samples)');
+                isBootstrapping = false;
                 return;
             }
 
@@ -128,6 +132,8 @@ function _bootstrapML() {
             console.log('   Data persisted → next restart will load instantly');
         } catch (e) {
             console.error('🧠 ML Bootstrap error:', e.message);
+        } finally {
+            isBootstrapping = false;
         }
     }, 10000); // Wait 10s for server to fully initialize
 }
@@ -4126,7 +4132,25 @@ async function refreshAll() {
             console.log('🌙 UW paused — Polygon + ML running 24/7');
             refreshAll._lastBlackoutLog = Date.now();
         }
+
+        // --- ML Training Scheduler Hookup ---
+        // Run background training cycle during overnight/blackout hours
+        // Processes ~3 tickers per cycle from the sector universe (S&P 500, etc.)
+        if (state.session === 'OVERNIGHT' || !uwActive) {
+            (async function() {
+                try {
+                    console.log('🧠 [Background ML] Starting training cycle...');
+                    await mlTrainingScheduler.runCycle(mlCalibrator, state.tickers);
+                    // Sync weights if training produced new calibration
+                    syncMLWeights();
+                } catch (mlErr) {
+                    console.error('🧠 [Background ML] Cycle error:', mlErr.message);
+                }
+            })();
+        }
     }
+
+    console.log('✅ [Loop Status] Stable | Memory: ' + (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(0) + 'MB');
 
     // ── Polygon Gainers/Losers Scanner (catches all market caps) ──
     // Runs BEFORE budget check — uses Polygon only, no UW calls
@@ -4689,6 +4713,9 @@ async function refreshAll() {
                     mlCalibrator.train(cumulative, 'swing');
                     var st = mlCalibrator.getStatus();
                     console.log('🧠 Nightly retrain complete: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples, ' + liveSamples.length + ' live) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
+                    
+                    // Sync updated weights to vML immediately
+                    syncMLWeights();
                 } else {
                     console.log('🧠 Nightly retrain skipped: only ' + cumulative.length + ' samples (need 30+)');
                 }
@@ -5691,7 +5718,8 @@ async function startMLBackgroundGrind() {
         }
 
         // Schedule next batch immediately (5s rest to prevent CPU pinning)
-        mlGrindTimer = setTimeout(grindCycle, 5000);
+        // Throttle back to 10 minutes (600000ms) to prevent system freeze
+        mlGrindTimer = setTimeout(grindCycle, 600000);
     }
 
     console.log('🧠 ML Autonomous Background Worker: STARTED (24/7 grind active)');
@@ -5836,10 +5864,9 @@ async function dailyLiveTraining() {
 // Run daily training check every 5 minutes during power hour
 setInterval(dailyLiveTraining, 5 * 60 * 1000);
 
-// ── Market Session Bridge: Force immediate refresh if starting during market hours ──
+// ── Market Session Bridge ──
+// Removed duplicate refreshAll() call here; the boot sequence at line 5563 already handles initialization.
+// This prevents overlapping API waves on startup.
 if (scheduler.isTradingSession()) {
-    console.log('⚡ [Session Bridge] Bot started during active market — triggering immediate refresh');
-    setTimeout(function () {
-        refreshAll();
-    }, 5000); // Small delay to let everything initialize
+    console.log('⚡ [Session Bridge] Bot active during trading hours — maintenance scheduled via scheduleNext()');
 }

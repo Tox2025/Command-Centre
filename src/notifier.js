@@ -68,6 +68,7 @@ class Notifier {
 
     // ── Morning Brief ──────────────────────────────────────
     async sendBrief(briefData, session, regime) {
+        if (!this.isMarketHours()) return; // No briefs outside market hours
         var hasDiscord = !!this.discordBriefUrl;
         var hasTelegram = !!(this.telegramToken && this.telegramChatId);
         if (!hasDiscord && !hasTelegram) return;
@@ -151,6 +152,7 @@ class Notifier {
 
     // ── Paper Trade Notification ────────────────────────────
     async sendPaperTrade(trade, action) {
+        if (!this.isMarketHours()) return; // No paper trade alerts outside market hours
         action = action || 'ENTRY';
 
         var ticker = trade.ticker || 'UNKNOWN';
@@ -288,6 +290,12 @@ class Notifier {
     // ── Telegram Bot API POST ───────────────────────────────
     async _sendTelegram(text) {
         if (!this.telegramToken || !this.telegramChatId) return;
+
+        // FAILSAFE: Block ALL Telegram messages outside market hours (Mon-Fri 8:30 AM - 5:00 PM ET)
+        if (!this.isMarketHours()) {
+            console.log('📱 Telegram BLOCKED (outside market hours):', text.substring(0, 80) + '...');
+            return;
+        }
 
         // Telegram has a 4096 character limit per message.
         // Truncate to 4000 to be safe after HTML conversion.

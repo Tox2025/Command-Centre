@@ -10,7 +10,8 @@ const MODEL_PATHS = {
     swing: path.join(DATA_DIR, 'ml-model-swing.json')
 };
 const MIN_TRAINING_SAMPLES = 30;
-const ML_RAMP_FULL = 100;
+const ML_RAMP_FULL = 300;     // Samples needed to reach full ML weight
+const ML_MAX_WEIGHT = 0.30;  // ML never exceeds 30% — technicals stay dominant
 
 const FEATURE_NAMES = [
     'RSI', 'MACD_Hist', 'EMA_Align', 'BB_Position', 'ATR',
@@ -260,7 +261,12 @@ class MLCalibrator {
             return { confidence: ruleBasedConfidence, source: 'rule_based', mlWeight: 0, timeframe: tf };
         }
 
-        var mlWeight = Math.min(0.6, (m.trainingSamples / ML_RAMP_FULL) * 0.6);
+        // ML weight ramps from 0→30% as samples grow (technicals always dominant)
+        // Cap at ML_MAX_WEIGHT so a bearish ML model can't kill good technical signals
+        var rawRamp = Math.min(ML_MAX_WEIGHT, (m.trainingSamples / ML_RAMP_FULL) * ML_MAX_WEIGHT);
+        // Further reduce ML influence when model accuracy is near-chance (≤55%)
+        var accuracyFactor = m.accuracy > 55 ? 1.0 : m.accuracy > 52 ? 0.5 : 0.25;
+        var mlWeight = +(rawRamp * accuracyFactor).toFixed(3);
         var ruleWeight = 1 - mlWeight;
         var mlConfidence = Math.round(mlPred * 100);
         var blended = Math.round(ruleWeight * ruleBasedConfidence + mlWeight * mlConfidence);

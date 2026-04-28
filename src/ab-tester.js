@@ -94,8 +94,12 @@ class ABTester {
             // We need data from ALL conditions to train ML properly
             if (!result.direction || result.direction === 'NEUTRAL') continue;
 
-            // Low confidence gate — paper trades need broad coverage, use 40% floor
-            var conf = result.blendedConfidence || result.confidence || 0;
+            // Use the HIGHER of blended or technical confidence as the gate
+            // This prevents a near-chance ML model from blocking good technical signals
+            var conf = Math.max(
+                result.blendedConfidence || 0,
+                result.technicalConfidence || result.confidence || 0
+            );
             if (conf < 40) continue;
 
             // ── Build version-specific stop/target based on THIS version's direction ──

@@ -10,8 +10,13 @@ data/options-trades.json
 data/options-paper-trades.json
 data/state-cache.json
 data/earnings-cache.json
+data/scanner-performance.json
+
+# ML models are retrained live — never track (causes git conflicts on VPS)
+data/ml-model-*.json
+data/ml-training-cumulative.json
+data/ml-training/
 
 # Keep these tracked (needed across deploys):
-data/watchlist.json
-# data/ml-model-*.json
+# data/watchlist.json
 # data/signal-versions.json

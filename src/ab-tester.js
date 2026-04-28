@@ -98,18 +98,34 @@ class ABTester {
             var conf = result.blendedConfidence || result.confidence || 0;
             if (conf < 40) continue;
 
-            // Build version-specific setup WITH features for ML training
+            // ── Build version-specific stop/target based on THIS version's direction ──
+            // Never inherit direction from v2.1 setup — each version decides independently
+            var vDir = result.direction; // BULLISH or BEARISH from this version's signal engine
+            var tradeDir = vDir === 'BULLISH' ? 'LONG' : 'SHORT';
+            var baseEntry = currentPrice;
+            var baseATR = (setup && setup.stop && setup.entry)
+                ? Math.abs(setup.entry - setup.stop) // derive ATR proxy from v2.1 setup if available
+                : 1;
+            // If v2.1 setup exists and same direction, use its stop/targets (already ATR-sized)
+            var useV21Setup = setup && setup.direction === tradeDir;
+
             var vSetup = Object.assign({}, setup, {
                 ticker: ticker,
-                direction: result.direction,
+                direction: tradeDir,
                 confidence: conf,
                 signals: result.signals || [],
                 features: result.features || [],
                 bullScore: result.bull || 0,
                 bearScore: result.bear || 0,
-                session: setup.session || 'UNKNOWN',
-                horizon: setup.horizon || 'Swing',
-                kellySizing: setup.kellySizing || null
+                session: (setup && setup.session) || 'UNKNOWN',
+                horizon: (setup && setup.horizon) || 'Swing',
+                kellySizing: (setup && setup.kellySizing) || null,
+                // Correct stops/targets for this version's direction
+                entry: baseEntry,
+                target1: useV21Setup ? setup.target1 : +(tradeDir === 'LONG' ? baseEntry + baseATR : baseEntry - baseATR).toFixed(2),
+                target2: useV21Setup ? setup.target2 : +(tradeDir === 'LONG' ? baseEntry + baseATR * 2 : baseEntry - baseATR * 2).toFixed(2),
+                stop: useV21Setup ? setup.stop : +(tradeDir === 'LONG' ? baseEntry - baseATR * 0.75 : baseEntry + baseATR * 0.75).toFixed(2),
+                riskReward: 1.33
             });
 
             // Paper trading: NO consecutive loss guard

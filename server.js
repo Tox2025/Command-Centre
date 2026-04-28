@@ -90,6 +90,39 @@ const mlTrainingScheduler = new MLTrainingScheduler(process.env.POLYGON_API_KEY 
     } catch (e) { console.error('ML auto-load error:', e.message); _bootstrapML(); }
 })();
 
+// ── Per-version ML bootstrap: train each version's model from its own closed paper trades ──
+// Runs at startup so every version has its own model from day one
+(function () {
+    setTimeout(function () {
+        try {
+            var versionGroups = {};
+            var allPaper = tradeJournal.getPaperTrades() || [];
+            allPaper.filter(function (t) {
+                return t.status && (t.status.startsWith('WIN') || t.status.startsWith('LOSS')) && t.features && t.features.length > 0;
+            }).forEach(function (t) {
+                var v = t.signalVersion || 'v2.1';
+                if (!versionGroups[v]) versionGroups[v] = [];
+                versionGroups[v].push({ features: t.features, label: t.status.startsWith('WIN') ? 1 : 0 });
+            });
+            var vKeys = Object.keys(versionGroups);
+            if (vKeys.length === 0) {
+                console.log('🧠 Per-version ML startup: no closed paper trades yet — will train as trades accumulate');
+                return;
+            }
+            console.log('🧠 Per-version ML startup: training from closed paper trades — ' + vKeys.map(function (v) { return v + '=' + versionGroups[v].length; }).join(', '));
+            vKeys.forEach(function (ver) {
+                var vData = versionGroups[ver];
+                if (vData.length >= 30) {
+                    var ok = mlCalibrator.train(vData, 'dayTrade', ver);
+                    if (ok) console.log('  ✅ ' + ver + ': trained on ' + vData.length + ' samples');
+                } else {
+                    console.log('  ⏳ ' + ver + ': ' + vData.length + '/30 samples — needs more closed trades to train');
+                }
+            });
+        } catch (e) { console.error('Per-version ML startup error:', e.message); }
+    }, 3000); // 3s after start — let journal load first
+})();
+
 // Bootstrap ML from Polygon 15-year historical data (runs in background)
 var isBootstrapping = false;
 function _bootstrapML() {
@@ -3266,6 +3299,9 @@ async function scoreTickerSignals(ticker) {
                     stop: snapped.stop,
                     riskReward: +(Math.abs(snapped.target1 - price) / Math.max(0.01, Math.abs(price - snapped.stop))).toFixed(2),
                     signals: signalResult.signals,
+                    features: signalResult.features || [],    // ← ML training vector (was missing — broke all ML learning)
+                    bullScore: signalResult.bull || 0,        // ← needed for ML feature correlation
+                    bearScore: signalResult.bear || 0,
                     session: state.session,
                     horizon: horizon,
                     atrMultiplier: atrMult,
@@ -3362,23 +3398,24 @@ async function scoreTickerSignals(ticker) {
                     var abResults = abTester.scoreAll(ticker, data, state.session);
                     abTester.logComparison(ticker, abResults);
 
-                    // Build minimal setup if v2.1 was NEUTRAL (no setup was created above)
-                    var abSetup = state.tradeSetups[ticker];
-                    if (!abSetup) {
-                        var abTA = state.technicals[ticker] || {};
-                        var abATR = abTA.atr || 1;
-                        abSetup = {
-                            ticker: ticker,
-                            direction: 'LONG', // placeholder — each version picks its own direction
-                            entry: abPrice,
-                            target1: +(abPrice + abATR).toFixed(2),
-                            target2: +(abPrice + abATR * 2).toFixed(2),
-                            stop: +(abPrice - abATR * 0.75).toFixed(2),
-                            riskReward: 1.33,
-                            session: state.session,
-                            horizon: 'Day Trade'
-                        };
-                    }
+                    // Build per-version setup templates — each version uses its OWN direction from scoring
+                    // v2.1 may be NEUTRAL but vML/v6.0/etc can still fire with the correct direction
+                    var abSetupBase = state.tradeSetups[ticker]; // Use v2.1 setup as base if available
+                    var abTA2 = state.technicals[ticker] || {};
+                    var abATR2 = abTA2.atr || 1;
+                    // Build a direction-neutral template (direction overridden per-version in createTrades)
+                    var abSetup = abSetupBase || {
+                        ticker: ticker,
+                        direction: 'LONG', // overridden per-version in abTester.createTrades
+                        entry: abPrice,
+                        // Targets built symmetrically — createTrades will override with version direction
+                        target1: +(abPrice + abATR2).toFixed(2),
+                        target2: +(abPrice + abATR2 * 2).toFixed(2),
+                        stop: +(abPrice - abATR2 * 0.75).toFixed(2),
+                        riskReward: 1.33,
+                        session: state.session,
+                        horizon: ['OPEN_RUSH','POWER_OPEN'].includes(state.session) ? 'Scalp / Day Trade' : ['MIDDAY','POWER_HOUR'].includes(state.session) ? 'Day Trade' : 'Swing (2-5d)'
+                    };
                     var abTrades = abTester.createTrades(ticker, abResults, abPrice, abSetup);
                     abTrades.forEach(function (at) {
                         console.log('📝 A/B paper trade: ' + at.signalVersion + ' ' + at.direction + ' ' + ticker + ' @ $' + abPrice.toFixed(2) + ' (' + (at.features || []).length + ' features)');
@@ -4671,9 +4708,11 @@ async function refreshAll() {
                 // Collect today's closed trades with their features + actual outcomes
                 var trades = tradeJournal.getPaperTrades() || [];
                 var today = new Date().toISOString().split('T')[0];
+                // Terminal statuses: WIN_T1, WIN_T2, WIN_EOD, LOSS_STOP, LOSS_EOD, EXPIRED
                 var todayClosed = trades.filter(function (t) {
-                    return t.status === 'CLOSED' && t.features && t.features.length > 0 &&
-                        (t.closedAt || t.exitTime || '').indexOf(today) === 0;
+                    var isTerminal = t.status && (t.status.startsWith('WIN') || t.status.startsWith('LOSS') || t.status === 'EXPIRED');
+                    return isTerminal && t.features && t.features.length > 0 &&
+                        (t.closedAt || t.closeTime || t.exitTime || '').indexOf(today) === 0;
                 });
 
                 var liveSamples = [];
@@ -4691,34 +4730,65 @@ async function refreshAll() {
                     require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
                 }
 
-                // ── Fix 3: Cross-model learning ──
-                // Pool WIN/LOSS features from ALL versions together
-                var versionSamples = {};
-                cumulative.forEach(function (d) {
-                    var ver = d._version || 'v2.1';
-                    if (!versionSamples[ver]) versionSamples[ver] = [];
-                    versionSamples[ver].push(d);
+                // ── Cross-model learning: collect ALL closed paper trades per version ──
+                // Adds live trade outcomes to the cumulative dataset for cross-version learning
+                var allClosed = (tradeJournal.getPaperTrades() || []).filter(function (t) {
+                    var isTerminal = t.status && (t.status.startsWith('WIN') || t.status.startsWith('LOSS') || t.status === 'EXPIRED');
+                    return isTerminal && t.features && t.features.length > 0;
                 });
-                var versionKeys = Object.keys(versionSamples);
-                if (versionKeys.length > 1) {
-                    // Create pooled dataset with all versions' data (cross-training)
-                    var pooled = [];
-                    versionKeys.forEach(function (k) { pooled = pooled.concat(versionSamples[k]); });
-                    console.log('🧠 Cross-model: ' + versionKeys.length + ' versions, ' + pooled.length + ' pooled samples');
+                var liveSamplesAll = allClosed.map(function (t) {
+                    return { features: t.features, label: (t.status.startsWith('WIN') ? 1 : 0), _ticker: t.ticker, _version: t.signalVersion || 'v2.1', _live: true };
+                });
+                if (liveSamplesAll.length > 0) {
+                    // Merge with cumulative, avoiding exact duplicates by checking _live markers
+                    var existingLiveCount = cumulative.filter(function (d) { return d._live; }).length;
+                    var newLive = liveSamplesAll.slice(existingLiveCount); // Only add truly new ones
+                    if (newLive.length > 0) {
+                        cumulative = cumulative.concat(newLive);
+                        if (cumulative.length > 50000) cumulative = cumulative.slice(-50000);
+                        require('fs').writeFileSync(cumulPath, JSON.stringify(cumulative));
+                        console.log('🧠 Cross-model: added ' + newLive.length + ' live trade samples (' + liveSamplesAll.length + ' total live)');
+                    }
                 }
 
+                // ── Train shared model on all pooled data ──
                 if (cumulative.length >= 30) {
                     var recent = cumulative.slice(Math.floor(cumulative.length * 0.6));
                     mlCalibrator.train(recent, 'dayTrade');
                     mlCalibrator.train(cumulative, 'swing');
                     var st = mlCalibrator.getStatus();
-                    console.log('🧠 Nightly retrain complete: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ' samples, ' + liveSamples.length + ' live) | swing=' + st.swing.accuracy + '% (' + cumulative.length + ' samples)');
-                    
-                    // Sync updated weights to vML immediately
-                    syncMLWeights();
-                } else {
-                    console.log('🧠 Nightly retrain skipped: only ' + cumulative.length + ' samples (need 30+)');
+                    console.log('🧠 Shared model retrained: dayTrade=' + st.dayTrade.accuracy + '% (' + recent.length + ') | swing=' + st.swing.accuracy + '% (' + cumulative.length + ')');
                 }
+
+                // ── Train per-version models from each version's own paper trades ──
+                // This is what makes vML, v6.0 etc learn independently
+                var versionGroups = {};
+                (tradeJournal.getPaperTrades() || []).filter(function (t) {
+                    return t.status && (t.status.startsWith('WIN') || t.status.startsWith('LOSS')) && t.features && t.features.length > 0;
+                }).forEach(function (t) {
+                    var v = t.signalVersion || 'v2.1';
+                    if (!versionGroups[v]) versionGroups[v] = [];
+                    versionGroups[v].push({ features: t.features, label: t.status.startsWith('WIN') ? 1 : 0, _ticker: t.ticker });
+                });
+
+                var vKeys = Object.keys(versionGroups);
+                if (vKeys.length > 0) {
+                    console.log('🧠 Per-version training: ' + vKeys.map(function (v) { return v + '=' + versionGroups[v].length; }).join(', '));
+                    vKeys.forEach(function (ver) {
+                        var vData = versionGroups[ver];
+                        if (vData.length >= 30) {
+                            var trained = mlCalibrator.train(vData, 'dayTrade', ver);
+                            if (trained) console.log('  ✅ ' + ver + ' model trained: ' + vData.length + ' samples');
+                        } else {
+                            console.log('  ⏳ ' + ver + ': only ' + vData.length + '/30 samples — needs more trades');
+                        }
+                    });
+                }
+
+                // Sync updated weights to vML immediately
+                syncMLWeights();
+                var finalSt = mlCalibrator.getStatus();
+                console.log('🧠 Nightly retrain complete. Versions with own models: ' + Object.keys(finalSt.versionModels || {}).join(', '));
             } catch (e) { console.error('Nightly ML retrain error:', e.message); }
         })();
     }

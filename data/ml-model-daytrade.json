@@ -1,217 +1,331 @@
 {
   "weights": [
-    -0.05174930092099928,
-    0.058081707043232005,
-    -0.16105730197237478,
-    -0.034883562843222256,
-    -0.09316928233670031,
-    -0.09658592522647437,
-    0.0361522583571305,
-    -0.03232576086681922,
-    -0.1727346769702971,
-    0.007437656119783435,
-    -0.048713852923829265,
-    0.06759413093864564,
-    0.06759413093864564,
-    0.06759413093864564,
-    0.06759413093864564,
-    0.06759413093864564,
-    0.06759413093864564,
-    0.0033428065680891177,
-    0.11323648527660547,
-    -0.033137958080169505,
-    -0.03449348837662751,
-    0.004329157898370925,
-    -0.05645036891377101,
-    -0.0024090008856966954,
-    0.026384071620721407
+    -0.05713112838455302,
+    0.04046805039970274,
+    -0.09804260488515765,
+    -0.04384156064163154,
+    -0.03728790668726691,
+    -0.1409242974090364,
+    -0.0018132575138852859,
+    -0.0174753092592997,
+    -0.08236724754958301,
+    -0.023184752831009705,
+    -0.04272782927855822,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    -0.030886987055118487,
+    0.047578705812546376,
+    -0.08943116859525904,
+    -0.049132374240291765,
+    -0.03403861012157757,
+    -0.044725034524798916,
+    -0.03833303225982876,
+    0.006085656870984939,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475,
+    0.027202775341141475
   ],
-  "bias": 0.13934861663021209,
+  "bias": 0.05614385665581875,
   "trained": true,
-  "trainingSamples": 770,
-  "accuracy": 64.8,
+  "trainingSamples": 896,
+  "accuracy": 58.5,
   "featureImportance": [
     {
-      "name": "Short_Interest",
-      "weight": -0.1727,
-      "importance": 0.1727
+      "name": "CP_Ratio",
+      "weight": -0.1409,
+      "importance": 0.1409
     },
     {
       "name": "EMA_Align",
-      "weight": -0.1611,
-      "importance": 0.1611
-    },
-    {
-      "name": "RSI_Divergence",
-      "weight": 0.1132,
-      "importance": 0.1132
-    },
-    {
-      "name": "CP_Ratio",
-      "weight": -0.0966,
-      "importance": 0.0966
-    },
-    {
-      "name": "ATR",
-      "weight": -0.0932,
-      "importance": 0.0932
-    },
-    {
-      "name": "VWAP_Dev",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "Regime",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "Gamma_Prox",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "IV_Skew",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "Candle_Score",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "Sentiment",
-      "weight": 0.0676,
-      "importance": 0.0676
-    },
-    {
-      "name": "MACD_Hist",
-      "weight": 0.0581,
-      "importance": 0.0581
-    },
-    {
-      "name": "ATR_Change",
-      "weight": -0.0565,
-      "importance": 0.0565
-    },
-    {
-      "name": "RSI",
-      "weight": -0.0517,
-      "importance": 0.0517
-    },
-    {
-      "name": "BB_Bandwidth",
-      "weight": -0.0487,
-      "importance": 0.0487
-    },
-    {
-      "name": "DP_Direction",
-      "weight": 0.0362,
-      "importance": 0.0362
-    },
-    {
-      "name": "BB_Position",
-      "weight": -0.0349,
-      "importance": 0.0349
-    },
-    {
-      "name": "RSI_Slope",
-      "weight": -0.0345,
-      "importance": 0.0345
+      "weight": -0.098,
+      "importance": 0.098
     },
     {
       "name": "Fib_Proximity",
-      "weight": -0.0331,
-      "importance": 0.0331
+      "weight": -0.0894,
+      "importance": 0.0894
     },
     {
-      "name": "IV_Rank",
-      "weight": -0.0323,
-      "importance": 0.0323
+      "name": "Short_Interest",
+      "weight": -0.0824,
+      "importance": 0.0824
     },
     {
-      "name": "Vol_x_MACD",
-      "weight": 0.0264,
-      "importance": 0.0264
+      "name": "RSI",
+      "weight": -0.0571,
+      "importance": 0.0571
     },
     {
-      "name": "Vol_Spike",
-      "weight": 0.0074,
-      "importance": 0.0074
+      "name": "RSI_Slope",
+      "weight": -0.0491,
+      "importance": 0.0491
     },
     {
-      "name": "MACD_Accel",
-      "weight": 0.0043,
-      "importance": 0.0043
+      "name": "RSI_Divergence",
+      "weight": 0.0476,
+      "importance": 0.0476
     },
     {
-      "name": "ADX",
-      "weight": 0.0033,
-      "importance": 0.0033
+      "name": "ATR_Change",
+      "weight": -0.0447,
+      "importance": 0.0447
+    },
+    {
+      "name": "BB_Position",
+      "weight": -0.0438,
+      "importance": 0.0438
+    },
+    {
+      "name": "BB_Bandwidth",
+      "weight": -0.0427,
+      "importance": 0.0427
+    },
+    {
+      "name": "MACD_Hist",
+      "weight": 0.0405,
+      "importance": 0.0405
     },
     {
       "name": "RSI_x_EMA",
-      "weight": -0.0024,
-      "importance": 0.0024
+      "weight": -0.0383,
+      "importance": 0.0383
+    },
+    {
+      "name": "ATR",
+      "weight": -0.0373,
+      "importance": 0.0373
+    },
+    {
+      "name": "MACD_Accel",
+      "weight": -0.034,
+      "importance": 0.034
+    },
+    {
+      "name": "ADX",
+      "weight": -0.0309,
+      "importance": 0.0309
+    },
+    {
+      "name": "VWAP_Dev",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Regime",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Gamma_Prox",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "IV_Skew",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Candle_Score",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Sentiment",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Net_Premium",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "DP_Magnitude",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Sweep_Ratio",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Sector_CP",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "ETF_Macro",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Squeeze_Score",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Season_Return",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "IVRV_Ratio",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Congress_Net",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Insider_Net",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "GEX_Net_Gamma",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "MTF_Agreement",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Runner_Score",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Session_Pos",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Delta_Shift",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Strike_Magnet",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "CP_x_DP",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Sector_ID",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Sector_Vol_Profile",
+      "weight": 0.0272,
+      "importance": 0.0272
+    },
+    {
+      "name": "Vol_Spike",
+      "weight": -0.0232,
+      "importance": 0.0232
+    },
+    {
+      "name": "IV_Rank",
+      "weight": -0.0175,
+      "importance": 0.0175
+    },
+    {
+      "name": "Vol_x_MACD",
+      "weight": 0.0061,
+      "importance": 0.0061
+    },
+    {
+      "name": "DP_Direction",
+      "weight": -0.0018,
+      "importance": 0.0018
     }
   ],
   "featureStats": [
     {
       "min": 30.57,
       "max": 95.94,
-      "mean": 49.82611688311687
+      "mean": 50.33850446428567
     },
     {
       "min": -5.1079,
       "max": 6.7227,
-      "mean": -0.12774428571428495
+      "mean": -0.05722533482142817
     },
     {
       "min": -1,
       "max": 1,
-      "mean": -0.08051948051948052
+      "mean": -0.029017857142857144
     },
     {
       "min": -0.185,
       "max": 1.589,
-      "mean": 0.5077181818181813
+      "mean": 0.5232433035714278
     },
     {
       "min": 0.7075,
       "max": 43.328,
-      "mean": 16.31895103896106
+      "mean": 16.83461741071433
     },
     {
       "min": 0,
       "max": 1,
-      "mean": 0.7519480519480519
+      "mean": 0.7756696428571429
     },
     {
       "min": -1,
       "max": 1,
-      "mean": 0.03358429983136675
+      "mean": 0.04007320374439067
     },
     {
       "min": 1.5885,
       "max": 90.203,
-      "mean": 39.96950714285719
+      "mean": 40.10622310267861
     },
     {
       "min": 0,
       "max": 828019680000,
-      "mean": 122717891444.37923
+      "mean": 130412173873.17076
     },
     {
       "min": 0,
       "max": 1,
-      "mean": 0.38051948051948054
+      "mean": 0.3794642857142857
     },
     {
       "min": 3.69,
       "max": 329.1,
-      "mean": 25.414961038961046
+      "mean": 23.81985491071431
     },
     {
       "min": 0,
@@ -246,43 +360,140 @@
     {
       "min": 0,
       "max": 38.79,
-      "mean": 5.834584415584412
+      "mean": 6.665200892857163
     },
     {
       "min": -0.12887468828584686,
       "max": 0.025087901260314995,
-      "mean": -0.0005851176562535818
+      "mean": -0.0008990116660368041
     },
     {
       "min": 0,
       "max": 1,
-      "mean": 0.07387362425599778
+      "mean": 0.09591945120948817
     },
     {
       "min": -5.951,
       "max": 23.9547,
-      "mean": 1.3033576623376626
+      "mean": 1.2528072544642839
     },
     {
       "min": -1.325094,
       "max": 2.433823,
-      "mean": 0.14222736233766242
+      "mean": 0.13657497209821437
     },
     {
       "min": -0.17877461426620833,
       "max": 5.104665018973763,
-      "mean": 0.17397210652549217
+      "mean": 0.14667043500813448
     },
     {
       "min": -0.05939999999999998,
       "max": 0.9188,
-      "mean": 0.08535792207792207
+      "mean": 0.10039866071428567
     },
     {
       "min": -1,
       "max": 1,
-      "mean": 0.04025974025974026
+      "mean": 0.0390625
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "min": 0,
+      "max": 0,
+      "mean": 0
     }
   ],
-  "lastTrained": "2026-02-20T14:37:12.328Z"
+  "lastTrained": "2026-04-28T00:23:44.825Z",
+  "version": "shared",
+  "source": "live-closed-trades"
 }

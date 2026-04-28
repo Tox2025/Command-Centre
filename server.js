@@ -2903,7 +2903,31 @@ function trackDiscovery(ticker, source, signalResult, meta) {
 
             // ── A/B Parallel Scoring: create paper trades for ALL versions ──
             if (abTester.getVersionCount() > 1) {
-                var abResults = abTester.scoreAll(t, data, state.session);
+                // Build data object for this discovered ticker from available state
+                // ('data' is only defined inside scoreTickerSignals — must reconstruct here)
+                var discoveryData = {
+                    technicals: state.technicals[t] || null,
+                    flow: (state.optionsFlow || []).filter(function(f) { return (f.ticker || f.symbol) === t; }),
+                    darkPool: Array.isArray(state.darkPool[t]) ? state.darkPool[t] : [],
+                    gex: Array.isArray(state.gex[t]) ? state.gex[t] : [],
+                    ivRank: state.ivRank ? state.ivRank[t] : null,
+                    shortInterest: state.shortInterest ? state.shortInterest[t] : null,
+                    insider: state.insiderData ? (state.insiderData[t] || []) : [],
+                    congress: (state.congressTrades || []).filter(function(c) { return (c.ticker || c.symbol) === t; }),
+                    quote: state.quotes[t] || { last: price, price: price },
+                    regime: state.marketRegime,
+                    sentiment: state.sentiment ? (state.sentiment[t] || null) : null,
+                    netPremium: state.netPremium ? (state.netPremium[t] || null) : null,
+                    flowPerStrike: state.flowPerStrike ? (state.flowPerStrike[t] || null) : null,
+                    nope: state.nope ? (state.nope[t] || null) : null,
+                    tickData: polygonClient.getTickSummary(t) || null,
+                    polygonSnapshot: polygonClient.getSnapshotData(t) || null,
+                    polygonMinuteBars: polygonClient.getMinuteBars(t) || [],
+                    sectorTide: state.sectorTide || {},
+                    etfTide: state.etfTide || {},
+                    multiTF: (state.multiTF || {})[t] || null
+                };
+                var abResults = abTester.scoreAll(t, discoveryData, state.session);
                 abTester.logComparison(t, abResults);
                 var abTrades = abTester.createTrades(t, abResults, price, setup);
                 abTrades.forEach(function (at) {

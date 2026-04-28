@@ -5940,3 +5940,26 @@ setInterval(dailyLiveTraining, 5 * 60 * 1000);
 if (scheduler.isTradingSession()) {
     console.log('⚡ [Session Bridge] Bot active during trading hours — maintenance scheduled via scheduleNext()');
 }
+
+// ── Global Crash Guards ─────────────────────────────────────────────────
+// CRITICAL: Without these, any unhandled promise rejection or uncaught
+// exception kills the Node.js process, forcing PM2 to restart (causes 700+
+// restarts seen in production). These handlers log the error and keep running.
+process.on('unhandledRejection', function (reason, promise) {
+    var msg = reason && reason.message ? reason.message : String(reason);
+    // Suppress noisy non-critical API errors from flooding logs
+    var isNoise = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|socket hang up|fetch failed|getaddrinfo|network timeout/i.test(msg);
+    if (!isNoise) {
+        console.error('⚠️ [UnhandledRejection] Caught — bot continues running:', msg);
+    }
+    // DO NOT re-throw — that would crash the process
+});
+
+process.on('uncaughtException', function (err) {
+    var msg = err && err.message ? err.message : String(err);
+    console.error('🚨 [UncaughtException] Caught — bot continues running:', msg);
+    if (err && err.stack) {
+        console.error(err.stack.split('\n').slice(0, 5).join('\n'));
+    }
+    // DO NOT re-throw — that would crash the process
+});

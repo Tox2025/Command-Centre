@@ -4977,6 +4977,15 @@ async function fetchTradingHalts() {
 
         for (var hi = 0; hi < Math.min(resumedTickers.length, 3); hi++) {
             var resumed = resumedTickers[hi];
+            // ── Per-ticker cooldown: max 1 full score per 10 min per halt-resume ticker ──
+            if (!state._haltResumeCooldown) state._haltResumeCooldown = {};
+            var lastScored = state._haltResumeCooldown[resumed.ticker] || 0;
+            if (Date.now() - lastScored < 10 * 60 * 1000) {
+                // Still in cooldown — skip to avoid flooding UW rate limiter
+                continue;
+            }
+            state._haltResumeCooldown[resumed.ticker] = Date.now();
+
             try {
                 console.log('🔓 Halt resume detected: ' + resumed.ticker + ' (' + resumed.reason + ')');
 

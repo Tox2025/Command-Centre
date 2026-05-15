@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Options Paper Trading — Command Center</title>
+    <title>Futures Paper Trading — Command Center</title>
     <link rel="stylesheet" href="styles.css?v=14">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
@@ -341,12 +341,9 @@
                 <select id="versionSelector"
                     style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; font-family: var(--font-mono); outline: none;">
                     <option value="all" selected>Consolidated</option>
-                    <option value="v1.0">v1.0 (Baseline)</option>
-                    <option value="v1.1">v1.1 (Momentum)</option>
-                    <option value="v1.2">v1.2 (Mean Rev)</option>
-                    <option value="v2.1">v2.1 (Ensemble)</option>
-                    <option value="vML">vML (AI Progressive)</option>
-                    <option value="v6.0">v6.0 (Tech Specialist)</option>
+                    <option value="vF1">vF1 (Strategy 1)</option>
+                    <option value="vF2">vF2 (Strategy 2)</option>
+                    <option value="vFML">vFML (AI Model)</option>
                 </select>
             </div>
         </div>
@@ -365,10 +362,10 @@
         <a href="/paper-trading.html" class="nav-link" id="navPaperTrading">
             <span class="nav-icon">&#9881;</span> Paper Trading
         </a>
-        <a href="/options-paper-trading.html" class="nav-link active" id="navOptionsPaper">
+        <a href="/options-paper-trading.html" class="nav-link" id="navOptionsPaper">
             <span class="nav-icon">&#128203;</span> Options Paper
         </a>
-        <a href="/futures-paper-trading.html" class="nav-link" id="navFuturesPaper">
+        <a href="/futures-paper-trading.html" class="nav-link active" id="navFuturesPaper">
             <span class="nav-icon">&#128200;</span> Futures Paper
         </a>
         <a href="#" class="nav-link nav-disabled" title="Coming soon">
@@ -384,10 +381,9 @@
 
         <!-- Info Bar -->
         <div class="pt-info-bar">
-            <strong>📋 Options Paper Trading</strong> — AI-powered options contract simulation with a
+            <strong>📋 Futures Paper Trading</strong> — AI-powered futures contract simulation with a
             <strong id="infoBalance">$25,000</strong> account.
-            Auto-entry analyzes signals, IV rank, and multi-timeframe confluence to recommend optimal contracts.
-            Premium P&L tracks theta decay. Trades auto-close at +100% gain or -50% stop.
+            Trades track the points movement of /ES and /NQ using proxy ETFs. Trades auto-close at target or stop loss.
         </div>
 
         <!-- Account Summary Stats -->
@@ -432,7 +428,7 @@
             <div style="background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;padding:14px">
                 <div
                     style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">
-                    📊 Call vs Put</div>
+                    📊 Long vs Short</div>
                 <div id="callPutBreakdown" style="font-size:12px"></div>
             </div>
             <!-- Trade Quality -->
@@ -473,7 +469,8 @@
             <div class="pt-chart-controls">
                 <label style="font-size:11px;color:var(--text-muted)">Ticker:</label>
                 <select id="ptChartTicker">
-                    <option>TSLA</option>
+                    <option>SPY</option>
+                    <option>QQQ</option>
                 </select>
                 <label style="font-size:11px;color:var(--text-muted);margin-left:12px">Interval:</label>
                 <select id="ptChartInterval">
@@ -493,17 +490,15 @@
                 <h3>🤖 Quick Entry</h3>
             </div>
             <div class="quick-entry">
-                <input type="text" id="qeTicker" class="ticker-input" placeholder="TSLA" maxlength="6">
-                <button class="btn-auto-enter" onclick="autoEnter(event)">🤖 AI Auto-Enter</button>
-                <span style="color:var(--text-muted);font-size:11px">— or manual: —</span>
+                <input type="text" id="qeTicker" class="ticker-input" placeholder="/ES" maxlength="6">
+                <button class="btn-auto-enter" onclick="autoEnter(event)" style="display:none;">🤖 AI Auto-Enter</button>
+                <span style="color:var(--text-muted);font-size:11px">— manual: —</span>
                 <select id="qeType">
-                    <option value="call">Call</option>
-                    <option value="put">Put</option>
+                    <option value="long">Long</option>
+                    <option value="short">Short</option>
                 </select>
-                <input type="number" id="qeStrike" placeholder="Strike" step="0.50">
-                <input type="number" id="qePremium" placeholder="Premium" step="0.01">
-                <input type="number" id="qeDTE" placeholder="DTE" value="30" step="1">
-                <input type="number" id="qeContracts" placeholder="Qty" value="1" min="1" step="1">
+                <input type="number" id="qeProxyPrice" placeholder="Proxy Price (e.g. SPY)" step="0.01" style="width: 140px;">
+                <input type="number" id="qeContracts" placeholder="Lots" value="1" min="1" step="1">
                 <button class="btn-sm" style="background:var(--accent);color:#fff" onclick="manualEntry()">Enter
                     Trade</button>
             </div>
@@ -520,8 +515,8 @@
                 <div id="openPositions">
                     <div class="pt-empty">
                         <div class="pt-empty-icon">📋</div>
-                        No open options trades.<br>
-                        Use AI Auto-Enter or manual entry above.
+                        No open futures trades.<br>
+                        Use manual entry above.
                     </div>
                 </div>
             </div>
@@ -535,7 +530,7 @@
                 <div id="tradeHistory">
                     <div class="pt-empty">
                         <div class="pt-empty-icon">📊</div>
-                        No closed options trades yet.<br>
+                        No closed futures trades yet.<br>
                         Close an open position to see P&L results here.
                     </div>
                 </div>
@@ -546,7 +541,7 @@
 
     <!-- TradingView Library -->
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-    <script src="options-paper-trading.js?v=1"></script>
+    <script src="futures-paper-trading.js?v=1"></script>
 </body>
 
 </html>

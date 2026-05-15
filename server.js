@@ -25,6 +25,7 @@ const { GapAnalyzer } = require('./src/gap-analyzer');
 const MultiTFAnalyzer = require('./src/multi-tf-analyzer');
 const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
+const FuturesPaperTrading = require('./src/futures-paper-trading');
 const EODReporter = require('./src/eod-reporter');
 const PolygonTickClient = require('./src/polygon-client');
 const PolygonHistorical = require('./src/polygon-historical');
@@ -186,6 +187,7 @@ const gapAnalyzer = new GapAnalyzer();
 const multiTFAnalyzer = new MultiTFAnalyzer(polygonClient);
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
+const futuresPaper = new FuturesPaperTrading();
 const eodReporter = new EODReporter();
 
 const state = {
@@ -1061,6 +1063,53 @@ app.get('/api/options-paper/stats', (req, res) => {
 });
 app.get('/api/options-paper/training-data', (req, res) => {
     res.json(optionsPaper.getTrainingData());
+});
+
+// ── Futures Paper Trading API ──
+app.get('/api/futures-paper/trades', (req, res) => {
+    const { version } = req.query;
+    let trades = futuresPaper.getTrades();
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+    res.json(trades);
+});
+app.get('/api/futures-paper/open-positions', (req, res) => {
+    const { version } = req.query;
+    let trades = futuresPaper.getOpenTrades();
+    if (version && version !== 'all') {
+        trades = trades.filter(t => t.signalVersion === version);
+    }
+    res.json(trades);
+});
+app.post('/api/futures-paper/open', async (req, res) => {
+    try {
+        var body = req.body;
+        if (!body.ticker) return res.status(400).json({ error: 'ticker required' });
+        var trade = futuresPaper.openTrade(body);
+        if (!trade) return res.json({ success: false, error: 'Duplicate trade or invalid params' });
+        res.json({ success: true, trade: trade });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.post('/api/futures-paper/close', (req, res) => {
+    try {
+        var id = req.body.id;
+        if (!id) return res.status(400).json({ error: 'trade id required' });
+        var trade = futuresPaper.closeTrade(id);
+        if (!trade) return res.status(404).json({ error: 'Open futures trade not found' });
+        res.json({ success: true, trade: trade });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+app.get('/api/futures-paper/stats', (req, res) => {
+    const { version } = req.query;
+    res.json(futuresPaper.getStats(version));
+});
+app.get('/api/futures-paper/training-data', (req, res) => {
+    res.json(futuresPaper.getTrainingData());
 });
 app.post('/api/options-paper/auto-enter/:ticker', async (req, res) => {
     try {
@@ -4615,6 +4664,7 @@ async function refreshAll() {
     // Update paper trade P&L and notify Spidey on significant moves
     var paperUpdated = tradeJournal.updatePaperPnL(state.quotes);
     optionsPaper.updatePrices(state.quotes); // Update options paper trades too
+    futuresPaper.updatePrices(state.quotes); // Update futures paper trades too
     if (paperUpdated > 0) {
         var paperTrades = tradeJournal.getPaperTrades();
         paperTrades.forEach(function (pt) {

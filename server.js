@@ -32,9 +32,24 @@ const PolygonHistorical = require('./src/polygon-historical');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const ABTester = require('./src/ab-tester');
 const { MLTrainingScheduler } = require('./src/ml-training-scheduler');
+const IBKRClient = require('./src/broker/ibkr');
+const SchwabClient = require('./src/broker/schwab');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize Live Broker Client
+let brokerClient = null;
+const brokerPlatform = (process.env.BROKER_PLATFORM || 'none').toLowerCase();
+if (brokerPlatform === 'ibkr') {
+    brokerClient = new IBKRClient({ port: process.env.IBKR_PORT || 4002 });
+} else if (brokerPlatform === 'schwab') {
+    brokerClient = new SchwabClient();
+}
+
+if (brokerClient) {
+    brokerClient.connect().then(() => console.log('✅ Broker connected: ' + brokerPlatform)).catch(e => console.error('❌ Broker connect error:', e.message));
+}
 // Load watchlist: file > env > default
 var TICKERS;
 try {
@@ -1037,21 +1052,48 @@ app.post('/api/options-paper/open', async (req, res) => {
     try {
         var body = req.body;
         if (!body.ticker) return res.status(400).json({ error: 'ticker required' });
+        
         var trade = optionsPaper.openTrade(body);
         if (!trade) return res.json({ success: false, error: 'Duplicate trade or invalid params' });
+        
         console.log('📋 Options paper trade: ' + trade.optionType.toUpperCase() + ' ' + trade.ticker + ' $' + trade.strike + ' @ $' + trade.entryPremium + ' (' + trade.contracts + ' contracts)');
+        
+        // Push to live broker if enabled
+        if (process.env.BROKER_EXECUTION === 'true' && brokerClient && brokerClient.isConnected) {
+            console.log('⚡ Pushing options paper trade to live broker: ' + brokerClient.name);
+            const brokerResult = await brokerClient.placeOptionOrder({
+                ticker: trade.ticker,
+                optionType: trade.optionType,
+                strike: trade.strike,
+                premium: trade.entryPremium,
+                quantity: trade.contracts || 1,
+                action: 'BUY'
+            });
+            trade.brokerOrderId = brokerResult.orderId;
+            trade.brokerStatus = brokerResult.status;
+        }
+
         res.json({ success: true, trade: trade });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
-app.post('/api/options-paper/close', (req, res) => {
+app.post('/api/options-paper/close', async (req, res) => {
     try {
         var id = req.body.id;
         if (!id) return res.status(400).json({ error: 'trade id required' });
+        
         var trade = optionsPaper.closeTrade(id);
         if (!trade) return res.status(404).json({ error: 'Open options trade not found' });
+        
         console.log('📋 Closed options paper: ' + trade.ticker + ' ' + trade.optionType.toUpperCase() + ' $' + trade.strike + ' P&L: $' + trade.pnl + ' (' + trade.pnlPct + '%)');
+        
+        // Push close to live broker if enabled
+        if (process.env.BROKER_EXECUTION === 'true' && brokerClient && brokerClient.isConnected) {
+            console.log('⚡ Pushing options paper close to live broker: ' + brokerClient.name);
+            await brokerClient.closeOptionPosition(trade);
+        }
+
         res.json({ success: true, trade: trade });
     } catch (e) {
         res.status(500).json({ error: e.message });

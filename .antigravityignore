@@ -1,0 +1,6 @@
+node_modules/
+data/eod-reports/
+data/*.json
+*.bak
+.git/
+C:/Users/Trader/Trading-Backups/

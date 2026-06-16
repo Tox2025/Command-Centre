@@ -340,3 +340,30 @@ function renderABTable() {
     });
 }
 
+function exportTableToCSV(tableId, filename) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    
+    var csv = [];
+    var rows = table.querySelectorAll('tr');
+    
+    for (var i = 0; i < rows.length; i++) {
+        var row = [], cols = rows[i].querySelectorAll('td, th');
+        for (var j = 0; j < cols.length; j++) {
+            // Remove emojis like 🏆, remove formatting, escape quotes
+            var text = cols[j].innerText.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim(); 
+            text = text.replace(/"/g, '""');
+            row.push('"' + text + '"');
+        }
+        csv.push(row.join(','));
+    }
+    
+    var csvFile = new Blob([csv.join('\n')], {type: 'text/csv'});
+    var downloadLink = document.createElement('a');
+    downloadLink.download = filename;
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.style.display = 'none';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+}

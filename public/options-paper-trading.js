@@ -96,7 +96,7 @@ function refreshTrades() {
 // ── Stats ────────────────────────────────────────────
 function fetchStats() {
     fetch('/api/options-paper/stats?version=' + activeVersion).then(function (r) { return r.json(); }).then(function (s) {
-        var budget = activeVersion === 'all' ? 50000 : 25000;
+        var budget = 25000;
         var acctValue = budget + s.totalPnl + s.unrealizedPnl;
         $('statAccount').textContent = '$' + acctValue.toLocaleString('en-US', { minimumFractionDigits: 0 });
         $('statAccount').className = 'stat-value' + (acctValue >= budget ? ' positive' : ' negative');

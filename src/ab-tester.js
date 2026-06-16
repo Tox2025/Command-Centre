@@ -33,7 +33,7 @@ class ABTester {
         var versionCount = Object.keys(this.engines).length;
         console.log('🔬 A/B Tester: Loaded ' + loaded + ' signal versions — ' + Object.keys(this.engines).join(', '));
         // Calculate per-version budget
-        this.perVersionBudget = versionCount > 0 ? Math.floor(100000 / versionCount) : 100000;
+        this.perVersionBudget = 25000;
         console.log('💰 A/B Tester: $' + this.perVersionBudget + ' budget per version (' + versionCount + ' versions)');
     }
 

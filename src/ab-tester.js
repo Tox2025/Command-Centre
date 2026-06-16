@@ -12,6 +12,7 @@ class ABTester {
         this.tradeJournal = tradeJournal;
         this.mlCalibrator = mlCalibrator;
         this.scheduler = scheduler;
+        this.optionsPaper = null; // Injected later
         this.engines = {}; // { 'v1.0': SignalEngine, ... }
         this.lastResults = {}; // latest scores per ticker per version
         this._loadVersions();
@@ -149,8 +150,39 @@ class ABTester {
     }
 
     // Get comparison summary: per-version stats
-    getComparison() {
-        return this.tradeJournal.getStatsByVersion();
+    getComparison(days) {
+        var eqStats = this.tradeJournal.getStatsByVersion(days);
+        var optStats = this.optionsPaper ? this.optionsPaper.getStatsByVersion(days) : {};
+
+        var combined = {};
+        var versions = new Set([...Object.keys(eqStats), ...Object.keys(optStats)]);
+
+        versions.forEach(function (v) {
+            var eq = eqStats[v] || { trades: 0, wins: 0, losses: 0, expired: 0, pending: 0, pnlSum: 0, pnlTotal: 0 };
+            var opt = optStats[v] || { trades: 0, wins: 0, losses: 0, expired: 0, pending: 0, pnlSum: 0, pnlTotal: 0 };
+            
+            var cDecided = (eq.wins + eq.losses) + (opt.wins + opt.losses);
+            var cExpired = eq.expired + opt.expired;
+            var cWinRate = cDecided > 0 ? +((eq.wins + opt.wins) / cDecided * 100).toFixed(1) : 0;
+            var cAvgPnlPct = (cDecided + cExpired) > 0 ? +((eq.pnlSum + opt.pnlSum) / (cDecided + cExpired)).toFixed(2) : 0;
+
+            combined[v] = {
+                version: v,
+                trades: eq.trades + opt.trades,
+                wins: eq.wins + opt.wins,
+                losses: eq.losses + opt.losses,
+                pending: eq.pending + opt.pending,
+                winRate: cWinRate,
+                avgPnlPct: cAvgPnlPct,
+                pnlTotal: +(eq.pnlTotal + opt.pnlTotal).toFixed(2)
+            };
+        });
+
+        return {
+            equities: eqStats,
+            options: optStats,
+            combined: combined
+        };
     }
 
     // Get latest scoring results for all tickers

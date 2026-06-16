@@ -359,7 +359,22 @@
 
             <!-- A/B Version Comparison -->
             <section class="report-section" id="abSection" style="display:none">
-                <h2>🔬 A/B Version Comparison</h2>
+                <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+                    <h2 style="margin:0;">🔬 A/B Version Comparison</h2>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <select id="abDaysFilter" onchange="loadABResults()" style="background:var(--bg-input); border:1px solid var(--border); color:var(--text-primary); padding:6px 10px; border-radius:6px; font-size:12px; outline:none;">
+                            <option value="">All-Time Data</option>
+                            <option value="7">Last 7 Days</option>
+                            <option value="14">Last 14 Days</option>
+                            <option value="30">Last 30 Days</option>
+                        </select>
+                        <div id="abAssetToggle" style="display:flex; background:var(--bg-input); border-radius:6px; padding:3px; border:1px solid var(--border);">
+                            <button data-val="equities" onclick="switchABMode('equities')" style="padding:4px 12px; font-size:11px; border-radius:4px; border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-weight:600;">Equities</button>
+                            <button data-val="options" onclick="switchABMode('options')" style="padding:4px 12px; font-size:11px; border-radius:4px; border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-weight:600;">Options</button>
+                            <button data-val="combined" onclick="switchABMode('combined')" style="padding:4px 12px; font-size:11px; border-radius:4px; border:none; background:var(--bg-panel); color:var(--text-primary); box-shadow:0 1px 3px rgba(0,0,0,0.3); cursor:pointer; font-weight:600;" class="active">Combined</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="report-card">
                     <div id="abSummary" style="margin-bottom:12px;color:var(--text-muted);font-size:12px"></div>
                     <div style="overflow-x:auto">

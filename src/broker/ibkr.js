@@ -34,7 +34,15 @@ class IBKRClient extends BrokerClient {
             this.ib.on(this.EventName.connected, () => {
                 console.log(`[IBKR] Successfully connected to Gateway on port ${this.port}`);
                 this.isConnected = true;
+                
+                // Request the next valid ID
+                this.ib.reqIds(-1);
+                
                 resolve(true);
+            });
+
+            this.ib.on(this.EventName.nextValidId, (orderId) => {
+                this.nextOrderId = orderId;
             });
 
             this.ib.on(this.EventName.error, (err, code, reqId) => {
@@ -72,7 +80,7 @@ class IBKRClient extends BrokerClient {
     async placeOptionOrder(params) {
         console.log(`[IBKR] Placing Option Order: ${params.action} ${params.quantity}x ${params.ticker} ${params.strike} ${params.optionType}`);
         
-        if (!this.isConnected || !this.ib) {
+        if (!this.isConnected || !this.ib || !this.nextOrderId) {
             return {
                 orderId: 'SIM_IBKR_' + Date.now(),
                 status: 'FILLED',
@@ -80,20 +88,44 @@ class IBKRClient extends BrokerClient {
             };
         }
 
-        // Real IBKR order execution logic will go here
-        // Requires contract creation, nextValidId request, and placeOrder
+        const id = this.nextOrderId++;
+        
+        // Convert expiration (YYYY-MM-DD) to IBKR format (YYYYMMDD)
+        const expiry = params.expirationDate ? params.expirationDate.replace(/-/g, '') : '';
+        
+        const contract = {
+            secType: this.SecType.OPT,
+            symbol: params.ticker,
+            exchange: 'SMART',
+            currency: 'USD',
+            lastTradeDateOrContractMonth: expiry,
+            strike: parseFloat(params.strike),
+            right: params.optionType.toUpperCase() === 'CALL' ? 'C' : 'P',
+            multiplier: '100'
+        };
+
+        const order = {
+            action: params.action.toUpperCase(),
+            orderType: this.OrderType.LMT,
+            totalQuantity: params.quantity,
+            lmtPrice: parseFloat(params.premium),
+            tif: 'DAY',
+            transmit: true
+        };
+
+        this.ib.placeOrder(id, contract, order);
         
         return {
-            orderId: 'REAL_IBKR_' + Date.now(),
+            orderId: id.toString(),
             status: 'SUBMITTED',
-            filledPrice: 0
+            filledPrice: 0 // Will be updated asynchronously in a real system
         };
     }
 
     async closeOptionPosition(position) {
         console.log(`[IBKR] Closing Position: ${position.ticker} ${position.strike} ${position.optionType}`);
         
-        if (!this.isConnected || !this.ib) {
+        if (!this.isConnected || !this.ib || !this.nextOrderId) {
             return {
                 orderId: 'SIM_IBKR_CLOSE_' + Date.now(),
                 status: 'FILLED',
@@ -101,8 +133,32 @@ class IBKRClient extends BrokerClient {
             };
         }
 
+        const id = this.nextOrderId++;
+        const expiry = position.expirationDate ? position.expirationDate.replace(/-/g, '') : '';
+
+        const contract = {
+            secType: this.SecType.OPT,
+            symbol: position.ticker,
+            exchange: 'SMART',
+            currency: 'USD',
+            lastTradeDateOrContractMonth: expiry,
+            strike: parseFloat(position.strike),
+            right: position.optionType.toUpperCase() === 'CALL' ? 'C' : 'P',
+            multiplier: '100'
+        };
+
+        const order = {
+            action: 'SELL',
+            orderType: this.OrderType.MKT,
+            totalQuantity: position.contracts || 1,
+            tif: 'DAY',
+            transmit: true
+        };
+
+        this.ib.placeOrder(id, contract, order);
+
         return {
-            orderId: 'REAL_IBKR_CLOSE_' + Date.now(),
+            orderId: id.toString(),
             status: 'SUBMITTED',
             filledPrice: 0
         };

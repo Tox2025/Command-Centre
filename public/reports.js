@@ -246,58 +246,97 @@ function renderSignalTable(bodyId, signals) {
 }
 
 // A/B Version Comparison — loads independently from api/ab-results
+let abDataCache = null;
+
+function switchABMode(mode) {
+    var buttons = document.querySelectorAll('#abAssetToggle button');
+    buttons.forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--text-muted)';
+        b.style.boxShadow = 'none';
+        b.classList.remove('active');
+    });
+    var active = document.querySelector('#abAssetToggle button[data-val="' + mode + '"]');
+    if (active) {
+        active.style.background = 'var(--bg-panel)';
+        active.style.color = 'var(--text-primary)';
+        active.style.boxShadow = '0 1px 3px rgba(0,0,0,0.3)';
+        active.classList.add('active');
+    }
+    renderABTable();
+}
+
 async function loadABResults() {
     try {
-        var res = await fetch('/api/ab-results');
+        var filterEl = document.getElementById('abDaysFilter');
+        var days = filterEl ? filterEl.value : '';
+        var url = days ? '/api/ab-results?days=' + days : '/api/ab-results';
+        var res = await fetch(url);
         var data = await res.json();
-        if (!data || data.versionCount < 2) return; // No A/B data
+        if (!data || data.versionCount < 2) return; 
 
-        var section = document.getElementById('abSection');
-        if (!section) return;
-        section.style.display = 'block';
-
-        var summary = document.getElementById('abSummary');
-        summary.textContent = data.versionCount + ' versions running in parallel \u2014 $' + (data.perVersionBudget || 0).toLocaleString() + ' budget per version';
-
-        var body = document.getElementById('abBody');
-        body.innerHTML = '';
-        var comp = data.comparison || {};
-        var versions = Object.keys(comp);
-
-        // Find best WR
-        var bestWR = -1;
-        var bestVersion = '';
-        versions.forEach(function (v) {
-            var s = comp[v];
-            if ((s.wins + s.losses) >= 5 && s.winRate > bestWR) {
-                bestWR = s.winRate;
-                bestVersion = v;
-            }
-        });
-
-        versions.sort().forEach(function (v) {
-            var s = comp[v];
-            var isBest = (v === bestVersion && bestWR > 0);
-            var wrColor = s.winRate >= 55 ? '#4ade80' : s.winRate >= 45 ? '#facc15' : '#f87171';
-            var pnlColor = s.avgPnlPct >= 0 ? '#4ade80' : '#f87171';
-            var rowBg = isBest ? 'background:rgba(74,222,128,0.08);' : '';
-            var trophy = isBest ? ' \ud83c\udfc6' : '';
-
-            var tr = document.createElement('tr');
-            tr.setAttribute('style', rowBg);
-            tr.innerHTML =
-                '<td style="font-weight:600">' + v + trophy + '</td>' +
-                '<td>' + s.trades + '</td>' +
-                '<td style="color:#4ade80">' + s.wins + '</td>' +
-                '<td style="color:#f87171">' + s.losses + '</td>' +
-                '<td style="color:#facc15">' + s.pending + '</td>' +
-                '<td style="color:' + wrColor + ';font-weight:600">' + s.winRate + '%</td>' +
-                '<td style="color:' + pnlColor + ';font-weight:600">' + (s.avgPnlPct >= 0 ? '+' : '') + s.avgPnlPct + '%</td>' +
-                '<td style="color:' + pnlColor + ';font-weight:600">$' + s.pnlTotal.toLocaleString() + '</td>';
-            body.appendChild(tr);
-        });
+        abDataCache = data;
+        renderABTable();
     } catch (e) {
         console.error('A/B results load error:', e);
     }
+}
+
+function renderABTable() {
+    if (!abDataCache) return;
+    var data = abDataCache;
+    var section = document.getElementById('abSection');
+    if (!section) return;
+    section.style.display = 'block';
+
+    var summary = document.getElementById('abSummary');
+    var filterEl = document.getElementById('abDaysFilter');
+    var daysText = filterEl ? filterEl.options[filterEl.selectedIndex].text : '';
+    summary.textContent = data.versionCount + ' versions running \u2014 $' + (data.perVersionBudget || 0).toLocaleString() + ' budget per version (' + daysText + ')';
+
+    var body = document.getElementById('abBody');
+    body.innerHTML = '';
+    
+    var modeBtn = document.querySelector('#abAssetToggle .active');
+    var mode = modeBtn ? modeBtn.getAttribute('data-val') : 'combined';
+    
+    // Support new { equities, options, combined } structure or fallback
+    var comp = (data.comparison && data.comparison[mode]) ? data.comparison[mode] : data.comparison;
+
+    var versions = Object.keys(comp);
+
+    // Find best WR
+    var bestWR = -1;
+    var bestVersion = '';
+    versions.forEach(function (v) {
+        var s = comp[v];
+        if (s && (s.wins + s.losses) >= 5 && s.winRate > bestWR) {
+            bestWR = s.winRate;
+            bestVersion = v;
+        }
+    });
+
+    versions.sort().forEach(function (v) {
+        var s = comp[v];
+        if (!s || s.trades === 0) return; // skip empty rows
+        var isBest = (v === bestVersion && bestWR > 0);
+        var wrColor = s.winRate >= 55 ? '#4ade80' : s.winRate >= 45 ? '#facc15' : '#f87171';
+        var pnlColor = s.avgPnlPct >= 0 ? '#4ade80' : '#f87171';
+        var rowBg = isBest ? 'background:rgba(74,222,128,0.08);' : '';
+        var trophy = isBest ? ' \ud83c\udfc6' : '';
+
+        var tr = document.createElement('tr');
+        tr.setAttribute('style', rowBg);
+        tr.innerHTML =
+            '<td style="font-weight:600">' + v + trophy + '</td>' +
+            '<td>' + s.trades + '</td>' +
+            '<td style="color:#4ade80">' + s.wins + '</td>' +
+            '<td style="color:#f87171">' + s.losses + '</td>' +
+            '<td style="color:#facc15">' + s.pending + '</td>' +
+            '<td style="color:' + wrColor + ';font-weight:600">' + s.winRate + '%</td>' +
+            '<td style="color:' + pnlColor + ';font-weight:600">' + (s.avgPnlPct >= 0 ? '+' : '') + s.avgPnlPct + '%</td>' +
+            '<td style="color:' + pnlColor + ';font-weight:600">$' + (s.pnlTotal || 0).toLocaleString() + '</td>';
+        body.appendChild(tr);
+    });
 }
 

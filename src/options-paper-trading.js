@@ -272,6 +272,38 @@ class OptionsPaperTrading {
     }
 
     // ── Stats ────────────────────────────────────────────
+    getStatsByVersion(days) {
+        var byVersion = {};
+        var cutoff = days ? Date.now() - (days * 24 * 60 * 60 * 1000) : 0;
+
+        this.trades.forEach(function (t) {
+            if (cutoff > 0) {
+                var tradeTime = new Date(t.closeTime || t.openTime).getTime();
+                if (tradeTime < cutoff) return;
+            }
+
+            var v = t.signalVersion || 'unknown';
+            if (byVersion[v] === undefined) {
+                byVersion[v] = { version: v, trades: 0, wins: 0, losses: 0, expired: 0, pending: 0, pnlSum: 0, pnlTotal: 0 };
+            }
+            byVersion[v].trades++;
+            if (t.status === 'OPEN') byVersion[v].pending++;
+            else if (t.status === 'WIN') { byVersion[v].wins++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnl || 0); }
+            else if (t.status === 'LOSS') { byVersion[v].losses++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnl || 0); }
+            else if (t.outcome && t.outcome.startsWith('EXPIRED')) { byVersion[v].expired++; byVersion[v].pnlSum += (t.pnlPct || 0); byVersion[v].pnlTotal += (t.pnl || 0); }
+        });
+
+        // Compute derived stats
+        Object.keys(byVersion).forEach(function (v) {
+            var s = byVersion[v];
+            var decided = s.wins + s.losses;
+            s.winRate = decided > 0 ? +(s.wins / decided * 100).toFixed(1) : 0;
+            s.avgPnlPct = (decided + s.expired) > 0 ? +(s.pnlSum / (decided + s.expired)).toFixed(2) : 0;
+            s.pnlTotal = +s.pnlTotal.toFixed(2);
+        });
+        return byVersion;
+    }
+
     getStats(version) {
         var open = this.getOpenTrades(version);
         var closed = this.getClosedTrades(version);

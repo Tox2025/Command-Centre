@@ -563,10 +563,18 @@ class TradeJournal {
     }
 
     // Get performance stats grouped by signal version
-    getStatsByVersion() {
+    getStatsByVersion(days) {
         var byVersion = {};
+        var cutoff = days ? Date.now() - (days * 24 * 60 * 60 * 1000) : 0;
+        
         this.trades.forEach(function (t) {
             if (t.paper !== true) return;
+            
+            if (cutoff > 0) {
+                var tradeTime = new Date(t.closeTime || t.openTime).getTime();
+                if (tradeTime < cutoff) return;
+            }
+
             var v = t.signalVersion || 'unknown';
             if (byVersion[v] === undefined) {
                 byVersion[v] = { version: v, trades: 0, wins: 0, losses: 0, expired: 0, pending: 0, pnlSum: 0, pnlTotal: 0 };

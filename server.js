@@ -851,10 +851,12 @@ app.get('/api/notifier/status', (req, res) => res.json(notifier.getStatus()));
 
 // A/B Version Testing Results
 app.get('/api/ab-results', (req, res) => {
+    const days = req.query.days ? parseInt(req.query.days) : null;
+    abTester.optionsPaper = optionsPaper; // Ensure injected
     res.json({
         versions: abTester.getVersionNames(),
         versionCount: abTester.getVersionCount(),
-        comparison: abTester.getComparison(),
+        comparison: abTester.getComparison(days),
         latestScores: abTester.getLatestResults(),
         perVersionBudget: abTester.perVersionBudget
     });
@@ -1067,7 +1069,8 @@ app.post('/api/options-paper/open', async (req, res) => {
                 strike: trade.strike,
                 premium: trade.entryPremium,
                 quantity: trade.contracts || 1,
-                action: 'BUY'
+                action: 'BUY',
+                expirationDate: trade.expirationDate
             });
             trade.brokerOrderId = brokerResult.orderId;
             trade.brokerStatus = brokerResult.status;

@@ -86,6 +86,24 @@ class OptionsPaperTrading {
 
         this.trades.push(trade);
         this._save();
+
+        if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
+            console.log('⚡ Pushing options paper trade to live broker: ' + this.brokerClient.name);
+            this.brokerClient.placeOptionOrder({
+                ticker: trade.ticker,
+                optionType: trade.optionType,
+                strike: trade.strike,
+                premium: trade.entryPremium,
+                quantity: trade.contracts || 1,
+                action: 'BUY',
+                expirationDate: trade.expirationDate
+            }).then(brokerResult => {
+                trade.brokerOrderId = brokerResult.orderId;
+                trade.brokerStatus = brokerResult.status;
+                this._save();
+            }).catch(e => console.error('[Broker] Failed to place option order:', e));
+        }
+
         return trade;
     }
 
@@ -243,6 +261,12 @@ class OptionsPaperTrading {
         trade.unrealizedPnlPct = 0;
 
         this._save();
+
+        if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
+            console.log('⚡ Pushing options paper close to live broker: ' + this.brokerClient.name);
+            this.brokerClient.closeOptionPosition(trade)
+                .catch(e => console.error('[Broker] Failed to close option position:', e));
+        }
     }
 
     // ── Manual close ─────────────────────────────────────

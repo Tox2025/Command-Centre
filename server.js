@@ -202,6 +202,7 @@ const gapAnalyzer = new GapAnalyzer();
 const multiTFAnalyzer = new MultiTFAnalyzer(polygonClient);
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
+optionsPaper.brokerClient = brokerClient; // Inject live broker for execution
 const futuresPaper = new FuturesPaperTrading();
 const eodReporter = new EODReporter();
 
@@ -1059,23 +1060,6 @@ app.post('/api/options-paper/open', async (req, res) => {
         if (!trade) return res.json({ success: false, error: 'Duplicate trade or invalid params' });
         
         console.log('📋 Options paper trade: ' + trade.optionType.toUpperCase() + ' ' + trade.ticker + ' $' + trade.strike + ' @ $' + trade.entryPremium + ' (' + trade.contracts + ' contracts)');
-        
-        // Push to live broker if enabled
-        if (process.env.BROKER_EXECUTION === 'true' && brokerClient && brokerClient.isConnected) {
-            console.log('⚡ Pushing options paper trade to live broker: ' + brokerClient.name);
-            const brokerResult = await brokerClient.placeOptionOrder({
-                ticker: trade.ticker,
-                optionType: trade.optionType,
-                strike: trade.strike,
-                premium: trade.entryPremium,
-                quantity: trade.contracts || 1,
-                action: 'BUY',
-                expirationDate: trade.expirationDate
-            });
-            trade.brokerOrderId = brokerResult.orderId;
-            trade.brokerStatus = brokerResult.status;
-        }
-
         res.json({ success: true, trade: trade });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1091,12 +1075,6 @@ app.post('/api/options-paper/close', async (req, res) => {
         
         console.log('📋 Closed options paper: ' + trade.ticker + ' ' + trade.optionType.toUpperCase() + ' $' + trade.strike + ' P&L: $' + trade.pnl + ' (' + trade.pnlPct + '%)');
         
-        // Push close to live broker if enabled
-        if (process.env.BROKER_EXECUTION === 'true' && brokerClient && brokerClient.isConnected) {
-            console.log('⚡ Pushing options paper close to live broker: ' + brokerClient.name);
-            await brokerClient.closeOptionPosition(trade);
-        }
-
         res.json({ success: true, trade: trade });
     } catch (e) {
         res.status(500).json({ error: e.message });

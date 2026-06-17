@@ -63,7 +63,10 @@ class UWClient {
     });
 
     try {
-      const res = await fetch(url.toString(), { headers: this.headers });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+      const res = await fetch(url.toString(), { headers: this.headers, signal: controller.signal });
+      clearTimeout(timeoutId);
 
       // Handle rate limit (429) with retry
       if (res.status === 429) {
@@ -73,7 +76,10 @@ class UWClient {
         console.log(`🚫 UW 429 on ${endpoint} — backing off ${waitTime}ms`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         // Retry once after backoff
-        const retry = await fetch(url.toString(), { headers: this.headers });
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 15000);
+        const retry = await fetch(url.toString(), { headers: this.headers, signal: retryController.signal });
+        clearTimeout(retryTimeout);
         if (!retry.ok) {
           const text = await retry.text();
           console.error(`UW API retry failed ${retry.status} on ${endpoint}: ${text.substring(0, 200)}`);

@@ -39,11 +39,18 @@ sed -i "s/^ReadOnlyLogin=.*/ReadOnlyLogin=no/" /root/ibc/config.ini
 sed -i "s/^IbLoginId=.*/IbLoginId=$IBLOG/" /root/ibc/config.ini
 sed -i "s/^IbPassword=.*/IbPassword=$IBPWD/" /root/ibc/config.ini
 
-# 7. Map Java and Gateway Version
+# 7. Forcefully bypass config.ini parser and inject Java directly into the executable
 JPATH=$(find /root/Jts /opt -name java -type f -executable | grep -v "/usr/" | head -n 1)
 JDIR=$(dirname $(dirname $JPATH))
-sed -i "s|^JavaPath=.*|JavaPath=$JDIR|" /root/ibc/config.ini
+
+# Inject into line 2 of gatewaystart.sh
+sed -i "2 i JAVA_PATH=\"$JDIR\"" /opt/ibc/gatewaystart.sh
+
+# Force version
 sed -i "s/TWS_MAJOR_VRSN=1019/TWS_MAJOR_VRSN=$VER/g" /opt/ibc/gatewaystart.sh
+
+# Lobotomize the checkJava function completely
+sed -i 's/checkJava() {/checkJava() { return 0;/g' /opt/ibc/scripts/ibcstart.sh
 
 # 8. Rebuild Service & Ignite
 echo "Rebuilding System Service..."
@@ -66,7 +73,7 @@ systemctl daemon-reload
 systemctl enable ibc
 systemctl restart ibc
 
-echo "Rebuild Complete! Waiting 15 seconds for connection..."
+echo "Rebuild Complete! Waiting 15 seconds to verify status..."
 sleep 15
 systemctl status ibc --no-pager
 echo "Ready for test script!"

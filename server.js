@@ -203,6 +203,15 @@ const multiTFAnalyzer = new MultiTFAnalyzer(polygonClient);
 const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer);
 const optionsPaper = new OptionsPaperTrading();
 optionsPaper.brokerClient = brokerClient; // Inject live broker for execution
+optionsPaper.polygonClient = polygonClient; // Inject Polygon for real option chain data
+
+// Wire up broker order status feedback → options paper trading
+if (brokerClient) {
+    brokerClient.onOrderStatus = function(status) {
+        optionsPaper.handleBrokerUpdate(status.orderId, status.status, status.filledPrice);
+    };
+}
+
 const futuresPaper = new FuturesPaperTrading();
 const eodReporter = new EODReporter();
 
@@ -3012,8 +3021,7 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                         try {
                             // Find the signal result for this specific version from abResults
                             var vResult = abResults ? abResults[at.signalVersion] : signalResult;
-                            optionsPaper.autoEnterFromSignal(t, vResult || signalResult, price, state.quotes[t], at.signalVersion);
-                        } catch (oe) { /* options auto-entry is optional */ }
+                            optionsPaper.autoEnterFromSignal(t, vResult || signalResult, price, state.quotes[t], at.signalVersion).catch(function(oe) { /* options auto-entry error */ });
                     });
                 }
             } else {
@@ -3521,8 +3529,7 @@ async function scoreTickerSignals(ticker) {
                         abTrades.forEach(function (at) {
                             try {
                                 var vResult = abResults ? abResults[at.signalVersion] : signalResult;
-                                optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, abPrice, state.quotes[ticker], at.signalVersion);
-                            } catch (oe) { /* optional */ }
+                                optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, abPrice, state.quotes[ticker], at.signalVersion).catch(function(oe) { /* optional */ });
                         });
                     }
                 }

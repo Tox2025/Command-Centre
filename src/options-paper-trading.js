@@ -1,4 +1,4 @@
-// Options Paper Trading — simulate options contract trades
+// Options Paper Trading â€” real options contract trades via IBKR
 // Tracks entries, premium P&L, theta decay, expirations, and feeds ML
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +8,7 @@ const DATA_PATH = path.join(__dirname, '..', 'data', 'options-paper-trades.json'
 class OptionsPaperTrading {
     constructor() {
         this.trades = [];
+        this.polygonClient = null; // Injected from server.js for real option chain data
         this._load();
     }
 
@@ -54,7 +55,7 @@ class OptionsPaperTrading {
             strategy: params.strategy || 'long_call',
             strike: params.strike,
             dte: params.dte || 30,
-            expirationDate: this._calcExpiry(params.dte || 30),
+            expirationDate: params.expirationDate || this._calcExpiry(params.dte || 30),
             entryPremium: params.premium || 0,
             currentPremium: params.premium || 0,
             contracts: params.contracts || 1,
@@ -81,14 +82,16 @@ class OptionsPaperTrading {
             autoEntry: params.autoEntry || false,
             signalVersion: params.signalVersion || 'v1.0',
             // ML features at entry
-            features: params.features || {}
+            features: params.features || {},
+            // Real option chain data
+            contractSymbol: params.contractSymbol || null,
+            usedRealData: params.usedRealData || false,
+            brokerFilled: false
         };
 
-        this.trades.push(trade);
-        this._save();
-
+        // Send to IBKR - block trade if broker rejects
         if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
-            console.log('⚡ Pushing options paper trade to live broker: ' + this.brokerClient.name);
+            console.log('⚡ Sending to IBKR: ' + trade.optionType.toUpperCase() + ' ' + trade.ticker + ' $' + trade.strike + ' x' + trade.contracts + ' @ $' + trade.entryPremium);
             this.brokerClient.placeOptionOrder({
                 ticker: trade.ticker,
                 optionType: trade.optionType,
@@ -98,23 +101,148 @@ class OptionsPaperTrading {
                 action: 'BUY',
                 expirationDate: trade.expirationDate
             }).then(brokerResult => {
-                trade.brokerOrderId = brokerResult.orderId;
-                trade.brokerStatus = brokerResult.status;
+                if (brokerResult.status === 'FAILED') {
+                    console.error('[Broker] ❌ Order BLOCKED — removing trade: ' + trade.ticker);
+                    trade.status = 'REJECTED';
+                    trade.brokerStatus = 'FAILED';
+                    trade.closeTime = new Date().toISOString();
+                } else {
+                    trade.brokerOrderId = brokerResult.orderId;
+                    trade.brokerStatus = brokerResult.status;
+                }
                 this._save();
-            }).catch(e => console.error('[Broker] Failed to place option order:', e));
+            }).catch(e => {
+                console.error('[Broker] ❌ Failed to place order:', e.message);
+                trade.status = 'REJECTED';
+                trade.brokerStatus = 'ERROR';
+                trade.closeTime = new Date().toISOString();
+                this._save();
+            });
         }
 
+        this.trades.push(trade);
+        this._save();
         return trade;
     }
 
-    // ── Calculate expiration date ─────────────────────────
+    // â”€â”€ Calculate expiration date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _calcExpiry(dte) {
         var d = new Date();
         d.setDate(d.getDate() + dte);
         return d.toISOString().split('T')[0]; // YYYY-MM-DD
     }
 
-    // ── Update all open trades with current prices ───────
+    // â”€â”€ Find real option contract from Polygon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    async _findRealContract(ticker, optionType, targetStrike, targetDTE) {
+        if (!this.polygonClient) return null;
+        try {
+            var contracts = await this.polygonClient.getOptionsContracts(ticker, {
+                contract_type: optionType,
+                expired: false,
+                limit: 100
+            });
+            if (!contracts || contracts.length === 0) return null;
+
+            var today = new Date();
+            var targetDate = new Date();
+            targetDate.setDate(today.getDate() + targetDTE);
+
+            // Filter contracts with expiry >= target DTE
+            var valid = contracts.filter(function(c) {
+                var exp = new Date(c.expiration_date);
+                return exp >= targetDate;
+            });
+            if (valid.length === 0) valid = contracts;
+
+            // Sort by closest expiry to target
+            valid.sort(function(a, b) {
+                var da = Math.abs(new Date(a.expiration_date) - targetDate);
+                var db = Math.abs(new Date(b.expiration_date) - targetDate);
+                return da - db;
+            });
+
+            // Pick contracts with the best expiry
+            var bestExpiry = valid[0].expiration_date;
+            var sameExpiry = valid.filter(function(c) { return c.expiration_date === bestExpiry; });
+
+            // Find closest strike to target
+            sameExpiry.sort(function(a, b) {
+                return Math.abs(a.strike_price - targetStrike) - Math.abs(b.strike_price - targetStrike);
+            });
+
+            var best = sameExpiry[0];
+            return {
+                strike: best.strike_price,
+                expirationDate: best.expiration_date,
+                contractSymbol: best.ticker
+            };
+        } catch (e) {
+            console.error('[Options] Error finding real contract:', e.message);
+            return null;
+        }
+    }
+
+    // â”€â”€ Get real option premium from Polygon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    async _getRealPremium(ticker, strike, expiry, optionType) {
+        if (!this.polygonClient) return null;
+        try {
+            var snapshots = await this.polygonClient.getOptionsSnapshot(ticker, {
+                strike_price: strike,
+                expiration_date: expiry,
+                contract_type: optionType
+            });
+            if (!snapshots || snapshots.length === 0) return null;
+
+            var snap = snapshots[0];
+            var day = snap.day || {};
+            var lastQuote = snap.last_quote || {};
+            var lastTrade = snap.last_trade || {};
+            return {
+                bid: lastQuote.bid || 0,
+                ask: lastQuote.ask || 0,
+                last: lastTrade.price || day.close || 0,
+                mid: (lastQuote.bid && lastQuote.ask) ? +((lastQuote.bid + lastQuote.ask) / 2).toFixed(2) : 0,
+                volume: day.volume || 0,
+                openInterest: snap.open_interest || 0,
+                iv: snap.implied_volatility || 0
+            };
+        } catch (e) {
+            console.error('[Options] Error getting real premium:', e.message);
+            return null;
+        }
+    }
+
+    // â”€â”€ Handle broker order status updates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    handleBrokerUpdate(orderId, status, fillPrice) {
+        if (!orderId) return;
+        var trade = this.trades.find(function(t) {
+            return t.brokerOrderId === orderId.toString();
+        });
+        if (!trade) return;
+
+        trade.brokerStatus = status;
+        if (status === 'FILLED' && fillPrice > 0) {
+            trade.brokerFillPrice = fillPrice;
+            // Update entry/exit premium with real fill price
+            if (trade.status === 'OPEN' && !trade.brokerFilled) {
+                trade.entryPremium = fillPrice;
+                trade.currentPremium = fillPrice;
+                trade.brokerFilled = true;
+                console.log('[Broker] âœ… FILLED: ' + trade.ticker + ' ' + trade.strike + ' ' + trade.optionType + ' @ $' + fillPrice);
+            }
+        } else if (status === 'REJECTED') {
+            console.error('[Broker] âŒ REJECTED: ' + trade.ticker + ' â€” removing trade');
+            trade.status = 'REJECTED';
+            trade.closeTime = new Date().toISOString();
+        } else if (status === 'CANCELLED') {
+            console.warn('[Broker] âš ï¸ CANCELLED: ' + trade.ticker);
+            trade.status = 'CANCELLED';
+            trade.closeTime = new Date().toISOString();
+        }
+        this._save();
+    }
+
+    // â”€â”€ Update all open trades with current prices â”€â”€â”€â”€â”€â”€â”€
     updatePrices(quotes) {
         var updated = 0;
         var now = new Date();
@@ -151,7 +279,7 @@ class OptionsPaperTrading {
         return updated;
     }
 
-    // ── Estimate current premium (simplified Black-Scholes proxy) ──
+    // â”€â”€ Estimate current premium (simplified Black-Scholes proxy) â”€â”€
     _estimatePremium(trade, currentPrice, now) {
         var strike = trade.strike;
         var entryPremium = trade.entryPremium;
@@ -164,7 +292,7 @@ class OptionsPaperTrading {
         var daysRemaining = Math.max(0, msRemaining / (1000 * 60 * 60 * 24));
         var originalDTE = trade.dte || 30;
 
-        // Time decay factor (theta): sqrt curve — faster near expiry
+        // Time decay factor (theta): sqrt curve â€” faster near expiry
         var timeFactor = originalDTE > 0 ? Math.sqrt(daysRemaining / originalDTE) : 0;
 
         // Intrinsic value
@@ -184,7 +312,7 @@ class OptionsPaperTrading {
         }
         var entryExtrinsic = Math.max(0, entryPremium - entryIntrinsic);
 
-        // Current extrinsic = entry extrinsic × time decay factor
+        // Current extrinsic = entry extrinsic Ã— time decay factor
         var currentExtrinsic = entryExtrinsic * timeFactor;
 
         // Delta effect: how much premium changes per $ of underlying move
@@ -210,7 +338,7 @@ class OptionsPaperTrading {
         return Math.round(estimated * 100) / 100;
     }
 
-    // ── Check for outcomes (expiration, profit targets, stop losses) ──
+    // â”€â”€ Check for outcomes (expiration, profit targets, stop losses) â”€â”€
     _checkOutcomes(now) {
         var self = this;
         this.trades.forEach(function (trade) {
@@ -219,7 +347,7 @@ class OptionsPaperTrading {
             // Check expiration
             var expiry = new Date(trade.expirationDate + 'T16:00:00');
             if (now >= expiry) {
-                // Expired — close at intrinsic value
+                // Expired â€” close at intrinsic value
                 var intrinsic = 0;
                 if (trade.optionType === 'call') {
                     intrinsic = Math.max(0, trade.currentPrice - trade.strike);
@@ -245,7 +373,7 @@ class OptionsPaperTrading {
         });
     }
 
-    // ── Close a trade ────────────────────────────────────
+    // â”€â”€ Close a trade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _closeTrade(trade, outcome, exitPremium) {
         trade.status = outcome.startsWith('WIN') || outcome === 'EXPIRED_ITM' ? 'WIN' : 'LOSS';
         trade.outcome = outcome;
@@ -263,13 +391,13 @@ class OptionsPaperTrading {
         this._save();
 
         if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
-            console.log('⚡ Pushing options paper close to live broker: ' + this.brokerClient.name);
+            console.log('âš¡ Pushing options paper close to live broker: ' + this.brokerClient.name);
             this.brokerClient.closeOptionPosition(trade)
                 .catch(e => console.error('[Broker] Failed to close option position:', e));
         }
     }
 
-    // ── Manual close ─────────────────────────────────────
+    // â”€â”€ Manual close â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     closeTrade(id) {
         var trade = this.trades.find(function (t) { return t.id === id && t.status === 'OPEN'; });
         if (!trade) return null;
@@ -277,7 +405,7 @@ class OptionsPaperTrading {
         return trade;
     }
 
-    // ── Get trades ─────────────────────────────────────────
+    // â”€â”€ Get trades â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     getTrades(version) {
         if (!version || version === 'all') return this.trades;
         return this.trades.filter(function (t) { return t.signalVersion === version; });
@@ -295,7 +423,7 @@ class OptionsPaperTrading {
         return closed.filter(function (t) { return t.signalVersion === version; });
     }
 
-    // ── Stats ────────────────────────────────────────────
+    // â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     getStatsByVersion(days) {
         var byVersion = {};
         var cutoff = days ? Date.now() - (days * 24 * 60 * 60 * 1000) : 0;
@@ -426,7 +554,7 @@ class OptionsPaperTrading {
         };
     }
 
-    // ── ML Training Data ─────────────────────────────────
+    // â”€â”€ ML Training Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     getTrainingData() {
         return this.getClosedTrades().map(function (t) {
             return {
@@ -449,9 +577,10 @@ class OptionsPaperTrading {
         });
     }
 
-    // ── Auto-enter from signal engine ────────────────────
+    // â”€â”€ Auto-enter from signal engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Called automatically when A/B paper trades are created
-    autoEnterFromSignal(ticker, signalResult, stockPrice, quote, explicitVersion) {
+    // Now async: fetches real option contracts from Polygon
+    async autoEnterFromSignal(ticker, signalResult, stockPrice, quote, explicitVersion) {
         if (!ticker || !signalResult || !stockPrice || stockPrice <= 0) return null;
         if (!signalResult.direction || signalResult.direction === 'NEUTRAL') return null;
         if ((signalResult.confidence || 0) < 51) return null; // Trade signals 51%+
@@ -472,23 +601,76 @@ class OptionsPaperTrading {
         var optionType = isBullish ? 'call' : 'put';
         var strategy = isBullish ? 'long_call' : 'long_put';
 
-        // ATM strike (round to nearest $5 for stocks > $100, $1 otherwise)
+        // Target strike: ATM based on confidence
         var strikeRound = stockPrice > 100 ? 5 : 1;
-        var strike = Math.round(stockPrice / strikeRound) * strikeRound;
+        var targetStrike;
+        if (signalResult.confidence >= 70) {
+            // High confidence: ATM (closest to current price)
+            targetStrike = Math.round(stockPrice / strikeRound) * strikeRound;
+        } else if (signalResult.confidence >= 55) {
+            // Medium confidence: slightly OTM
+            if (isBullish) {
+                targetStrike = Math.ceil(stockPrice / strikeRound) * strikeRound;
+            } else {
+                targetStrike = Math.floor(stockPrice / strikeRound) * strikeRound;
+            }
+        } else {
+            // Lower confidence: more OTM for better R:R
+            if (isBullish) {
+                targetStrike = Math.ceil((stockPrice * 1.02) / strikeRound) * strikeRound;
+            } else {
+                targetStrike = Math.floor((stockPrice * 0.98) / strikeRound) * strikeRound;
+            }
+        }
 
         // DTE: 14 days for day/intraday, 30 for swing
         var dte = 14;
 
-        // Estimate premium: ~2-4% of stock price for ATM with 14 DTE
-        var premiumPct = 0.03; // 3%
-        var estimatedPremium = +(stockPrice * premiumPct).toFixed(2);
+        // Try to find real contract and premium from Polygon
+        var strike = targetStrike;
+        var expirationDate = null;
+        var premium = 0;
+        var contractSymbol = null;
+        var usedRealData = false;
+
+        var realContract = await this._findRealContract(ticker, optionType, targetStrike, dte);
+        if (realContract) {
+            strike = realContract.strike;
+            expirationDate = realContract.expirationDate;
+            contractSymbol = realContract.contractSymbol;
+
+            var realPremium = await this._getRealPremium(ticker, strike, expirationDate, optionType);
+            if (realPremium && realPremium.ask > 0) {
+                premium = realPremium.ask; // Use ask price for BUY orders
+                usedRealData = true;
+                console.log('[Options] ðŸ“Š Real data: ' + ticker + ' ' + optionType.toUpperCase() + ' $' + strike + ' exp ' + expirationDate + ' | Bid: $' + realPremium.bid + ' Ask: $' + realPremium.ask + ' Vol: ' + realPremium.volume);
+            } else if (realPremium && realPremium.last > 0) {
+                premium = realPremium.last;
+                usedRealData = true;
+            }
+        }
+
+        // Fallback to estimation if Polygon data unavailable
+        if (!usedRealData) {
+            premium = +(stockPrice * 0.03).toFixed(2);
+            console.warn('[Options] âš ï¸ Using estimated premium for ' + ticker + ' (Polygon unavailable)');
+        }
+        if (!expirationDate) {
+            expirationDate = this._calcExpiry(dte);
+        }
+
+        // Skip if premium is too expensive (> $50 per share = $5000 per contract)
+        if (premium > 50) {
+            console.warn('[Options] âš ï¸ Skipping ' + ticker + ': premium $' + premium + ' too expensive');
+            return null;
+        }
 
         // Contracts: 1-3 based on confidence
         var contracts = signalResult.confidence >= 80 ? 3 : signalResult.confidence >= 70 ? 2 : 1;
 
         // Cap max premium per trade at $500 per contract
-        if (estimatedPremium * 100 * contracts > 5000) {
-            contracts = Math.max(1, Math.floor(5000 / (estimatedPremium * 100)));
+        if (premium * 100 * contracts > 5000) {
+            contracts = Math.max(1, Math.floor(5000 / (premium * 100)));
         }
 
         var trade = this.openTrade({
@@ -497,7 +679,7 @@ class OptionsPaperTrading {
             strategy: strategy,
             strike: strike,
             dte: dte,
-            premium: estimatedPremium,
+            premium: premium,
             contracts: contracts,
             stockPrice: stockPrice,
             confidence: signalResult.confidence,
@@ -507,14 +689,19 @@ class OptionsPaperTrading {
             autoEntry: true,
             signalVersion: version,
             session: 'AUTO',
-            horizon: 'day_trade'
+            horizon: 'day_trade',
+            expirationDate: expirationDate,
+            contractSymbol: contractSymbol,
+            usedRealData: usedRealData
         });
 
         if (trade) {
-            console.log('📋 Auto options paper [' + version + ']: ' + optionType.toUpperCase() + ' ' + ticker + ' $' + strike + ' x' + contracts + ' @ $' + estimatedPremium + ' (conf: ' + signalResult.confidence + '%)');
+            var src = usedRealData ? 'ðŸ“Š REAL' : 'âš ï¸ EST';
+            console.log(src + ' Auto [' + version + ']: ' + optionType.toUpperCase() + ' ' + ticker + ' $' + strike + ' x' + contracts + ' @ $' + premium + ' exp ' + expirationDate + ' (conf: ' + signalResult.confidence + '%)');
         }
         return trade;
     }
 }
 
 module.exports = OptionsPaperTrading;
+

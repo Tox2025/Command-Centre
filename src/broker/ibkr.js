@@ -9,6 +9,16 @@ class IBKRClient extends BrokerClient {
         this.ib = null;
         this.nextOrderId = null;
         
+        // Reconnection settings
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 30000; // 30 seconds
+        this._reconnectTimer = null;
+        this._intentionalDisconnect = false;
+
+        // Order tracking: orderId → { tradeId, action, ticker, timestamp }
+        this.orderMap = new Map();
+        
         // Listeners for bi-directional state tracking
         this.onOrderStatus = null; 
         
@@ -31,12 +41,15 @@ class IBKRClient extends BrokerClient {
             return true;
         }
 
+        this._intentionalDisconnect = false;
+
         return new Promise((resolve, reject) => {
             this.ib = new this.IBApi({ host: this.host, port: this.port });
 
             this.ib.on(this.EventName.connected, () => {
                 console.log(`[IBKR] Successfully connected to Gateway on port ${this.port}`);
                 this.isConnected = true;
+                this.reconnectAttempts = 0;
                 this.ib.reqIds(-1);
                 resolve(true);
             });
@@ -64,6 +77,12 @@ class IBKRClient extends BrokerClient {
                     // Informational messages (e.g. market data farm connections)
                     return; 
                 }
+
+                // Critical warning: Read-only mode means fix-readonly agent didn't run
+                if (code === 321) {
+                    console.error(`[IBKR] ⚠️ CRITICAL: API still in Read-Only mode! Fix-readonly agent may not have run.`);
+                }
+
                 console.error(`[IBKR] Error (${code}) for OrderID/ReqID ${reqId}: ${err.message}`);
                 
                 if (!this.isConnected) {
@@ -83,6 +102,16 @@ class IBKRClient extends BrokerClient {
                 }
             });
 
+            // AUTO-RECONNECT: Listen for disconnection
+            this.ib.on(this.EventName.disconnected, () => {
+                this.isConnected = false;
+                console.log('[IBKR] Disconnected from Gateway.');
+
+                if (!this._intentionalDisconnect) {
+                    this._scheduleReconnect();
+                }
+            });
+
             try {
                 this.ib.connect();
             } catch (err) {
@@ -91,8 +120,32 @@ class IBKRClient extends BrokerClient {
         });
     }
 
+    // ── Auto-reconnect with backoff ──────────────────────────
+    _scheduleReconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error(`[IBKR] ❌ Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+            return;
+        }
+
+        this.reconnectAttempts++;
+        var delay = Math.min(this.reconnectDelay * this.reconnectAttempts, 300000); // max 5 min
+        console.log(`[IBKR] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+        this._reconnectTimer = setTimeout(() => {
+            console.log(`[IBKR] 🔄 Reconnect attempt #${this.reconnectAttempts}...`);
+            try {
+                this.ib.connect();
+            } catch (e) {
+                console.error('[IBKR] Reconnect failed:', e.message);
+                this._scheduleReconnect();
+            }
+        }, delay);
+    }
+
     async disconnect() {
         if (this.ib && this.isConnected) {
+            this._intentionalDisconnect = true;
+            if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
             this.ib.disconnect();
             this.isConnected = false;
             console.log('[IBKR] Disconnected.');
@@ -137,7 +190,12 @@ class IBKRClient extends BrokerClient {
     async placeOptionOrder(params) {
         console.log(`[IBKR] Validating Option Order: ${params.action} ${params.quantity}x ${params.ticker} ${params.strike} ${params.optionType}`);
         
+        // BLOCK silent simulation when BROKER_EXECUTION is true
         if (!this.isConnected || !this.ib || !this.nextOrderId) {
+            if (process.env.BROKER_EXECUTION === 'true') {
+                console.error('[IBKR] ⚠️ NOT CONNECTED — order BLOCKED (BROKER_EXECUTION=true)');
+                return { orderId: null, status: 'FAILED', reason: 'disconnected' };
+            }
             return { orderId: 'SIM_IBKR_' + Date.now(), status: 'FILLED', filledPrice: params.premium || 1.50 };
         }
 
@@ -155,24 +213,34 @@ class IBKRClient extends BrokerClient {
             multiplier: '100'
         };
 
-        // Adaptive Order: We default to a Market order if premiums are cheap, but 
-        // we can dynamically switch to a Limit order based on user IBKR settings/data.
+        // Use LIMIT orders for options (better fills, avoid slippage on wide spreads)
         const order = {
             action: params.action.toUpperCase(),
-            orderType: this.OrderType.MKT, // Testing MKT first, can change to LMT
+            orderType: this.OrderType.LMT,
             totalQuantity: params.quantity,
+            lmtPrice: parseFloat(params.premium || params.limitPrice || 0),
             tif: 'DAY',
             transmit: true,
-            outsideRth: true // Important for extended hours testing
+            outsideRth: true // Allow extended hours
         };
 
-        // If a limit price is provided, adapt to LMT
-        if (params.limitPrice) {
-            order.orderType = this.OrderType.LMT;
-            order.lmtPrice = parseFloat(params.limitPrice);
+        // Fallback to MKT if no limit price available
+        if (!order.lmtPrice || order.lmtPrice <= 0) {
+            order.orderType = this.OrderType.MKT;
+            delete order.lmtPrice;
+            console.warn(`[IBKR] ⚠️ No limit price for ${params.ticker} — using MARKET order`);
         }
 
-        console.log(`[IBKR] Transmitting Order ID ${id}: ${order.orderType} order for ${contract.symbol}`);
+        // Track order for status feedback
+        this.orderMap.set(id, {
+            action: params.action,
+            ticker: params.ticker,
+            strike: params.strike,
+            optionType: params.optionType,
+            timestamp: Date.now()
+        });
+
+        console.log(`[IBKR] Transmitting Order ID ${id}: ${order.orderType} order for ${contract.symbol} ${params.strike} ${params.optionType} @ $${order.lmtPrice || 'MKT'}`);
         this.ib.placeOrder(id, contract, order);
         
         return {
@@ -184,7 +252,14 @@ class IBKRClient extends BrokerClient {
 
     async placeEquityOrder(params) {
         console.log(`[IBKR] Placing Equity Order: ${params.action} ${params.quantity}x ${params.ticker}`);
-        if (!this.isConnected || !this.ib || !this.nextOrderId) return { orderId: 'SIM_' + Date.now(), status: 'FILLED' };
+
+        if (!this.isConnected || !this.ib || !this.nextOrderId) {
+            if (process.env.BROKER_EXECUTION === 'true') {
+                console.error('[IBKR] ⚠️ NOT CONNECTED — equity order BLOCKED');
+                return { orderId: null, status: 'FAILED', reason: 'disconnected' };
+            }
+            return { orderId: 'SIM_' + Date.now(), status: 'FILLED' };
+        }
         
         const id = this.nextOrderId++;
         const contract = {
@@ -205,13 +280,22 @@ class IBKRClient extends BrokerClient {
         
         if (params.limitPrice) order.lmtPrice = parseFloat(params.limitPrice);
 
+        this.orderMap.set(id, { action: params.action, ticker: params.ticker, timestamp: Date.now() });
+
         this.ib.placeOrder(id, contract, order);
         return { orderId: id.toString(), status: 'SUBMITTED', filledPrice: 0 };
     }
 
     async closeOptionPosition(position) {
         console.log(`[IBKR] Closing Position: ${position.ticker} ${position.strike} ${position.optionType}`);
-        if (!this.isConnected || !this.ib || !this.nextOrderId) return { orderId: 'SIM_CLOSE_' + Date.now(), status: 'FILLED' };
+
+        if (!this.isConnected || !this.ib || !this.nextOrderId) {
+            if (process.env.BROKER_EXECUTION === 'true') {
+                console.error('[IBKR] ⚠️ NOT CONNECTED — close order BLOCKED');
+                return { orderId: null, status: 'FAILED', reason: 'disconnected' };
+            }
+            return { orderId: 'SIM_CLOSE_' + Date.now(), status: 'FILLED' };
+        }
 
         const id = this.nextOrderId++;
         const expiry = position.expirationDate ? position.expirationDate.replace(/-/g, '') : '';
@@ -227,13 +311,22 @@ class IBKRClient extends BrokerClient {
             multiplier: '100'
         };
 
+        // Use LIMIT at bid price for closes (better than MARKET on options)
+        const limitPrice = parseFloat(position.limitPrice || position.currentPremium || 0);
         const order = {
             action: 'SELL',
-            orderType: this.OrderType.MKT, // Try MKT, will be rejected if no live data
+            orderType: limitPrice > 0 ? this.OrderType.LMT : this.OrderType.MKT,
             totalQuantity: position.contracts || 1,
             tif: 'DAY',
-            transmit: true
+            transmit: true,
+            outsideRth: true // Allow extended hours closes
         };
+
+        if (limitPrice > 0) {
+            order.lmtPrice = limitPrice;
+        }
+
+        this.orderMap.set(id, { action: 'SELL', ticker: position.ticker, strike: position.strike, timestamp: Date.now() });
 
         this.ib.placeOrder(id, contract, order);
         return { orderId: id.toString(), status: 'SUBMITTED', filledPrice: 0 };

@@ -842,9 +842,10 @@ app.post('/api/ml/retrain', async (req, res) => {
         // Step 5: Split and train
         var midpoint = Math.floor(allData.length * 0.6);
         var recentHistorical = allData.slice(midpoint);
-        // dayTrade: recent historical + all paper trades (live data most relevant)
-        var dayTradeData = recentHistorical.concat(mergedLive);
-        // swing: everything
+        // dayTrade: recent historical only (paper trades have different feature distributions
+        // and would corrupt walk-forward validation; they train version models instead)
+        var dayTradeData = recentHistorical;
+        // swing: all historical + paper trades (paper trades are small % of total, won't skew validation)
         var swingData = merged;
 
         var dayTradeSuccess = mlCalibrator.train(dayTradeData, 'dayTrade');

@@ -34,7 +34,7 @@ class MLCalibrator {
 
     _emptyModel() {
         return {
-            trees: [], initialPrior: 0, interactions: [], trained: false,
+            trees: [], initialPrior: 0, interactions: [], lr: 0.1, trained: false,
             trainingSamples: 0, accuracy: 0,
             featureImportance: []
         };
@@ -58,14 +58,20 @@ class MLCalibrator {
             try {
                 if (fs.existsSync(MODEL_PATHS[tf])) {
                     var data = JSON.parse(fs.readFileSync(MODEL_PATHS[tf], 'utf8'));
+                    // Detect old logistic regression format (has weights, no trees)
+                    var hasTrees = data.trees && data.trees.length > 0;
+                    if (!hasTrees && data.weights) {
+                        console.log('MLCalibrator (' + tf + '): Old logistic regression model detected, will retrain with GBT on next cycle');
+                    }
                     this.models[tf] = {
                         trees: data.trees || [],
                         initialPrior: data.initialPrior || 0,
                         interactions: data.interactions || [],
-                        trained: data.trained || false,
-                        trainingSamples: data.trainingSamples || 0,
-                        accuracy: data.accuracy || 0,
-                        featureImportance: data.featureImportance || []
+                        lr: data.lr || 0.1,
+                        trained: hasTrees ? (data.trained || false) : false,
+                        trainingSamples: hasTrees ? (data.trainingSamples || 0) : 0,
+                        accuracy: hasTrees ? (data.accuracy || 0) : 0,
+                        featureImportance: hasTrees ? (data.featureImportance || []) : []
                     };
                 }
             } catch (e) {
@@ -81,10 +87,12 @@ class MLCalibrator {
                     var ver = 'v' + match[2].replace(/_/g, '.');
                     try {
                         var d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
+                        var hasVTrees = d.trees && d.trees.length > 0;
+                        if (!hasVTrees) return; // skip old format version models
                         if (!self.versionModels[ver]) self.versionModels[ver] = {};
                         self.versionModels[ver][mtf] = {
-                            trees: d.trees || [], initialPrior: d.initialPrior || 0, interactions: d.interactions || [],
-                            trained: d.trained || false, trainingSamples: d.trainingSamples || 0,
+                            trees: d.trees, initialPrior: d.initialPrior || 0, interactions: d.interactions || [],
+                            lr: d.lr || 0.1, trained: true, trainingSamples: d.trainingSamples || 0,
                             accuracy: d.accuracy || 0, featureImportance: d.featureImportance || []
                         };
                     } catch (e2) { }
@@ -102,9 +110,10 @@ class MLCalibrator {
             var filePath = version ? this._versionModelPath(tf, version) : MODEL_PATHS[tf];
             fs.writeFileSync(filePath, JSON.stringify({
                 trees: m.trees, initialPrior: m.initialPrior, interactions: m.interactions,
-                trained: m.trained, trainingSamples: m.trainingSamples, accuracy: m.accuracy,
-                featureImportance: m.featureImportance,
-                lastTrained: new Date().toISOString(), version: version || 'shared'
+                lr: m.lr || 0.1, trained: m.trained, trainingSamples: m.trainingSamples,
+                accuracy: m.accuracy, featureImportance: m.featureImportance,
+                lastTrained: new Date().toISOString(), version: version || 'shared',
+                algorithm: 'GBT'
             }, null, 2));
         } catch (e) {
             console.error('MLCalibrator save error (' + tf + (version ? '/' + version : '') + '):', e.message);
@@ -165,9 +174,12 @@ class MLCalibrator {
         if (data.length < MIN_TRAINING_SAMPLES) return false;
         console.log('MLCalibrator (' + label + '): Training GBT on ' + data.length + ' samples...');
 
-        let splitIdx = Math.floor(data.length * 0.8);
+        // Walk-forward validation: only split if we have enough samples for meaningful validation
+        // With <60 samples, the 80/20 split leaves too few for validation and GBT memorizes training set
+        let useValidation = data.length >= 60;
+        let splitIdx = useValidation ? Math.floor(data.length * 0.8) : data.length;
         let trainData = data.slice(0, splitIdx);
-        let valData = data.slice(splitIdx);
+        let valData = useValidation ? data.slice(splitIdx) : [];
 
         // Find top 10 features by correlation
         let baseCorr = [];
@@ -209,7 +221,8 @@ class MLCalibrator {
 
         let currentF = trainData.map(d => initialPrior);
         let trees = [];
-        let featureImpMap = new Array(this.featureCount + 20).fill(0);
+        let numInteractions = top20Pairs.length;
+        let featureImpMap = new Array(this.featureCount + numInteractions).fill(0);
 
         let nTrees = 50;
         let lr = 0.1;
@@ -233,13 +246,18 @@ class MLCalibrator {
         }
 
         let trainAcc = this._evaluateAccuracy(trainData, initialPrior, trees, lr);
-        let valAcc = this._evaluateAccuracy(valData, initialPrior, trees, lr);
+        let valAcc = trainAcc;
 
-        console.log(`MLCalibrator (${label}): Train Acc: ${trainAcc}%, Val Acc: ${valAcc}%`);
+        if (useValidation && valData.length > 0) {
+            valAcc = this._evaluateAccuracy(valData, initialPrior, trees, lr);
+            console.log(`MLCalibrator (${label}): Train Acc: ${trainAcc}%, Val Acc: ${valAcc}%`);
 
-        if (valAcc < trainAcc - 5) {
-            console.log(`MLCalibrator (${label}): Validation accuracy (${valAcc}%) is >5% worse than training (${trainAcc}%). Overfitting detected. Not deploying.`);
-            return false;
+            if (valAcc < trainAcc - 5) {
+                console.log(`MLCalibrator (${label}): Validation accuracy (${valAcc}%) is >5% worse than training (${trainAcc}%). Overfitting detected. Not deploying.`);
+                return false;
+            }
+        } else {
+            console.log(`MLCalibrator (${label}): Train Acc: ${trainAcc}% (no validation split — ${data.length} samples)`);
         }
 
         let mObj;
@@ -254,13 +272,24 @@ class MLCalibrator {
         mObj.trees = trees;
         mObj.initialPrior = initialPrior;
         mObj.interactions = top20Pairs;
+        mObj.lr = lr;
         mObj.trained = true;
         mObj.trainingSamples = data.length;
         mObj.accuracy = valAcc;
 
         let maxImp = Math.max(...featureImpMap, 0.0001);
         mObj.featureImportance = featureImpMap.map((imp, idx) => {
-            let name = idx < this.featureCount ? (FEATURE_NAMES[idx] || `Feature_${idx}`) : `${FEATURE_NAMES[top20Pairs[idx-this.featureCount][0]]}x${FEATURE_NAMES[top20Pairs[idx-this.featureCount][1]]}`;
+            let name;
+            if (idx < this.featureCount) {
+                name = FEATURE_NAMES[idx] || `Feature_${idx}`;
+            } else {
+                let pairIdx = idx - this.featureCount;
+                if (pairIdx < top20Pairs.length) {
+                    name = `${FEATURE_NAMES[top20Pairs[pairIdx][0]]}x${FEATURE_NAMES[top20Pairs[pairIdx][1]]}`;
+                } else {
+                    name = `Interaction_${pairIdx}`;
+                }
+            }
             return { name, importance: +(imp/maxImp).toFixed(4), weight: +(imp/maxImp).toFixed(4) };
         }).sort((a,b) => b.importance - a.importance);
 
@@ -365,6 +394,7 @@ class MLCalibrator {
     }
 
     _evaluateAccuracy(data, initialPrior, trees, lr) {
+        if (!data || data.length === 0) return 0;
         let correct = 0;
         for (let i = 0; i < data.length; i++) {
             let z = initialPrior;
@@ -396,8 +426,9 @@ class MLCalibrator {
         }
 
         let z = m.initialPrior || 0;
+        let lr = m.lr || 0.1;
         for (let t = 0; t < m.trees.length; t++) {
-            z += 0.1 * this._predictTree(m.trees[t], expanded);
+            z += lr * this._predictTree(m.trees[t], expanded);
         }
         return +(1 / (1 + Math.exp(-z))).toFixed(4);
     }

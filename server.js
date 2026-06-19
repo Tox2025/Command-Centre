@@ -3018,7 +3018,6 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                 // Auto-enter options paper trade for each active version
                 if (abTrades.length > 0) {
                     abTrades.forEach(function (at) {
-                        try {
                             // Find the signal result for this specific version from abResults
                             var vResult = abResults ? abResults[at.signalVersion] : signalResult;
                             optionsPaper.autoEnterFromSignal(t, vResult || signalResult, price, state.quotes[t], at.signalVersion).catch(function(oe) { /* options auto-entry error */ });
@@ -3527,7 +3526,6 @@ async function scoreTickerSignals(ticker) {
                     });
                     if (abTrades.length > 0) {
                         abTrades.forEach(function (at) {
-                            try {
                                 var vResult = abResults ? abResults[at.signalVersion] : signalResult;
                                 optionsPaper.autoEnterFromSignal(ticker, vResult || signalResult, abPrice, state.quotes[ticker], at.signalVersion).catch(function(oe) { /* optional */ });
                         });

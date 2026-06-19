@@ -27,6 +27,7 @@ const { OpportunityScanner } = require('./src/opportunity-scanner');
 const OptionsPaperTrading = require('./src/options-paper-trading');
 const FuturesPaperTrading = require('./src/futures-paper-trading');
 const EODReporter = require('./src/eod-reporter');
+const MarketRegimeDetector = require('./src/regime-detector');
 const PolygonTickClient = require('./src/polygon-client');
 const PolygonHistorical = require('./src/polygon-historical');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -188,6 +189,7 @@ function _bootstrapML() {
 }
 const earningsCalendar = new EarningsCalendar(uw);
 const marketRegime = new MarketRegime();
+const regimeDetector = new MarketRegimeDetector();
 const newsSentiment = new NewsSentiment();
 const correlationGuard = new CorrelationGuard();
 const notifier = new Notifier();
@@ -260,6 +262,7 @@ const state = {
     lastUpdate: null,
     session: 'LOADING',
     marketRegime: { regime: 'UNKNOWN', label: 'LOADING...' },
+    regimeDetection: null,
     journalStats: {},
     mlStatus: {},
     earningsRisk: {},
@@ -750,6 +753,10 @@ app.get('/api/signals/:ticker', (req, res) => {
     res.json(state.signalScores[t] || null);
 });
 app.get('/api/regime', (req, res) => res.json(state.marketRegime));
+app.get('/api/regime-detection', (req, res) => res.json({
+    current: state.regimeDetection,
+    history: regimeDetector.getRegimeHistory()
+}));
 app.get('/api/correlation', (req, res) => res.json(state.correlationRisk));
 app.get('/api/scanner', (req, res) => res.json(scanner.getResults()));
 app.get('/api/tick-data', (req, res) => res.json({ connected: polygonClient.isConnected(), tickers: polygonClient.getSubscribedCount(), data: polygonClient.getAllSummaries() }));
@@ -3028,12 +3035,29 @@ function trackDiscovery(ticker, source, signalResult, meta) {
                 var maxConsecLosses = 3;
                 var consecLosses = tradeJournal.getConsecutiveLosses(t, dir);
                 if (consecLosses < maxConsecLosses) {
-                    var cooldownMs = 30 * 60 * 1000;
-                    var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
-                    if (autoTrade) {
-                        console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
-                            ' (conf: ' + signalResult.confidence + '%, source: ' + source + ')');
-                        try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                    // ── Regime adjustment before paper trade ──
+                    var regimeAdj = null;
+                    if (state.regimeDetection && state.regimeDetection.regime) {
+                        regimeAdj = regimeDetector.adjustTradeParams(state.regimeDetection.regime, {
+                            confidence: setup.confidence,
+                            direction: dir,
+                            sizing: 1.0
+                        });
+                        if (regimeAdj && regimeAdj.skip) {
+                            console.log('⏭️  Discovery paper blocked ' + dir + ' ' + t + ': ' + regimeAdj.skipReason + ' (regime: ' + state.regimeDetection.regime + ')');
+                        } else if (regimeAdj) {
+                            setup.confidence = regimeAdj.confidence;
+                            setup.regimeAdjustment = { regime: state.regimeDetection.regime, sizingMult: regimeAdj.sizing };
+                        }
+                    }
+                    if (!regimeAdj || !regimeAdj.skip) {
+                        var cooldownMs = 30 * 60 * 1000;
+                        var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
+                        if (autoTrade) {
+                            console.log('📝 Discovery paper trade: ' + dir + ' ' + t + ' @ $' + price.toFixed(2) +
+                                ' (conf: ' + setup.confidence + '%, source: ' + source + ', regime: ' + (state.regimeDetection ? state.regimeDetection.regime : 'N/A') + ')');
+                            try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                        }
                     }
                 } else {
                     console.log('⏭️  Discovery paper blocked ' + dir + ' ' + t + ': streak=' + consecLosses);
@@ -3462,11 +3486,28 @@ async function scoreTickerSignals(ticker) {
                     var maxConsecLosses = 3;
                     var consecLosses = tradeJournal.getConsecutiveLosses(ticker, dir);
                     if (consecLosses < maxConsecLosses) {
-                        var cooldownMs = 30 * 60 * 1000;
-                        var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
-                        if (autoTrade) {
-                            console.log('📝 Auto paper trade: ' + dir + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (conf: ' + signalResult.confidence + '%, signals: ' + (signalResult.signals || []).length + ', ' + horizon + ')');
-                            try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                        // ── Regime adjustment before paper trade ──
+                        var regimeAdj2 = null;
+                        if (state.regimeDetection && state.regimeDetection.regime) {
+                            regimeAdj2 = regimeDetector.adjustTradeParams(state.regimeDetection.regime, {
+                                confidence: setup.confidence,
+                                direction: dir,
+                                sizing: 1.0
+                            });
+                            if (regimeAdj2 && regimeAdj2.skip) {
+                                console.log('⏭️  Paper trade blocked ' + dir + ' ' + ticker + ': ' + regimeAdj2.skipReason + ' (regime: ' + state.regimeDetection.regime + ')');
+                            } else if (regimeAdj2) {
+                                setup.confidence = regimeAdj2.confidence;
+                                setup.regimeAdjustment = { regime: state.regimeDetection.regime, sizingMult: regimeAdj2.sizing };
+                            }
+                        }
+                        if (!regimeAdj2 || !regimeAdj2.skip) {
+                            var cooldownMs = 30 * 60 * 1000;
+                            var autoTrade = tradeJournal.paperTrade(setup, price, cooldownMs, scheduler);
+                            if (autoTrade) {
+                                console.log('📝 Auto paper trade: ' + dir + ' ' + ticker + ' @ $' + price.toFixed(2) + ' (conf: ' + setup.confidence + '%, signals: ' + (signalResult.signals || []).length + ', ' + horizon + ', regime: ' + (state.regimeDetection ? state.regimeDetection.regime : 'N/A') + ')');
+                                try { notifier.sendPaperTrade(autoTrade, 'ENTRY'); } catch (ne) { /* optional */ }
+                            }
                         }
                     } else {
                         console.log('⏭️  Paper trade blocked ' + dir + ' ' + ticker + ': losing_streak=' + consecLosses + '/' + maxConsecLosses);
@@ -4513,6 +4554,43 @@ async function refreshAll() {
         };
         state.marketRegime = marketRegime.detect(regimeInput);
     } catch (e) { state.marketRegime = { regime: 'UNKNOWN', label: 'Unknown', confidence: 0 }; }
+
+    // ── Regime Detection (SPY/QQQ technical data) ──────────────
+    try {
+        var _buildRegimeData = function (ticker) {
+            var ta = state.technicals[ticker];
+            var q = state.quotes[ticker] || {};
+            var price = parseFloat(q.last || q.price || (ta ? ta.price : 0) || 0);
+            if (ta && price > 0) {
+                return {
+                    price: price,
+                    ema20: ta.ema ? ta.ema.ema20 : null,
+                    ema50: ta.ema ? ta.ema.ema50 : null,
+                    adx: ta.adx ? ta.adx.adx : null,
+                    bbWidth: ta.bollingerBands ? ta.bollingerBands.bandwidth : null,
+                    rsi: ta.rsi || null,
+                    atr: ta.atr || null
+                };
+            }
+            // Fallback: try Polygon snapshot + indicators
+            var snap = polygonClient.getSnapshotData(ticker);
+            if (snap && snap.price > 0) {
+                return {
+                    price: snap.price,
+                    ema20: null, ema50: null, adx: 20, bbWidth: 2,
+                    rsi: 50, atr: snap.price * 0.02
+                };
+            }
+            return null;
+        };
+        var spyData = _buildRegimeData('SPY');
+        var qqData = _buildRegimeData('QQQ');
+        if (spyData && qqData) {
+            state.regimeDetection = regimeDetector.detect(spyData, qqData);
+        }
+    } catch (e) {
+        console.error('RegimeDetector error:', e.message);
+    }
 
     // Analyze news sentiment per ticker
     for (const ticker of state.tickers) {

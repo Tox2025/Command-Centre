@@ -4,10 +4,11 @@ const path = require('path');
 
 const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
 const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
-const EXPIRY_DAYS = 5; // Max days to track a trade before marking expired
+const EXPIRY_DAYS = 10; // Max days to track a trade before marking expired
 const ACCOUNT_BALANCE = 150000; // Paper trading account size ($25k * 6 versions)
 const VERSION_BUDGET = 25000;   // Per-version budget
 const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
+const MIN_CONFIDENCE = 55; // Minimum confidence to trade (was 40 — too much noise)
 
 class TradeJournal {
     constructor() {
@@ -143,7 +144,7 @@ class TradeJournal {
         return trade;
     }
 
-    // Check all pending trades against current prices
+    // Check all pending trades against current prices — with trailing stops
     checkOutcomes(quotes) {
         let updated = 0;
         const now = Date.now();
@@ -158,7 +159,7 @@ class TradeJournal {
 
             const ageDays = tradeAge / (1000 * 60 * 60 * 24);
 
-            // ── FIX: Expire based on time REGARDLESS of price availability ──
+            // ── Expire based on time REGARDLESS of price availability ──
             if (ageDays > EXPIRY_DAYS) {
                 const q = quotes[trade.ticker];
                 const current = q ? parseFloat(q.last || q.price || q.close || 0) : (trade.paperEntry || trade.entry || 0);
@@ -170,30 +171,83 @@ class TradeJournal {
             const q = quotes[trade.ticker];
             if (!q) return;
 
-            // Use CURRENT price only
             const current = parseFloat(q.last || q.price || q.close || 0);
             if (current === 0) return;
 
+            var entry = trade.paperEntry || trade.entry;
+
+            // ── TRAILING STOP: Track high water mark and trail stop ──
+            if (!trade.highWaterMark) trade.highWaterMark = entry;
+            if (!trade.atrAtEntry) {
+                // Estimate ATR from stop distance if not stored
+                trade.atrAtEntry = Math.abs(entry - trade.originalStop || trade.stop) / 1.0;
+            }
+            if (!trade.originalStop) trade.originalStop = trade.stop;
+
+            var atr = trade.atrAtEntry || 1;
+
             if (trade.direction === 'LONG') {
+                // Update high water mark
+                if (current > trade.highWaterMark) trade.highWaterMark = current;
+
+                // Trail stop: once profit > 1 ATR, trail at highWaterMark - 1.5 ATR
+                var profitATR = (trade.highWaterMark - entry) / atr;
+                if (profitATR >= 2.0) {
+                    var newStop = +(trade.highWaterMark - atr * 1.0).toFixed(2);
+                    if (newStop > trade.stop) trade.stop = newStop;
+                } else if (profitATR >= 1.0) {
+                    // Move stop to breakeven
+                    if (entry > trade.stop) trade.stop = entry;
+                }
+
+                // Partial profit: close 50% at T1
+                if (!trade.partialClosed && current >= trade.target1 && trade.shares > 1) {
+                    var closeShares = Math.floor(trade.shares / 2);
+                    trade.partialClosed = true;
+                    trade.partialShares = closeShares;
+                    trade.partialPrice = current;
+                    trade.partialPnl = +((current - entry) / entry * 100).toFixed(2);
+                    trade.shares = trade.shares - closeShares;
+                    trade.stop = entry; // Move stop to breakeven on remainder
+                    console.log('📊 Partial close: ' + trade.ticker + ' sold ' + closeShares + ' shares @ $' + current + ' (+' + trade.partialPnl + '%)');
+                }
+
+                // Check exits
                 if (current <= trade.stop) {
                     this._closeTrade(trade, 'LOSS_STOP', current);
                     updated++;
                 } else if (current >= trade.target2) {
                     this._closeTrade(trade, 'WIN_T2', current);
                     updated++;
-                } else if (current >= trade.target1) {
-                    this._closeTrade(trade, 'WIN_T1', current);
-                    updated++;
                 }
             } else { // SHORT
+                if (current < trade.highWaterMark) trade.highWaterMark = current;
+
+                var shortProfitATR = (entry - trade.highWaterMark) / atr;
+                if (shortProfitATR >= 2.0) {
+                    var newShortStop = +(trade.highWaterMark + atr * 1.0).toFixed(2);
+                    if (newShortStop < trade.stop) trade.stop = newShortStop;
+                } else if (shortProfitATR >= 1.0) {
+                    if (entry < trade.stop) trade.stop = entry;
+                }
+
+                // Partial profit for shorts
+                if (!trade.partialClosed && current <= trade.target1 && trade.shares > 1) {
+                    var closeSharesS = Math.floor(trade.shares / 2);
+                    trade.partialClosed = true;
+                    trade.partialShares = closeSharesS;
+                    trade.partialPrice = current;
+                    trade.partialPnl = +((entry - current) / entry * 100).toFixed(2);
+                    trade.shares = trade.shares - closeSharesS;
+                    trade.stop = entry;
+                    console.log('📊 Partial close: ' + trade.ticker + ' covered ' + closeSharesS + ' shares @ $' + current + ' (+' + trade.partialPnl + '%)');
+                }
+
                 if (current >= trade.stop) {
                     this._closeTrade(trade, 'LOSS_STOP', current);
                     updated++;
                 } else if (current <= trade.target2) {
                     this._closeTrade(trade, 'WIN_T2', current);
-                    updated++;
-                } else if (current <= trade.target1) {
-                    this._closeTrade(trade, 'WIN_T1', current);
                     updated++;
                 }
             }
@@ -481,13 +535,32 @@ class TradeJournal {
 
         var entryPrice = currentPrice || setup.entry;
 
-        // Tentatively calculate shares — use Kelly sizing or default to meaningful position
+        // ── Confidence-scaled position sizing ──
+        var conf = setup.confidence || 50;
+        if (conf < MIN_CONFIDENCE) return null; // Don't trade below minimum confidence
+
         var tentativeShares = 0;
+        var allocationSize;
+        if (conf >= 80) allocationSize = 8000;
+        else if (conf >= 70) allocationSize = 6000;
+        else if (conf >= 60) allocationSize = 4000;
+        else allocationSize = 2500;
+
+        // Win/loss streak adjustment
+        var streakAdj = 1.0;
+        var consecLosses = this.getConsecutiveLosses(setup.ticker, setup.direction);
+        if (consecLosses >= 3) return null; // Pause ticker after 3 consecutive losses
+        if (consecLosses >= 2) streakAdj = 0.5;
+        // Check for win streak
+        var recentWins = this._getRecentWinStreak(setup.ticker, setup.direction);
+        if (recentWins >= 3) streakAdj = 1.25;
+
+        allocationSize = Math.round(allocationSize * streakAdj);
+
         if (setup.kellySizing && setup.kellySizing.size > 0) {
-            tentativeShares = Math.floor(setup.kellySizing.size / entryPrice);
+            tentativeShares = Math.floor(Math.min(setup.kellySizing.size, allocationSize) / entryPrice);
         } else {
-            // Default: allocate $5000 per trade (20% of $25K version budget)
-            tentativeShares = Math.max(1, Math.floor(5000 / entryPrice));
+            tentativeShares = Math.max(1, Math.floor(allocationSize / entryPrice));
         }
         // Minimum shares — paper trades should be realistic size
         var minShares = entryPrice < 100 ? 10 : entryPrice < 500 ? 5 : 2;
@@ -611,6 +684,25 @@ class TradeJournal {
                 count++;
             } else {
                 break; // Stop at first non-loss
+            }
+        }
+        return count;
+    }
+
+    // Count consecutive wins for a ticker+direction (most recent first)
+    _getRecentWinStreak(ticker, direction) {
+        var matching = this.trades.filter(function (t) {
+            return t.paper && t.ticker === ticker && t.direction === direction && t.status !== 'PENDING';
+        });
+        matching.sort(function (a, b) {
+            return new Date(b.closeTime || b.openTime).getTime() - new Date(a.closeTime || a.openTime).getTime();
+        });
+        var count = 0;
+        for (var i = 0; i < matching.length; i++) {
+            if (matching[i].status && matching[i].status.indexOf('WIN') >= 0) {
+                count++;
+            } else {
+                break;
             }
         }
         return count;

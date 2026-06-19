@@ -1,6 +1,3 @@
-// ML Calibrator - Multi-timeframe logistic regression for confidence calibration
-// Maintains separate models for dayTrade (open/power hour) and swing (1-7d+)
-// Supports per-version models for A/B testing
 const fs = require('fs');
 const path = require('path');
 
@@ -10,8 +7,7 @@ const MODEL_PATHS = {
     swing: path.join(DATA_DIR, 'ml-model-swing.json')
 };
 const MIN_TRAINING_SAMPLES = 30;
-const ML_RAMP_FULL = 300;     // Samples needed to reach full ML weight
-const ML_MAX_WEIGHT = 0.30;  // ML never exceeds 30% — technicals stay dominant
+const ML_RAMP_FULL = 100;
 
 const FEATURE_NAMES = [
     'RSI', 'MACD_Hist', 'EMA_Align', 'BB_Position', 'ATR',
@@ -38,9 +34,9 @@ class MLCalibrator {
 
     _emptyModel() {
         return {
-            weights: null, bias: 0, trained: false,
+            trees: [], initialPrior: 0, interactions: [], trained: false,
             trainingSamples: 0, accuracy: 0,
-            featureImportance: [], featureStats: null
+            featureImportance: []
         };
     }
 
@@ -63,20 +59,19 @@ class MLCalibrator {
                 if (fs.existsSync(MODEL_PATHS[tf])) {
                     var data = JSON.parse(fs.readFileSync(MODEL_PATHS[tf], 'utf8'));
                     this.models[tf] = {
-                        weights: data.weights,
-                        bias: data.bias || 0,
+                        trees: data.trees || [],
+                        initialPrior: data.initialPrior || 0,
+                        interactions: data.interactions || [],
                         trained: data.trained || false,
                         trainingSamples: data.trainingSamples || 0,
                         accuracy: data.accuracy || 0,
-                        featureImportance: data.featureImportance || [],
-                        featureStats: data.featureStats || null
+                        featureImportance: data.featureImportance || []
                     };
                 }
             } catch (e) {
                 console.error('MLCalibrator load error (' + tf + '):', e.message);
             }
         }
-        // Load per-version models
         try {
             var files = fs.readdirSync(DATA_DIR).filter(function (f) { return f.startsWith('ml-model-') && f.includes('-v'); });
             files.forEach(function (f) {
@@ -88,16 +83,16 @@ class MLCalibrator {
                         var d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
                         if (!self.versionModels[ver]) self.versionModels[ver] = {};
                         self.versionModels[ver][mtf] = {
-                            weights: d.weights, bias: d.bias || 0, trained: d.trained || false,
-                            trainingSamples: d.trainingSamples || 0, accuracy: d.accuracy || 0,
-                            featureImportance: d.featureImportance || [], featureStats: d.featureStats || null
+                            trees: d.trees || [], initialPrior: d.initialPrior || 0, interactions: d.interactions || [],
+                            trained: d.trained || false, trainingSamples: d.trainingSamples || 0,
+                            accuracy: d.accuracy || 0, featureImportance: d.featureImportance || []
                         };
-                    } catch (e2) { /* skip corrupt version models */ }
+                    } catch (e2) { }
                 }
             });
             var vCount = Object.keys(self.versionModels).length;
             if (vCount > 0) console.log('MLCalibrator: Loaded per-version models for ' + Object.keys(self.versionModels).join(', '));
-        } catch (e) { /* no version models yet */ }
+        } catch (e) { }
     }
 
     _save(tf, version) {
@@ -106,9 +101,9 @@ class MLCalibrator {
             var m = version ? this._getModel(tf, version) : this.models[tf];
             var filePath = version ? this._versionModelPath(tf, version) : MODEL_PATHS[tf];
             fs.writeFileSync(filePath, JSON.stringify({
-                weights: m.weights, bias: m.bias, trained: m.trained,
-                trainingSamples: m.trainingSamples, accuracy: m.accuracy,
-                featureImportance: m.featureImportance, featureStats: m.featureStats,
+                trees: m.trees, initialPrior: m.initialPrior, interactions: m.interactions,
+                trained: m.trained, trainingSamples: m.trainingSamples, accuracy: m.accuracy,
+                featureImportance: m.featureImportance,
                 lastTrained: new Date().toISOString(), version: version || 'shared'
             }, null, 2));
         } catch (e) {
@@ -116,36 +111,35 @@ class MLCalibrator {
         }
     }
 
-    _sigmoid(z) {
-        if (z > 500) return 1;
-        if (z < -500) return 0;
-        return 1 / (1 + Math.exp(-z));
-    }
-
-    _normalize(features, stats) {
-        return features.map(function (f, i) {
-            var s = stats[i];
-            if (!s || s.max === s.min) return 0.5;
-            return (f - s.min) / (s.max - s.min);
-        });
-    }
-
-    _computeStats(data) {
-        var stats = [];
-        for (var i = 0; i < this.featureCount; i++) {
-            var min = Infinity, max = -Infinity, sum = 0;
-            data.forEach(function (d) {
-                var v = (d.features && d.features[i]) || 0;
-                if (v < min) min = v;
-                if (v > max) max = v;
-                sum += v;
-            });
-            stats.push({ min: min, max: max, mean: sum / data.length });
+    _getRecencyWeight(trade, index, totalLength) {
+        let ts = trade.timestamp || trade.date || trade.exitTime;
+        if (ts) {
+            let age = Date.now() - new Date(ts).getTime();
+            if (age <= 7 * 86400000) return 1.5;
+            if (age <= 30 * 86400000) return 1.2;
+            return 1.0;
         }
-        return stats;
+        let tradesFromEnd = totalLength - 1 - index;
+        if (tradesFromEnd <= 35) return 1.5;
+        if (tradesFromEnd <= 150) return 1.2;
+        return 1.0;
     }
 
-    // Train a specific timeframe model, optionally for a specific version
+    _pearson(x, y) {
+        let n = x.length;
+        if (n === 0) return 0;
+        let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += x[i]; sumY += y[i];
+            sumXY += x[i] * y[i];
+            sumX2 += x[i] * x[i]; sumY2 += y[i] * y[i];
+        }
+        let num = (n * sumXY) - (sumX * sumY);
+        let den = Math.sqrt(((n * sumX2) - (sumX * sumX)) * ((n * sumY2) - (sumY * sumY)));
+        if (den === 0) return 0;
+        return num / den;
+    }
+
     train(trainingData, timeframe, version) {
         var tf = timeframe || 'dayTrade';
         if (tf !== 'dayTrade' && tf !== 'swing') tf = 'dayTrade';
@@ -157,101 +151,257 @@ class MLCalibrator {
         }
 
         var self = this;
-        var data = trainingData.filter(function (d) {
-            return d.features && d.features.length >= 10;
-        });
-        data = data.map(function (d) {
+        var data = trainingData.filter(d => d.features && d.features.length >= 10);
+        data = data.map((d, index) => {
             var f = d.features.slice();
             while (f.length < self.featureCount) f.push(0);
-            return { features: f.slice(0, self.featureCount), label: d.label, confidence: d.confidence, pnlPct: d.pnlPct };
+            return { 
+                features: f.slice(0, self.featureCount), 
+                label: d.label, 
+                weight: self._getRecencyWeight(d, index, data.length)
+            };
         });
 
         if (data.length < MIN_TRAINING_SAMPLES) return false;
-        console.log('MLCalibrator (' + label + '): Training on ' + data.length + ' samples...');
+        console.log('MLCalibrator (' + label + '): Training GBT on ' + data.length + ' samples...');
 
-        var fStats = this._computeStats(data);
-        var w = new Array(this.featureCount).fill(0);
-        var b = 0;
-        var lr = 0.01;
-        var epochs = 500;
-        var lambda = 0.01;
+        let splitIdx = Math.floor(data.length * 0.8);
+        let trainData = data.slice(0, splitIdx);
+        let valData = data.slice(splitIdx);
 
-        for (var epoch = 0; epoch < epochs; epoch++) {
-            var gradW = new Array(this.featureCount).fill(0);
-            var gradB = 0;
-            for (var si = 0; si < data.length; si++) {
-                var sample = data[si];
-                var x = this._normalize(sample.features, fStats);
-                var y = sample.label;
-                var z = b;
-                for (var i = 0; i < this.featureCount; i++) z += w[i] * x[i];
-                var pred = this._sigmoid(z);
-                var diff = pred - y;
-                for (var i2 = 0; i2 < this.featureCount; i2++) {
-                    gradW[i2] += diff * x[i2] + lambda * w[i2];
-                }
-                gradB += diff;
+        // Find top 10 features by correlation
+        let baseCorr = [];
+        for(let i = 0; i < this.featureCount; i++) {
+            baseCorr.push({ i, corr: Math.abs(this._pearson(trainData.map(d => d.features[i]), trainData.map(d => d.label))) });
+        }
+        baseCorr.sort((a,b) => b.corr - a.corr);
+        let top10 = baseCorr.slice(0, 10).map(x => x.i);
+
+        // Top 20 interactions
+        let pairs = [];
+        for(let i = 0; i < top10.length; i++) {
+            for(let j = i+1; j < top10.length; j++) {
+                let f1 = top10[i], f2 = top10[j];
+                let interVals = trainData.map(d => d.features[f1] * d.features[f2]);
+                let corr = Math.abs(this._pearson(interVals, trainData.map(d => d.label)));
+                pairs.push({ f1, f2, corr: isNaN(corr) ? 0 : corr });
             }
-            for (var i3 = 0; i3 < this.featureCount; i3++) {
-                w[i3] -= lr * gradW[i3] / data.length;
+        }
+        pairs.sort((a,b) => b.corr - a.corr);
+        let top20Pairs = pairs.slice(0, 20).map(p => [p.f1, p.f2]);
+
+        trainData.forEach(d => {
+            d.expanded = d.features.concat(top20Pairs.map(p => d.features[p[0]] * d.features[p[1]]));
+        });
+        valData.forEach(d => {
+            d.expanded = d.features.concat(top20Pairs.map(p => d.features[p[0]] * d.features[p[1]]));
+        });
+
+        let sumW = 0, sumWY = 0;
+        trainData.forEach(d => {
+            sumW += d.weight;
+            sumWY += d.weight * d.label;
+        });
+        let p = sumWY / sumW;
+        if (p <= 0.001) p = 0.001;
+        if (p >= 0.999) p = 0.999;
+        let initialPrior = Math.log(p / (1 - p));
+
+        let currentF = trainData.map(d => initialPrior);
+        let trees = [];
+        let featureImpMap = new Array(this.featureCount + 20).fill(0);
+
+        let nTrees = 50;
+        let lr = 0.1;
+        let maxDepth = 4;
+
+        for (let m = 0; m < nTrees; m++) {
+            let y_residuals = [];
+            let p_preds = [];
+            for(let i = 0; i < trainData.length; i++) {
+                let predP = 1 / (1 + Math.exp(-currentF[i]));
+                p_preds.push(predP);
+                y_residuals.push(trainData[i].label - predP);
             }
-            b -= lr * gradB / data.length;
+
+            let tree = this._buildTree(trainData.map(d=>d.expanded), y_residuals, trainData.map(d=>d.weight), p_preds, 0, maxDepth, featureImpMap);
+            trees.push(tree);
+
+            for(let i = 0; i < trainData.length; i++) {
+                currentF[i] += lr * this._predictTree(tree, trainData[i].expanded);
+            }
         }
 
-        // Store the trained model
-        var m;
+        let trainAcc = this._evaluateAccuracy(trainData, initialPrior, trees, lr);
+        let valAcc = this._evaluateAccuracy(valData, initialPrior, trees, lr);
+
+        console.log(`MLCalibrator (${label}): Train Acc: ${trainAcc}%, Val Acc: ${valAcc}%`);
+
+        if (valAcc < trainAcc - 5) {
+            console.log(`MLCalibrator (${label}): Validation accuracy (${valAcc}%) is >5% worse than training (${trainAcc}%). Overfitting detected. Not deploying.`);
+            return false;
+        }
+
+        let mObj;
         if (version) {
             if (!this.versionModels[version]) this.versionModels[version] = {};
             if (!this.versionModels[version][tf]) this.versionModels[version][tf] = this._emptyModel();
-            m = this.versionModels[version][tf];
+            mObj = this.versionModels[version][tf];
         } else {
-            m = this.models[tf];
+            mObj = this.models[tf];
         }
-        m.weights = w;
-        m.bias = b;
-        m.trained = true;
-        m.trainingSamples = data.length;
-        m.featureStats = fStats;
 
-        // Accuracy
-        var correct = 0;
-        for (var ci = 0; ci < data.length; ci++) {
-            var p = this.predict(data[ci].features, tf, version);
-            if ((p >= 0.5 ? 1 : 0) === data[ci].label) correct++;
-        }
-        m.accuracy = +(correct / data.length * 100).toFixed(1);
+        mObj.trees = trees;
+        mObj.initialPrior = initialPrior;
+        mObj.interactions = top20Pairs;
+        mObj.trained = true;
+        mObj.trainingSamples = data.length;
+        mObj.accuracy = valAcc;
 
-        // Feature importance
-        m.featureImportance = w.map(function (wt, idx) {
-            return { name: FEATURE_NAMES[idx] || 'Feature_' + idx, weight: +wt.toFixed(4), importance: +Math.abs(wt).toFixed(4) };
-        }).sort(function (a, b2) { return b2.importance - a.importance; });
+        let maxImp = Math.max(...featureImpMap, 0.0001);
+        mObj.featureImportance = featureImpMap.map((imp, idx) => {
+            let name = idx < this.featureCount ? (FEATURE_NAMES[idx] || `Feature_${idx}`) : `${FEATURE_NAMES[top20Pairs[idx-this.featureCount][0]]}x${FEATURE_NAMES[top20Pairs[idx-this.featureCount][1]]}`;
+            return { name, importance: +(imp/maxImp).toFixed(4), weight: +(imp/maxImp).toFixed(4) };
+        }).sort((a,b) => b.importance - a.importance);
 
-        console.log('MLCalibrator (' + label + '): Trained! Accuracy: ' + m.accuracy + '%');
-        console.log('Top features:', m.featureImportance.slice(0, 5).map(function (f) { return f.name + '=' + f.weight; }).join(', '));
+        console.log('Top features:', mObj.featureImportance.slice(0, 5).map(f => `${f.name}=${f.importance}`).join(', '));
 
         this._save(tf, version);
         return true;
     }
 
+    _buildTree(X, y_res, weights, p_preds, depth, maxDepth, impMap) {
+        if (depth >= maxDepth || X.length < 5) {
+            return { isLeaf: true, value: this._calcLeaf(y_res, weights, p_preds) };
+        }
+
+        let sumTotal = 0;
+        let weightTotal = 0;
+        for (let i = 0; i < y_res.length; i++) {
+            sumTotal += weights[i] * y_res[i];
+            weightTotal += weights[i];
+        }
+
+        let parentScore = (sumTotal * sumTotal) / weightTotal;
+        let bestScore = -Infinity;
+        let bestSplit = null;
+        let nFeatures = X[0].length;
+
+        for (let f = 0; f < nFeatures; f++) {
+            let indices = X.map((_, i) => i).sort((a, b) => X[a][f] - X[b][f]);
+            
+            let sumLeft = 0;
+            let weightLeft = 0;
+
+            for (let i = 0; i < indices.length - 1; i++) {
+                let idx = indices[i];
+                sumLeft += weights[idx] * y_res[idx];
+                weightLeft += weights[idx];
+
+                if (X[idx][f] === X[indices[i+1]][f]) continue;
+
+                let sumRight = sumTotal - sumLeft;
+                let weightRight = weightTotal - weightLeft;
+
+                if (weightLeft < 1 || weightRight < 1) continue;
+
+                let score = (sumLeft * sumLeft / weightLeft) + (sumRight * sumRight / weightRight);
+                let improvement = score - parentScore;
+                
+                if (improvement > bestScore && improvement > 1e-7) {
+                    bestScore = improvement;
+                    bestSplit = {
+                        feature: f,
+                        threshold: (X[idx][f] + X[indices[i+1]][f]) / 2
+                    };
+                }
+            }
+        }
+
+        if (!bestSplit) {
+            return { isLeaf: true, value: this._calcLeaf(y_res, weights, p_preds) };
+        }
+
+        impMap[bestSplit.feature] += bestScore;
+
+        let leftIdx = [], rightIdx = [];
+        for (let i = 0; i < X.length; i++) {
+            if (X[i][bestSplit.feature] <= bestSplit.threshold) leftIdx.push(i);
+            else rightIdx.push(i);
+        }
+
+        if (leftIdx.length === 0 || rightIdx.length === 0) {
+            return { isLeaf: true, value: this._calcLeaf(y_res, weights, p_preds) };
+        }
+
+        return {
+            isLeaf: false,
+            feature: bestSplit.feature,
+            threshold: bestSplit.threshold,
+            left: this._buildTree(leftIdx.map(i=>X[i]), leftIdx.map(i=>y_res[i]), leftIdx.map(i=>weights[i]), leftIdx.map(i=>p_preds[i]), depth+1, maxDepth, impMap),
+            right: this._buildTree(rightIdx.map(i=>X[i]), rightIdx.map(i=>y_res[i]), rightIdx.map(i=>weights[i]), rightIdx.map(i=>p_preds[i]), depth+1, maxDepth, impMap)
+        };
+    }
+
+    _calcLeaf(y_res, weights, p_preds) {
+        let num = 0, den = 0;
+        for(let i = 0; i < y_res.length; i++) {
+            num += weights[i] * y_res[i];
+            den += weights[i] * p_preds[i] * (1 - p_preds[i]);
+        }
+        if (den === 0) return 0;
+        let v = num / den;
+        if (v > 10) return 10;
+        if (v < -10) return -10;
+        return v;
+    }
+
+    _predictTree(node, x) {
+        while (!node.isLeaf) {
+            if (x[node.feature] <= node.threshold) node = node.left;
+            else node = node.right;
+        }
+        return node.value;
+    }
+
+    _evaluateAccuracy(data, initialPrior, trees, lr) {
+        let correct = 0;
+        for (let i = 0; i < data.length; i++) {
+            let z = initialPrior;
+            for (let t = 0; t < trees.length; t++) {
+                z += lr * this._predictTree(trees[t], data[i].expanded);
+            }
+            let pred = 1 / (1 + Math.exp(-z));
+            let predLabel = pred >= 0.5 ? 1 : 0;
+            if (predLabel === data[i].label) correct++;
+        }
+        return +((correct / data.length) * 100).toFixed(1);
+    }
+
     predict(features, timeframe, version) {
         var tf = timeframe || 'dayTrade';
         var m = this._getModel(tf, version);
-        if (!m || !m.trained || !m.weights) return null;
+        if (!m || !m.trained || !m.trees || m.trees.length === 0) return null;
 
         var f = features ? features.slice() : null;
         if (!f) return null;
         while (f.length < this.featureCount) f.push(0);
         f = f.slice(0, this.featureCount);
 
-        var x = m.featureStats ? this._normalize(f, m.featureStats) : f;
-        var z = m.bias;
-        for (var i = 0; i < this.featureCount; i++) {
-            z += m.weights[i] * (x[i] || 0);
+        let expanded = f.slice();
+        if (m.interactions) {
+            m.interactions.forEach(p => {
+                expanded.push(f[p[0]] * f[p[1]]);
+            });
         }
-        return +this._sigmoid(z).toFixed(4);
+
+        let z = m.initialPrior || 0;
+        for (let t = 0; t < m.trees.length; t++) {
+            z += 0.1 * this._predictTree(m.trees[t], expanded);
+        }
+        return +(1 / (1 + Math.exp(-z))).toFixed(4);
     }
 
-    // Ensemble: blend rule-based and ML confidence using the right TF model
     ensemble(ruleBasedConfidence, features, timeframe, version) {
         var tf = timeframe || 'dayTrade';
         var m = this._getModel(tf, version);
@@ -261,12 +411,33 @@ class MLCalibrator {
             return { confidence: ruleBasedConfidence, source: 'rule_based', mlWeight: 0, timeframe: tf };
         }
 
-        // ML weight ramps from 0→30% as samples grow (technicals always dominant)
-        // Cap at ML_MAX_WEIGHT so a bearish ML model can't kill good technical signals
-        var rawRamp = Math.min(ML_MAX_WEIGHT, (m.trainingSamples / ML_RAMP_FULL) * ML_MAX_WEIGHT);
-        // Further reduce ML influence when model accuracy is near-chance (≤55%)
-        var accuracyFactor = m.accuracy > 55 ? 1.0 : m.accuracy > 52 ? 0.5 : 0.25;
-        var mlWeight = +(rawRamp * accuracyFactor).toFixed(3);
+        let acc = m.accuracy || 0;
+        let mlMaxWeight = 0.15;
+        if (acc >= 75) mlMaxWeight = 0.60;
+        else if (acc >= 70) mlMaxWeight = 0.50;
+        else if (acc >= 65) mlMaxWeight = 0.40;
+        else if (acc >= 60) mlMaxWeight = 0.30;
+
+        if (acc >= 72 && mlPred < 0.30) {
+            return {
+                confidence: 0,
+                ruleBasedConfidence: ruleBasedConfidence,
+                mlConfidence: Math.round(mlPred * 100),
+                mlProbability: mlPred,
+                mlWeight: mlMaxWeight,
+                ruleWeight: 1 - mlMaxWeight,
+                source: 'ensemble',
+                timeframe: tf,
+                version: version || 'shared',
+                modelAccuracy: acc,
+                trainingSamples: m.trainingSamples,
+                vetoed: true,
+                reason: 'ML_VETO'
+            };
+        }
+
+        var rawRamp = Math.min(mlMaxWeight, (m.trainingSamples / ML_RAMP_FULL) * mlMaxWeight);
+        var mlWeight = +rawRamp.toFixed(3);
         var ruleWeight = 1 - mlWeight;
         var mlConfidence = Math.round(mlPred * 100);
         var blended = Math.round(ruleWeight * ruleBasedConfidence + mlWeight * mlConfidence);
@@ -281,7 +452,7 @@ class MLCalibrator {
             source: 'ensemble',
             timeframe: tf,
             version: version || 'shared',
-            modelAccuracy: m.accuracy,
+            modelAccuracy: acc,
             trainingSamples: m.trainingSamples
         };
     }
@@ -289,7 +460,7 @@ class MLCalibrator {
     getSuggestedWeights(timeframe) {
         var tf = timeframe || 'dayTrade';
         var m = this.models[tf];
-        if (!m || !m.trained || !m.featureImportance.length) return null;
+        if (!m || !m.trained || !m.featureImportance || !m.featureImportance.length) return null;
 
         var featureToSignal = {
             'RSI': 'rsi_position', 'MACD_Hist': 'macd_histogram',

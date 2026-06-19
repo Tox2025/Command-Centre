@@ -795,7 +795,7 @@ app.get('/api/polygon/ml/availability/:ticker', async (req, res) => {
 app.post('/api/ml/retrain', async (req, res) => {
     try {
         var tickers = req.body.tickers || state.tickers || [];
-        var years = parseInt(req.body.years) || 5;
+        var years = parseInt(req.body.years) || 15;
         console.log('🧠 ML Retrain started: ' + tickers.length + ' tickers, ' + years + ' years...');
 
         // Step 1: Generate and convert historical data
@@ -804,27 +804,81 @@ app.post('/api/ml/retrain', async (req, res) => {
             return res.json({ error: 'Insufficient training data (' + (result ? result.mlSamples : 0) + ' samples)' });
         }
 
-        // Step 2: Split into dayTrade (recent 2yr) and swing (all) datasets
-        var allData = result.data;
-        var midpoint = Math.floor(allData.length * 0.6);
-        var recentData = allData.slice(midpoint); // More recent data for dayTrade
-        var fullData = allData; // Full dataset for swing
-
-        // Step 3: Train both models
-        var dayTradeSuccess = mlCalibrator.train(recentData, 'dayTrade');
-        var swingSuccess = mlCalibrator.train(fullData, 'swing');
-
-        // Step 4: Persist cumulative training data so ML survives restarts
+        // Step 2: Load existing cumulative data (preserves paper trade samples)
+        var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
+        var existingLive = [];
         try {
-            var cumulPath = path.join(__dirname, 'data', 'ml-training-cumulative.json');
-            if (allData.length > 50000) allData = allData.slice(-50000);
-            require('fs').writeFileSync(cumulPath, JSON.stringify(allData));
-            console.log('🧠 ML training data saved: ' + allData.length + ' samples → ' + cumulPath);
+            if (require('fs').existsSync(cumulPath)) {
+                var existing = JSON.parse(require('fs').readFileSync(cumulPath, 'utf8'));
+                existingLive = existing.filter(function (d) { return d._live; });
+                console.log('🧠 Preserving ' + existingLive.length + ' live paper trade samples from cumulative data');
+            }
+        } catch (e) { /* no existing cumulative */ }
+
+        // Step 3: Also collect ALL closed paper trades directly from journal
+        var paperSamples = [];
+        try {
+            var allClosed = (tradeJournal.getPaperTrades() || []).filter(function (t) {
+                var isTerminal = t.status && (t.status.startsWith('WIN') || t.status.startsWith('LOSS') || t.status === 'EXPIRED');
+                return isTerminal && t.features && t.features.length > 0;
+            });
+            paperSamples = allClosed.map(function (t) {
+                return {
+                    features: t.features, label: t.status.startsWith('WIN') ? 1 : 0,
+                    _ticker: t.ticker, _version: t.signalVersion || 'v2.1', _live: true,
+                    date: t.closedAt || t.closeTime || t.exitTime || null
+                };
+            });
+            console.log('🧠 Collected ' + paperSamples.length + ' closed paper trade samples from journal');
+        } catch (e) { console.error('Paper trade collection error:', e.message); }
+
+        // Step 4: Merge — Polygon historical + paper trades (deduplicated)
+        var allData = result.data;
+        // Combine: use all paper samples (they have real outcomes), then historical
+        var mergedLive = paperSamples.length > existingLive.length ? paperSamples : existingLive;
+        var merged = allData.concat(mergedLive);
+        if (merged.length > 50000) merged = merged.slice(-50000);
+
+        // Step 5: Split and train
+        var midpoint = Math.floor(allData.length * 0.6);
+        var recentHistorical = allData.slice(midpoint);
+        // dayTrade: recent historical + all paper trades (live data most relevant)
+        var dayTradeData = recentHistorical.concat(mergedLive);
+        // swing: everything
+        var swingData = merged;
+
+        var dayTradeSuccess = mlCalibrator.train(dayTradeData, 'dayTrade');
+        var swingSuccess = mlCalibrator.train(swingData, 'swing');
+
+        // Step 6: Persist merged cumulative data
+        try {
+            require('fs').writeFileSync(cumulPath, JSON.stringify(merged));
+            console.log('🧠 ML training data saved: ' + merged.length + ' samples (' + mergedLive.length + ' live + ' + allData.length + ' historical) → ' + cumulPath);
         } catch (saveErr) { console.error('ML data save error:', saveErr.message); }
+
+        // Step 7: Train per-version models from paper trades
+        var versionGroups = {};
+        paperSamples.forEach(function (s) {
+            var v = s._version || 'v2.1';
+            if (!versionGroups[v]) versionGroups[v] = [];
+            versionGroups[v].push(s);
+        });
+        var vKeys = Object.keys(versionGroups);
+        var versionResults = {};
+        vKeys.forEach(function (ver) {
+            var vData = versionGroups[ver];
+            if (vData.length >= 30) {
+                var trained = mlCalibrator.train(vData, 'dayTrade', ver);
+                versionResults[ver] = { trained: trained, samples: vData.length };
+            } else {
+                versionResults[ver] = { trained: false, samples: vData.length, reason: 'need 30+' };
+            }
+        });
 
         var status = mlCalibrator.getStatus();
         console.log('🧠 ML Retrain complete! DayTrade: ' + (dayTradeSuccess ? status.dayTrade.accuracy + '%' : 'failed') +
-            ' | Swing: ' + (swingSuccess ? status.swing.accuracy + '%' : 'failed'));
+            ' | Swing: ' + (swingSuccess ? status.swing.accuracy + '%' : 'failed') +
+            ' | Paper trades: ' + mergedLive.length + ' | Versions: ' + vKeys.join(', '));
 
         res.json({
             success: true,
@@ -832,20 +886,23 @@ app.post('/api/ml/retrain', async (req, res) => {
             yearsOfData: years,
             rawSamples: result.rawSamples,
             mlSamples: result.mlSamples,
+            paperTradeSamples: mergedLive.length,
+            totalMergedSamples: merged.length,
             bullishSamples: result.bullish,
             bearishSamples: result.bearish,
             dayTrade: {
                 trained: dayTradeSuccess,
-                samples: recentData.length,
+                samples: dayTradeData.length,
                 accuracy: status.dayTrade.accuracy,
                 topFeatures: (status.dayTrade.featureImportance || []).slice(0, 5)
             },
             swing: {
                 trained: swingSuccess,
-                samples: fullData.length,
+                samples: swingData.length,
                 accuracy: status.swing.accuracy,
                 topFeatures: (status.swing.featureImportance || []).slice(0, 5)
-            }
+            },
+            versionModels: versionResults
         });
     } catch (e) {
         console.error('ML retrain error:', e.message);

@@ -224,15 +224,19 @@ class MLCalibrator {
         let numInteractions = top20Pairs.length;
         let featureImpMap = new Array(this.featureCount + numInteractions).fill(0);
 
+        // Adaptive hyperparameters — scale regularization with dataset size
+        // Larger datasets need shallower trees to prevent memorization
+        let n = trainData.length;
         let nTrees = 50;
-        let lr = 0.1;
-        let maxDepth = 4;
-        let subsampleRate = 0.8;  // Row subsampling: each tree sees 80% of data
-        let colsampleRate = 0.6;  // Feature subsampling: each split considers 60% of features
+        let lr = n > 1000 ? 0.05 : 0.1;           // Slower learning for large datasets
+        let maxDepth = n > 500 ? 3 : 4;            // Shallower trees prevent overfitting on large data
+        let subsampleRate = 0.8;                     // Row subsampling: each tree sees 80% of data
+        let colsampleRate = n > 1000 ? 0.5 : 0.6;  // Fewer features per split for large datasets
         let nExpandedFeatures = trainData[0].expanded.length;
         // Dynamic min samples: scales with dataset size to prevent memorization
-        let minSamplesLeaf = Math.max(5, Math.floor(trainData.length * 0.01));
+        let minSamplesLeaf = Math.max(5, Math.floor(n * 0.015));
         let minSamplesSplit = minSamplesLeaf * 2;
+        console.log(`MLCalibrator (${label}): Hyperparams: depth=${maxDepth}, lr=${lr}, colsample=${colsampleRate}, minLeaf=${minSamplesLeaf}`);
 
         for (let m = 0; m < nTrees; m++) {
             // Row subsampling — random 80% of samples per tree

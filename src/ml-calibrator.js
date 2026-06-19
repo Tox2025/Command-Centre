@@ -174,9 +174,9 @@ class MLCalibrator {
         if (data.length < MIN_TRAINING_SAMPLES) return false;
         console.log('MLCalibrator (' + label + '): Training GBT on ' + data.length + ' samples...');
 
-        // Walk-forward validation: only split if we have enough samples for meaningful validation
-        // With <60 samples, the 80/20 split leaves too few for validation and GBT memorizes training set
-        let useValidation = data.length >= 60;
+        // Walk-forward validation: only split if we have enough for meaningful validation
+        // Need >=80 samples so the 20% validation set has >=16 samples (not pure noise)
+        let useValidation = data.length >= 80;
         let splitIdx = useValidation ? Math.floor(data.length * 0.8) : data.length;
         let trainData = data.slice(0, splitIdx);
         let valData = useValidation ? data.slice(splitIdx) : [];
@@ -276,11 +276,11 @@ class MLCalibrator {
             valAcc = this._evaluateAccuracy(valData, initialPrior, trees, lr);
             console.log(`MLCalibrator (${label}): Train Acc: ${trainAcc}%, Val Acc: ${valAcc}%`);
 
-            // Deploy if: val accuracy is useful (>=58%) AND gap isn't extreme (<15%)
-            // Financial data is inherently noisy — a 5-10% train/val gap is normal for GBT
-            if (valAcc < 58 || valAcc < trainAcc - 15) {
+            // Deploy if: val accuracy beats random (>=55%) AND gap isn't extreme (<15%)
+            // Backtested features are noisier than live — 55-70% is realistic for financial data
+            if (valAcc < 55 || valAcc < trainAcc - 15) {
                 console.log(`MLCalibrator (${label}): REJECTED — Val acc ${valAcc}%` +
-                    (valAcc < 58 ? ' (below 58% minimum)' : ` (gap ${(trainAcc - valAcc).toFixed(1)}% exceeds 15% max)`));
+                    (valAcc < 55 ? ' (below 55% minimum)' : ` (gap ${(trainAcc - valAcc).toFixed(1)}% exceeds 15% max)`));
                 return false;
             }
         } else {

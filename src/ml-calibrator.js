@@ -172,6 +172,15 @@ class MLCalibrator {
         });
 
         if (data.length < MIN_TRAINING_SAMPLES) return false;
+
+        // Cap at 5000 most recent samples — GBT with recency weighting gets diminishing
+        // returns past this, and larger datasets block the event loop for minutes
+        var MAX_SAMPLES = 5000;
+        if (data.length > MAX_SAMPLES) {
+            console.log('MLCalibrator (' + label + '): Capping ' + data.length + ' → ' + MAX_SAMPLES + ' most recent samples');
+            data = data.slice(-MAX_SAMPLES);
+        }
+
         console.log('MLCalibrator (' + label + '): Training GBT on ' + data.length + ' samples...');
 
         // Walk-forward validation: only split if we have enough for meaningful validation

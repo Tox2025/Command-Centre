@@ -859,7 +859,9 @@ app.post('/api/ml/retrain', async (req, res) => {
 
         // Step 7: Train per-version models from paper trades
         var versionGroups = {};
-        paperSamples.forEach(function (s) {
+        // Use mergedLive (from cumulative backup) so we don't lose training
+        // data when the active trade journal is wiped for a clean dashboard
+        mergedLive.forEach(function (s) {
             var v = s._version || 'v2.1';
             if (!versionGroups[v]) versionGroups[v] = [];
             versionGroups[v].push(s);

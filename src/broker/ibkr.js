@@ -213,23 +213,15 @@ class IBKRClient extends BrokerClient {
             multiplier: '100'
         };
 
-        // Use LIMIT orders for options (better fills, avoid slippage on wide spreads)
+        // Use MARKET orders for options (user configured IBKR for MKT)
         const order = {
             action: params.action.toUpperCase(),
-            orderType: this.OrderType.LMT,
+            orderType: this.OrderType.MKT,
             totalQuantity: params.quantity,
-            lmtPrice: parseFloat(params.premium || params.limitPrice || 0),
             tif: 'DAY',
             transmit: true,
             outsideRth: true // Allow extended hours
         };
-
-        // Fallback to MKT if no limit price available
-        if (!order.lmtPrice || order.lmtPrice <= 0) {
-            order.orderType = this.OrderType.MKT;
-            delete order.lmtPrice;
-            console.warn(`[IBKR] ⚠️ No limit price for ${params.ticker} — using MARKET order`);
-        }
 
         // Track order for status feedback
         this.orderMap.set(id, {
@@ -240,7 +232,7 @@ class IBKRClient extends BrokerClient {
             timestamp: Date.now()
         });
 
-        console.log(`[IBKR] Transmitting Order ID ${id}: ${order.orderType} order for ${contract.symbol} ${params.strike} ${params.optionType} @ $${order.lmtPrice || 'MKT'}`);
+        console.log(`[IBKR] Transmitting Order ID ${id}: MKT order for ${contract.symbol} ${params.strike} ${params.optionType}`);
         this.ib.placeOrder(id, contract, order);
         
         return {

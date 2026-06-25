@@ -650,10 +650,10 @@ class OptionsPaperTrading {
             }
         }
 
-        // Fallback to estimation if Polygon data unavailable
+        // No real data from Polygon — DO NOT create trade with fake premium
         if (!usedRealData) {
-            premium = +(stockPrice * 0.03).toFixed(2);
-            console.warn('[Options] âš ï¸ Using estimated premium for ' + ticker + ' (Polygon unavailable)');
+            console.warn('[Options] ⛔ Skipping ' + ticker + ' — no real premium data from Polygon');
+            return null;
         }
         if (!expirationDate) {
             expirationDate = this._calcExpiry(dte);

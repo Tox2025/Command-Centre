@@ -3607,7 +3607,7 @@ async function scoreTickerSignals(ticker) {
                     // v2.1 may be NEUTRAL but vML/v6.0/etc can still fire with the correct direction
                     var abSetupBase = state.tradeSetups[ticker]; // Use v2.1 setup as base if available
                     var abTA2 = state.technicals[ticker] || {};
-                    var abATR2 = abTA2.atr || 1;
+                    var abATR2 = abTA2.atr || +(abPrice * 0.02).toFixed(2); // 2% of price fallback (not $1)
                     // Build a direction-neutral template (direction overridden per-version in createTrades)
                     var abSetup = abSetupBase || {
                         ticker: ticker,

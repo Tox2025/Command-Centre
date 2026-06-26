@@ -125,15 +125,92 @@ class OptionsPaperTrading {
         return trade;
     }
 
-    // â”€â”€ Calculate expiration date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Calculate expiration date ──────────────────────────
     _calcExpiry(dte) {
         var d = new Date();
         d.setDate(d.getDate() + dte);
         return d.toISOString().split('T')[0]; // YYYY-MM-DD
     }
 
-    // â”€â”€ Find real option contract from Polygon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // — Parse OCC option symbol (e.g. "APP260821C00520000") —
+    _parseOptionSymbol(sym) {
+        // OCC format: TICKER + YYMMDD + C/P + 8-digit strike (last 3 are decimal)
+        var match = sym.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+        if (!match) return null;
+        var y = parseInt('20' + match[2].substring(0, 2));
+        var m = parseInt(match[2].substring(2, 4)) - 1;
+        var d = parseInt(match[2].substring(4, 6));
+        return {
+            ticker: match[1],
+            expiration_date: y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'),
+            optionType: match[3] === 'C' ? 'call' : 'put',
+            strike: parseInt(match[4]) / 1000
+        };
+    }
+
+    // — Find real option contract (UW primary, Polygon fallback) —
     async _findRealContract(ticker, optionType, targetStrike, targetDTE) {
+        // Try UW first
+        if (this.uwClient) {
+            try {
+                var result = await this.uwClient.getOptionChain(ticker);
+                var contracts = (result && result.data) ? result.data : [];
+                if (contracts.length > 0) {
+                    var self = this;
+                    var today = new Date();
+                    var targetDate = new Date();
+                    targetDate.setDate(today.getDate() + targetDTE);
+                    var typeChar = optionType === 'call' ? 'C' : 'P';
+
+                    // Parse and filter by type
+                    var parsed = contracts.map(function(c) {
+                        var p = self._parseOptionSymbol(c.option_symbol || '');
+                        if (!p) return null;
+                        p.raw = c;
+                        return p;
+                    }).filter(function(p) {
+                        return p && p.optionType === optionType;
+                    });
+
+                    if (parsed.length === 0) return null;
+
+                    // Filter contracts with expiry >= target DTE
+                    var valid = parsed.filter(function(p) {
+                        return new Date(p.expiration_date) >= targetDate;
+                    });
+                    if (valid.length === 0) valid = parsed;
+
+                    // Sort by closest expiry to target
+                    valid.sort(function(a, b) {
+                        var da = Math.abs(new Date(a.expiration_date) - targetDate);
+                        var db = Math.abs(new Date(b.expiration_date) - targetDate);
+                        return da - db;
+                    });
+
+                    // Pick contracts with the best expiry
+                    var bestExpiry = valid[0].expiration_date;
+                    var sameExpiry = valid.filter(function(p) { return p.expiration_date === bestExpiry; });
+
+                    // Find closest strike to target
+                    sameExpiry.sort(function(a, b) {
+                        return Math.abs(a.strike - targetStrike) - Math.abs(b.strike - targetStrike);
+                    });
+
+                    var best = sameExpiry[0];
+                    console.log('[Options] UW contract found: ' + best.raw.option_symbol + ' strike=$' + best.strike + ' exp=' + best.expiration_date);
+                    return {
+                        strike: best.strike,
+                        expirationDate: best.expiration_date,
+                        contractSymbol: best.raw.option_symbol,
+                        _uwData: best.raw  // carry full UW data for premium lookup
+                    };
+                }
+            } catch (e) {
+                console.error('[Options] UW contract lookup error:', e.message);
+            }
+        }
+
+        // Fallback to Polygon
         if (!this.polygonClient) return null;
         try {
             var contracts = await this.polygonClient.getOptionsContracts(ticker, {
@@ -147,25 +224,21 @@ class OptionsPaperTrading {
             var targetDate = new Date();
             targetDate.setDate(today.getDate() + targetDTE);
 
-            // Filter contracts with expiry >= target DTE
             var valid = contracts.filter(function(c) {
                 var exp = new Date(c.expiration_date);
                 return exp >= targetDate;
             });
             if (valid.length === 0) valid = contracts;
 
-            // Sort by closest expiry to target
             valid.sort(function(a, b) {
                 var da = Math.abs(new Date(a.expiration_date) - targetDate);
                 var db = Math.abs(new Date(b.expiration_date) - targetDate);
                 return da - db;
             });
 
-            // Pick contracts with the best expiry
             var bestExpiry = valid[0].expiration_date;
             var sameExpiry = valid.filter(function(c) { return c.expiration_date === bestExpiry; });
 
-            // Find closest strike to target
             sameExpiry.sort(function(a, b) {
                 return Math.abs(a.strike_price - targetStrike) - Math.abs(b.strike_price - targetStrike);
             });
@@ -177,13 +250,59 @@ class OptionsPaperTrading {
                 contractSymbol: best.ticker
             };
         } catch (e) {
-            console.error('[Options] Error finding real contract:', e.message);
+            console.error('[Options] Polygon contract lookup error:', e.message);
             return null;
         }
     }
 
-    // â”€â”€ Get real option premium from Polygon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    async _getRealPremium(ticker, strike, expiry, optionType) {
+    // — Get real option premium (UW primary, Polygon fallback) —
+    async _getRealPremium(ticker, strike, expiry, optionType, uwData) {
+        // If we already have UW data from _findRealContract, use it directly
+        if (uwData) {
+            var bid = parseFloat(uwData.nbbo_bid) || 0;
+            var ask = parseFloat(uwData.nbbo_ask) || 0;
+            var last = parseFloat(uwData.last_price) || 0;
+            var mid = (bid && ask) ? +((bid + ask) / 2).toFixed(2) : last;
+            if (mid > 0 || last > 0) {
+                console.log('[Options] UW premium: bid=$' + bid + ' ask=$' + ask + ' mid=$' + mid + ' IV=' + (parseFloat(uwData.implied_volatility) || 0).toFixed(2));
+                return {
+                    bid: bid,
+                    ask: ask,
+                    last: last,
+                    mid: mid,
+                    volume: uwData.volume || 0,
+                    openInterest: uwData.open_interest || 0,
+                    iv: parseFloat(uwData.implied_volatility) || 0
+                };
+            }
+        }
+
+        // Try UW option chain lookup if no cached data
+        if (this.uwClient && !uwData) {
+            try {
+                var result = await this.uwClient.getOptionChain(ticker, expiry);
+                var contracts = (result && result.data) ? result.data : [];
+                var self = this;
+                var matching = contracts.filter(function(c) {
+                    var p = self._parseOptionSymbol(c.option_symbol || '');
+                    return p && Math.abs(p.strike - strike) < 0.01 && p.optionType === optionType;
+                });
+                if (matching.length > 0) {
+                    var c = matching[0];
+                    var bid = parseFloat(c.nbbo_bid) || 0;
+                    var ask = parseFloat(c.nbbo_ask) || 0;
+                    var last = parseFloat(c.last_price) || 0;
+                    var mid = (bid && ask) ? +((bid + ask) / 2).toFixed(2) : last;
+                    if (mid > 0 || last > 0) {
+                        return { bid: bid, ask: ask, last: last, mid: mid, volume: c.volume || 0, openInterest: c.open_interest || 0, iv: parseFloat(c.implied_volatility) || 0 };
+                    }
+                }
+            } catch (e) {
+                console.error('[Options] UW premium lookup error:', e.message);
+            }
+        }
+
+        // Fallback to Polygon
         if (!this.polygonClient) return null;
         try {
             var snapshots = await this.polygonClient.getOptionsSnapshot(ticker, {
@@ -207,12 +326,12 @@ class OptionsPaperTrading {
                 iv: snap.implied_volatility || 0
             };
         } catch (e) {
-            console.error('[Options] Error getting real premium:', e.message);
+            console.error('[Options] Polygon premium lookup error:', e.message);
             return null;
         }
     }
 
-    // â”€â”€ Handle broker order status updates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ——— Handle broker order status updates ————————————
     handleBrokerUpdate(orderId, status, fillPrice) {
         if (!orderId) return;
         var trade = this.trades.find(function(t) {
@@ -639,7 +758,7 @@ class OptionsPaperTrading {
             expirationDate = realContract.expirationDate;
             contractSymbol = realContract.contractSymbol;
 
-            var realPremium = await this._getRealPremium(ticker, strike, expirationDate, optionType);
+            var realPremium = await this._getRealPremium(ticker, strike, expirationDate, optionType, realContract._uwData);
             if (realPremium && realPremium.ask > 0) {
                 premium = realPremium.ask; // Use ask price for BUY orders
                 usedRealData = true;

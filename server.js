@@ -206,6 +206,7 @@ const opportunityScanner = new OpportunityScanner(signalEngine, multiTFAnalyzer)
 const optionsPaper = new OptionsPaperTrading();
 optionsPaper.brokerClient = brokerClient; // Inject live broker for execution
 optionsPaper.polygonClient = polygonClient; // Inject Polygon for real option chain data
+optionsPaper.uwClient = uw; // Inject UW for real options pricing (bid/ask/IV)
 
 // Wire up broker order status feedback → options paper trading
 if (brokerClient) {

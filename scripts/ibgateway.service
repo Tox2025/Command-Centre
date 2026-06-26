@@ -1,0 +1,16 @@
+[Unit]
+Description=IBKR Gateway via IBC
+After=network.target xvfb.service
+Requires=xvfb.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:99
+ExecStart=/opt/ibc/scripts/ibcstart.sh 1045 -g --tws-path=/root/Jts --ibc-path=/opt/ibc --ibc-ini=/root/ibc/config.ini
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

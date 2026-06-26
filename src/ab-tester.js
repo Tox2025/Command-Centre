@@ -110,7 +110,7 @@ class ABTester {
             var baseEntry = currentPrice;
             var baseATR = (setup && setup.stop && setup.entry)
                 ? Math.abs(setup.entry - setup.stop) // derive ATR proxy from v2.1 setup if available
-                : 1;
+                : +(currentPrice * 0.02).toFixed(2); // 2% of price as ATR fallback (not $1)
             // If v2.1 setup exists and same direction, use its stop/targets (already ATR-sized)
             var useV21Setup = setup && setup.direction === tradeDir;
 

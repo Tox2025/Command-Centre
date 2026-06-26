@@ -36,7 +36,8 @@ class MLCalibrator {
         return {
             trees: [], initialPrior: 0, interactions: [], lr: 0.1, trained: false,
             trainingSamples: 0, accuracy: 0,
-            featureImportance: []
+            featureImportance: [],
+            weights: null, bias: 0, algorithm: null
         };
     }
 
@@ -58,21 +59,26 @@ class MLCalibrator {
             try {
                 if (fs.existsSync(MODEL_PATHS[tf])) {
                     var data = JSON.parse(fs.readFileSync(MODEL_PATHS[tf], 'utf8'));
-                    // Detect old logistic regression format (has weights, no trees)
                     var hasTrees = data.trees && data.trees.length > 0;
-                    if (!hasTrees && data.weights) {
-                        console.log('MLCalibrator (' + tf + '): Old logistic regression model detected, will retrain with GBT on next cycle');
+                    var hasWeights = data.weights && data.weights.length > 0;
+                    if (hasTrees) {
+                        this.models[tf] = {
+                            trees: data.trees, initialPrior: data.initialPrior || 0,
+                            interactions: data.interactions || [], lr: data.lr || 0.1,
+                            trained: data.trained || false, trainingSamples: data.trainingSamples || 0,
+                            accuracy: data.accuracy || 0, featureImportance: data.featureImportance || [],
+                            weights: null, bias: 0, algorithm: 'GBT'
+                        };
+                        console.log('MLCalibrator (' + tf + '): Loaded GBT model — ' + data.trainingSamples + ' samples, ' + data.accuracy + '% accuracy');
+                    } else if (hasWeights) {
+                        this.models[tf] = {
+                            trees: [], initialPrior: 0, interactions: [], lr: 0.1,
+                            trained: data.trained || false, trainingSamples: data.trainingSamples || 0,
+                            accuracy: data.accuracy || 0, featureImportance: data.featureImportance || [],
+                            weights: data.weights, bias: data.bias || 0, algorithm: 'LR'
+                        };
+                        console.log('MLCalibrator (' + tf + '): Loaded LR model — ' + data.trainingSamples + ' samples, ' + data.accuracy + '% accuracy');
                     }
-                    this.models[tf] = {
-                        trees: data.trees || [],
-                        initialPrior: data.initialPrior || 0,
-                        interactions: data.interactions || [],
-                        lr: data.lr || 0.1,
-                        trained: hasTrees ? (data.trained || false) : false,
-                        trainingSamples: hasTrees ? (data.trainingSamples || 0) : 0,
-                        accuracy: hasTrees ? (data.accuracy || 0) : 0,
-                        featureImportance: hasTrees ? (data.featureImportance || []) : []
-                    };
                 }
             } catch (e) {
                 console.error('MLCalibrator load error (' + tf + '):', e.message);
@@ -88,13 +94,24 @@ class MLCalibrator {
                     try {
                         var d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), 'utf8'));
                         var hasVTrees = d.trees && d.trees.length > 0;
-                        if (!hasVTrees) return; // skip old format version models
+                        var hasVWeights = d.weights && d.weights.length > 0;
+                        if (!hasVTrees && !hasVWeights) return;
                         if (!self.versionModels[ver]) self.versionModels[ver] = {};
-                        self.versionModels[ver][mtf] = {
-                            trees: d.trees, initialPrior: d.initialPrior || 0, interactions: d.interactions || [],
-                            lr: d.lr || 0.1, trained: true, trainingSamples: d.trainingSamples || 0,
-                            accuracy: d.accuracy || 0, featureImportance: d.featureImportance || []
-                        };
+                        if (hasVTrees) {
+                            self.versionModels[ver][mtf] = {
+                                trees: d.trees, initialPrior: d.initialPrior || 0, interactions: d.interactions || [],
+                                lr: d.lr || 0.1, trained: true, trainingSamples: d.trainingSamples || 0,
+                                accuracy: d.accuracy || 0, featureImportance: d.featureImportance || [],
+                                weights: null, bias: 0, algorithm: 'GBT'
+                            };
+                        } else {
+                            self.versionModels[ver][mtf] = {
+                                trees: [], initialPrior: 0, interactions: [], lr: 0.1,
+                                trained: true, trainingSamples: d.trainingSamples || 0,
+                                accuracy: d.accuracy || 0, featureImportance: d.featureImportance || [],
+                                weights: d.weights, bias: d.bias || 0, algorithm: 'LR'
+                            };
+                        }
                     } catch (e2) { }
                 }
             });
@@ -478,12 +495,26 @@ class MLCalibrator {
     predict(features, timeframe, version) {
         var tf = timeframe || 'dayTrade';
         var m = this._getModel(tf, version);
-        if (!m || !m.trained || !m.trees || m.trees.length === 0) return null;
+        if (!m || !m.trained) return null;
 
         var f = features ? features.slice() : null;
         if (!f) return null;
         while (f.length < this.featureCount) f.push(0);
         f = f.slice(0, this.featureCount);
+
+        var z = 0;
+
+        // Logistic Regression path (original models)
+        if (m.weights && m.weights.length > 0) {
+            z = m.bias || 0;
+            for (var i = 0; i < Math.min(f.length, m.weights.length); i++) {
+                z += m.weights[i] * f[i];
+            }
+            return +(1 / (1 + Math.exp(-z))).toFixed(4);
+        }
+
+        // GBT path (newer models)
+        if (!m.trees || m.trees.length === 0) return null;
 
         let expanded = f.slice();
         if (m.interactions) {
@@ -492,7 +523,7 @@ class MLCalibrator {
             });
         }
 
-        let z = m.initialPrior || 0;
+        z = m.initialPrior || 0;
         let lr = m.lr || 0.1;
         for (let t = 0; t < m.trees.length; t++) {
             z += lr * this._predictTree(m.trees[t], expanded);

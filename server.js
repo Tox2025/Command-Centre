@@ -12,6 +12,7 @@ const { enrichCongressTrades } = require('./src/congress-data');
 const { SignalEngine } = require('./src/signal-engine');
 const TradeJournal = require('./src/trade-journal');
 const MLCalibrator = require('./src/ml-calibrator');
+const { MLMetaLearner } = require('./src/ml-meta-learner');
 const EarningsCalendar = require('./src/earnings-calendar');
 const { MarketRegime } = require('./src/market-regime');
 const { NewsSentiment } = require('./src/sentiment');
@@ -83,6 +84,24 @@ tradeJournal.purgeStaleTrades(); // One-time purge of 10d+ zombie trades to free
 const mlCalibrator = new MLCalibrator();
 const abTester = new ABTester(tradeJournal, mlCalibrator, null); // scheduler assigned after init
 const mlTrainingScheduler = new MLTrainingScheduler(process.env.POLYGON_API_KEY || '');
+const mlMetaLearner = new MLMetaLearner(tradeJournal, null); // optionsPaper assigned after init
+
+// Schedule vML meta-learner daily at 4:30 PM ET (after market close)
+(function scheduleMetaLearner() {
+    var FOUR_THIRTY_ET_HOUR = 16;
+    var FOUR_THIRTY_ET_MIN = 30;
+    function runMetaIfTime() {
+        var now = new Date();
+        var etHour = parseInt(now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }));
+        var etMin = now.getMinutes();
+        if (etHour === FOUR_THIRTY_ET_HOUR && etMin >= FOUR_THIRTY_ET_MIN && etMin < FOUR_THIRTY_ET_MIN + 5) {
+            console.log('[MetaLearner] 4:30 PM ET — running daily vML optimization');
+            try { mlMetaLearner.runDailyUpdate(); } catch(e) { console.error('[MetaLearner] Error:', e.message); }
+        }
+    }
+    setInterval(runMetaIfTime, 5 * 60 * 1000); // check every 5 min
+    console.log('[MetaLearner] Scheduled daily at 4:30 PM ET');
+})();
 
 // Auto-load ML model from persisted data, or bootstrap from Polygon historical
 (function () {

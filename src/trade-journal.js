@@ -5,8 +5,8 @@ const path = require('path');
 const JOURNAL_PATH = path.join(__dirname, '..', 'data', 'trade-journal.json');
 const VERSIONS_PATH = path.join(__dirname, '..', 'data', 'signal-versions.json');
 const EXPIRY_DAYS = 10; // Max days to track a trade before marking expired
-const ACCOUNT_BALANCE = 150000; // Paper trading account size ($25k * 6 versions)
-const VERSION_BUDGET = 25000;   // Per-version budget
+const ACCOUNT_BALANCE = 25000; // Paper trading account size (matches IBKR paper)
+const VERSION_BUDGET = 4200;   // Per-version budget ($25k / 6 versions)
 const MAX_PER_TICKER = 3; // Max concurrent open trades per ticker
 const MIN_CONFIDENCE = 55; // Minimum confidence to trade (was 40 — too much noise)
 

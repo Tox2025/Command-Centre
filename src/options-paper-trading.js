@@ -389,15 +389,22 @@ class OptionsPaperTrading {
 
             trade.currentPrice = currentPrice;
 
+            // Sync entry premium with broker fill price if available (fixes race condition)
+            if (trade.brokerFillPrice && trade.brokerFillPrice > 0 && trade.entryPremium !== trade.brokerFillPrice) {
+                console.log('[Options] Correcting ' + trade.ticker + ' entryPremium: $' + trade.entryPremium + ' → $' + trade.brokerFillPrice + ' (broker fill)');
+                trade.entryPremium = trade.brokerFillPrice;
+            }
+
             // Estimate current premium using simplified model
             var newPremium = self._estimatePremium(trade, currentPrice, now);
             trade.currentPremium = newPremium;
 
             // Calculate unrealized P&L
             var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
-            trade.unrealizedPnl = +((newPremium - trade.entryPremium) * direction * trade.contracts * 100).toFixed(2);
-            trade.unrealizedPnlPct = trade.entryPremium > 0
-                ? +((newPremium - trade.entryPremium) / trade.entryPremium * 100 * direction).toFixed(2)
+            var entryPrem = trade.brokerFillPrice || trade.entryPremium;
+            trade.unrealizedPnl = +((newPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
+            trade.unrealizedPnlPct = entryPrem > 0
+                ? +((newPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
                 : 0;
 
             updated++;
@@ -423,8 +430,9 @@ class OptionsPaperTrading {
         var daysRemaining = Math.max(0, msRemaining / (1000 * 60 * 60 * 24));
         var originalDTE = trade.dte || 30;
 
-        // Time decay factor (theta): sqrt curve â€” faster near expiry
-        var timeFactor = originalDTE > 0 ? Math.sqrt(daysRemaining / originalDTE) : 0;
+        // Time decay factor (theta): sqrt curve — faster near expiry
+        // MUST cap at 1.0 — options cannot gain time value
+        var timeFactor = originalDTE > 0 ? Math.min(1.0, Math.sqrt(daysRemaining / originalDTE)) : 0;
 
         // Intrinsic value
         var intrinsic = 0;
@@ -443,9 +451,6 @@ class OptionsPaperTrading {
         }
         var entryExtrinsic = Math.max(0, entryPremium - entryIntrinsic);
 
-        // Current extrinsic = entry extrinsic Ã— time decay factor
-        var currentExtrinsic = entryExtrinsic * timeFactor;
-
         // Delta effect: how much premium changes per $ of underlying move
         var moneyness = (currentPrice - strike) / strike;
         var delta = 0.5; // ATM default
@@ -461,6 +466,14 @@ class OptionsPaperTrading {
             else if (moneyness > -0.05) delta = 0.4;
             else delta = 0.2;
         }
+
+        // OTM extrinsic decay: as option moves further OTM, extrinsic collapses
+        // Use delta as a proxy for how much extrinsic to retain
+        var otmDecay = delta / 0.5; // 1.0 at ATM, 0.4 at deep OTM
+        otmDecay = Math.min(1.0, otmDecay);
+
+        // Current extrinsic = entry extrinsic × time decay × OTM decay
+        var currentExtrinsic = entryExtrinsic * timeFactor * otmDecay;
 
         // Total estimated premium
         var estimated = intrinsic + currentExtrinsic;

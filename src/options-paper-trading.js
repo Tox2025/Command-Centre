@@ -718,6 +718,25 @@ class OptionsPaperTrading {
 
         var isBullish = signalResult.direction === 'BULLISH';
         var optionType = isBullish ? 'call' : 'put';
+
+        // Guard: Block opposing positions on same ticker (IBKR rejects "both sides of same US Option contract")
+        var opposingType = isBullish ? 'put' : 'call';
+        var hasOpposing = this.trades.find(function (t) {
+            return t.ticker === ticker && t.status === 'OPEN' && t.optionType === opposingType;
+        });
+        if (hasOpposing) {
+            console.log('[Options] ⛔ Skipping ' + ticker + ' ' + optionType + ' — already have open ' + opposingType + ' (IBKR blocks both sides)');
+            return null;
+        }
+
+        // Guard: Block new positions when deployed capital exceeds account balance
+        var accountBalance = 25000;
+        var deployedCapital = this.trades.filter(function (t) { return t.status === 'OPEN'; })
+            .reduce(function (sum, t) { return sum + ((t.entryPremium || 0) * (t.contracts || 1) * 100); }, 0);
+        if (deployedCapital >= accountBalance * 0.9) { // 90% cap to leave headroom
+            console.log('[Options] ⛔ Skipping ' + ticker + ' — deployed capital $' + deployedCapital.toFixed(0) + ' exceeds 90% of $' + accountBalance);
+            return null;
+        }
         var strategy = isBullish ? 'long_call' : 'long_put';
 
         // Target strike: ATM based on confidence
@@ -771,7 +790,7 @@ class OptionsPaperTrading {
 
         // No real data from Polygon — DO NOT create trade with fake premium
         if (!usedRealData) {
-            console.warn('[Options] ⛔ Skipping ' + ticker + ' — no real premium data from Polygon');
+            console.warn('[Options] ⛔ Skipping ' + ticker + ' — no real premium data from UW/Polygon');
             return null;
         }
         if (!expirationDate) {

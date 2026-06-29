@@ -376,8 +376,92 @@ class OptionsPaperTrading {
     // ── Handle IBKR order status — creates trade on FILL ──────────
     handleBrokerUpdate(orderId, status, fillPrice, filledQty) {
         if (!orderId) return;
+        var orderIdStr = orderId.toString();
 
-    // â”€â”€ Update all open trades with current prices â”€â”€â”€â”€â”€â”€â”€
+        // Check if this is a PENDING entry order
+        var pending = this.pendingOrders.get(orderIdStr);
+        if (pending) {
+            if (status === 'FILLED' && fillPrice > 0) {
+                // CREATE the trade — IBKR confirmed the fill
+                var trade = this._createTradeRecord(pending.params, {
+                    orderId: orderIdStr,
+                    filledPrice: fillPrice,
+                    filledQty: filledQty || pending.params.contracts || 1
+                });
+                this.trades.push(trade);
+                this.pendingOrders.delete(orderIdStr);
+                this._save();
+                console.log('[Options] ✅ FILLED → Trade created: ' + trade.ticker + ' ' + trade.optionType + ' $' + trade.strike + ' @ $' + fillPrice + ' (IBKR confirmed)');
+            } else if (status === 'REJECTED' || status === 'CANCELLED') {
+                console.error('[Options] ❌ ' + status + ': ' + pending.params.ticker + ' $' + pending.params.strike + ' — no trade created');
+                this.pendingOrders.delete(orderIdStr);
+            }
+            return;
+        }
+
+        // Check if this is an existing trade (close order fill)
+        var self = this;
+        var closeTrade = this.trades.find(function(t) {
+            return t.closeOrderId === orderIdStr;
+        });
+        if (closeTrade && status === 'FILLED') {
+            var exitPrice = fillPrice > 0 ? fillPrice : closeTrade.currentPremium;
+            closeTrade.brokerClosePrice = exitPrice;
+            closeTrade.brokerCloseStatus = 'FILLED';
+            this._finalizeClose(closeTrade, exitPrice);
+            console.log('[Options] ✅ CLOSE FILLED: ' + closeTrade.ticker + ' ' + closeTrade.optionType + ' $' + closeTrade.strike + ' exit @ $' + exitPrice);
+            return;
+        }
+
+        // Legacy: check for old-style trades with brokerOrderId
+        var legacyTrade = this.trades.find(function(t) {
+            return t.brokerOrderId === orderIdStr && t.status === 'OPEN';
+        });
+        if (legacyTrade) {
+            if (status === 'FILLED' && fillPrice > 0) {
+                legacyTrade.brokerFillPrice = fillPrice;
+                legacyTrade.entryPremium = fillPrice;
+                legacyTrade.currentPremium = fillPrice;
+                legacyTrade.brokerFilled = true;
+                legacyTrade.brokerStatus = 'FILLED';
+                console.log('[Options] ✅ Legacy FILL: ' + legacyTrade.ticker + ' @ $' + fillPrice);
+            } else if (status === 'REJECTED' || status === 'CANCELLED') {
+                legacyTrade.status = 'REJECTED';
+                legacyTrade.closeTime = new Date().toISOString();
+            }
+            this._save();
+        }
+    }
+
+    // ── Handle execution details (timestamp + exchange) ──────────
+    handleExecDetails(execData) {
+        if (!execData || !execData.orderId) return;
+        var orderIdStr = execData.orderId.toString();
+        var trade = this.trades.find(function(t) {
+            return t.brokerOrderId === orderIdStr;
+        });
+        if (trade) {
+            if (execData.time) trade.execTime = execData.time;
+            if (execData.exchange) trade.execExchange = execData.exchange;
+            if (execData.execId) trade.execId = execData.execId;
+            this._save();
+        }
+    }
+
+    // ── Handle commission report ──────────────────────────────
+    handleCommission(commData) {
+        if (!commData || !commData.execId) return;
+        var trade = this.trades.find(function(t) {
+            return t.execId === commData.execId;
+        });
+        if (trade) {
+            trade.commission = (trade.commission || 0) + commData.commission;
+            console.log('[Options] Commission: ' + trade.ticker + ' $' + commData.commission);
+            this._save();
+        }
+    }
+
+    // ── Update all open trades with current prices ───────
     updatePrices(quotes) {
         var updated = 0;
         var now = new Date();

@@ -1197,7 +1197,12 @@ app.post('/api/options-paper/close', async (req, res) => {
 });
 app.get('/api/options-paper/stats', (req, res) => {
     const { version } = req.query;
-    res.json(optionsPaper.getStats(version));
+    var stats = optionsPaper.getStats(version);
+    // Add version count for per-version budget calculation
+    var activeVersions = new Set();
+    optionsPaper.getTrades().forEach(function(t) { if (t.signalVersion) activeVersions.add(t.signalVersion); });
+    stats.versionCount = activeVersions.size || 6;
+    res.json(stats);
 });
 app.get('/api/options-paper/training-data', (req, res) => {
     res.json(optionsPaper.getTrainingData());

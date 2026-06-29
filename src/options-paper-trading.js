@@ -38,6 +38,18 @@ class OptionsPaperTrading {
     openTrade(params) {
         if (!params || !params.ticker) return null;
 
+        // Block options trades outside market hours (9:30 AM - 4:00 PM ET)
+        var now = new Date();
+        var etTime = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false });
+        var parts = etTime.split(':');
+        var etHour = parseInt(parts[0]);
+        var etMin = parseInt(parts[1]);
+        var etMinutes = etHour * 60 + etMin;
+        if (etMinutes < 570 || etMinutes >= 960) { // 570 = 9:30, 960 = 16:00
+            console.log('[Options] BLOCKED ' + params.ticker + ' — outside market hours (' + etHour + ':' + (etMin < 10 ? '0' : '') + etMin + ' ET)');
+            return null;
+        }
+
         // Check for duplicate open trade (same ticker + type + strike)
         var dup = this.trades.find(function (t) {
             return t.status === 'OPEN'

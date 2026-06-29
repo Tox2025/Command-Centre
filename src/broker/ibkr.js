@@ -303,20 +303,14 @@ class IBKRClient extends BrokerClient {
             multiplier: '100'
         };
 
-        // Use LIMIT at bid price for closes (better than MARKET on options)
-        const limitPrice = parseFloat(position.limitPrice || position.currentPremium || 0);
+        // Use MKT for closes — LMT at stale bid price fails when market moves
         const order = {
             action: 'SELL',
-            orderType: limitPrice > 0 ? this.OrderType.LMT : this.OrderType.MKT,
+            orderType: this.OrderType.MKT,
             totalQuantity: position.contracts || 1,
             tif: 'DAY',
-            transmit: true,
-            outsideRth: true // Allow extended hours closes
+            transmit: true
         };
-
-        if (limitPrice > 0) {
-            order.lmtPrice = limitPrice;
-        }
 
         this.orderMap.set(id, { action: 'SELL', ticker: position.ticker, strike: position.strike, timestamp: Date.now() });
 

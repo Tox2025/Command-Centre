@@ -1,9 +1,7 @@
 [
-    "TSLA",
-    "MSFT",
-    "META",
-    "NBIS",
-    "APP",
-    "SNDK",
-    "MU"
+    "AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "TSLA", "AMD", "NFLX", "AVGO",
+    "CRM", "ORCL", "ADBE", "INTC", "MU", "APP", "SNDK", "MSTR", "COIN", "NBIS",
+    "JPM", "GS", "BAC", "V", "MA", "UNH", "LLY", "JNJ", "PFE", "XOM",
+    "CVX", "HD", "MCD", "NKE", "BA", "CAT", "GE", "DIS", "CMCSA", "PG",
+    "KO", "WMT", "COST", "NEE", "PLD", "LIN", "SPY", "QQQ", "IWM", "DIA"
 ]

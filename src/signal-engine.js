@@ -1932,12 +1932,62 @@ class SignalEngine {
             if (curPrice > 0 && vwap > 0) vwapDev = (curPrice - vwap) / vwap * 100;
         }
 
-        // New features for signals #15-#19
-        const regimeScore = 0; // populated at ensemble level
-        const gammaProx = 0; // populated at ensemble level
-        const ivSkew = 0;
-        const candleScore = 0;
-        const sentScore = 0;
+        // ── Price-derived features from historical candles (replacing dead placeholders) ──
+        var candles = (data && data.historicalCandles) || [];
+        var nBars = candles.length;
+
+        // Feature 12: 5-bar return % (momentum)
+        var fiveBarReturn = 0;
+        if (nBars >= 6) {
+            var curClose = candles[nBars - 1].c || candles[nBars - 1].close || 0;
+            var prevClose5 = candles[nBars - 6].c || candles[nBars - 6].close || 0;
+            if (prevClose5 > 0) fiveBarReturn = (curClose - prevClose5) / prevClose5 * 100;
+        }
+
+        // Feature 13: 20-bar MA slope (trend direction)
+        var maSlope = 0;
+        if (nBars >= 25) {
+            var sma20Now = 0, sma20Prev = 0;
+            for (var si = nBars - 20; si < nBars; si++) sma20Now += (candles[si].c || candles[si].close || 0);
+            sma20Now /= 20;
+            for (var si2 = nBars - 25; si2 < nBars - 5; si2++) sma20Prev += (candles[si2].c || candles[si2].close || 0);
+            sma20Prev /= 20;
+            if (sma20Prev > 0) maSlope = (sma20Now - sma20Prev) / sma20Prev * 100;
+        }
+
+        // Feature 14: Price vs 20-bar MA % (mean reversion signal)
+        var priceVsMa = 0;
+        if (nBars >= 20) {
+            var sma20 = 0;
+            for (var mi = nBars - 20; mi < nBars; mi++) sma20 += (candles[mi].c || candles[mi].close || 0);
+            sma20 /= 20;
+            var lastClose = candles[nBars - 1].c || candles[nBars - 1].close || 0;
+            if (sma20 > 0) priceVsMa = (lastClose - sma20) / sma20 * 100;
+        }
+
+        // Feature 15: Gap from previous close % (overnight catalyst)
+        var gapPct = 0;
+        if (nBars >= 2) {
+            var todayOpen = candles[nBars - 1].o || candles[nBars - 1].open || 0;
+            var yesterClose = candles[nBars - 2].c || candles[nBars - 2].close || 0;
+            if (yesterClose > 0) gapPct = (todayOpen - yesterClose) / yesterClose * 100;
+        }
+
+        // Feature 16: 10-bar realized volatility (annualized)
+        var realizedVol = 0;
+        if (nBars >= 11) {
+            var returns = [];
+            for (var ri = nBars - 10; ri < nBars; ri++) {
+                var c1 = candles[ri].c || candles[ri].close || 0;
+                var c0 = candles[ri - 1].c || candles[ri - 1].close || 0;
+                if (c0 > 0) returns.push((c1 - c0) / c0);
+            }
+            if (returns.length >= 5) {
+                var meanR = returns.reduce(function (s, r) { return s + r; }, 0) / returns.length;
+                var variance = returns.reduce(function (s, r) { return s + (r - meanR) * (r - meanR); }, 0) / returns.length;
+                realizedVol = Math.sqrt(variance) * Math.sqrt(252) * 100; // annualized %
+            }
+        }
 
         // ── NEW: Enhanced features (#10 ML Feature Engineering) ──
 
@@ -2170,7 +2220,7 @@ class SignalEngine {
         var sectorId = SECTOR_MAP[ticker] !== undefined ? SECTOR_MAP[ticker] / 10 : 0.5; // normalized 0-1
         var sectorVolProfile = SECTOR_MAP[ticker] !== undefined ? SECTOR_VOL[SECTOR_MAP[ticker]] * 100 : 1.5;
 
-        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, regimeScore, gammaProx, ivSkew, candleScore, sentScore, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
+        return [rsi, macdHist, emaAlign, bbPos, atr, cpRatio, dpDir, ivRank, siPct, volSpike, bbBandwidth, vwapDev, fiveBarReturn, maSlope, priceVsMa, gapPct, realizedVol, adxVal, rsiDivScore, fibProximity, rsiSlopeVal, macdAccel, atrChange, rsiEmaInteraction, volumeMacdInteraction, netPrem, dpMagnitude, sweepRatio, sectorCPRatio, etfMacroDir, squeezeScore, seasonReturn, ivrvRatio, congressNet, insiderNet, gexNetGamma, mtfAgreement, runnerScore, sessionPos, deltaShift, strikeMagnetDist, cpDpInteraction, sectorId, sectorVolProfile];
     }
 }
 

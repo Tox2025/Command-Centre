@@ -3384,7 +3384,9 @@ async function scoreTickerSignals(ticker) {
             ivSkew: (state.ivSkew || {})[ticker] || null,
             volStats: (state.volStats || {})[ticker] || null,
             litFlow: (state.litFlow || {})[ticker] || null,
-            marketCorrelations: state.marketCorrelations || null
+            marketCorrelations: state.marketCorrelations || null,
+            // Price history for ML feature engineering
+            historicalCandles: (state.historicalCandles || {})[ticker] || []
         };
 
         // Fetch Polygon TA indicators (async) — signal #37 needs this

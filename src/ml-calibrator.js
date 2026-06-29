@@ -249,19 +249,18 @@ class MLCalibrator {
         let numInteractions = top20Pairs.length;
         let featureImpMap = new Array(this.featureCount + numInteractions).fill(0);
 
-        // Adaptive hyperparameters — scale regularization with dataset size
-        // Larger datasets need shallower trees to prevent memorization
+        // Adaptive hyperparameters — tuned for 20K+ clean samples
         let n = trainData.length;
-        let nTrees = 50;
-        let lr = n > 1000 ? 0.05 : 0.1;           // Slower learning for large datasets
-        let maxDepth = n > 500 ? 3 : 4;            // Shallower trees prevent overfitting on large data
-        let subsampleRate = 0.8;                     // Row subsampling: each tree sees 80% of data
-        let colsampleRate = n > 1000 ? 0.5 : 0.6;  // Fewer features per split for large datasets
+        let nTrees = n > 5000 ? 100 : 50;              // More trees for larger datasets
+        let lr = n > 5000 ? 0.03 : n > 1000 ? 0.05 : 0.1;  // Slower learning, more trees
+        let maxDepth = n > 5000 ? 5 : n > 500 ? 4 : 3; // Deeper trees to capture complex patterns
+        let subsampleRate = 0.8;                         // Row subsampling: each tree sees 80% of data
+        let colsampleRate = n > 5000 ? 0.6 : n > 1000 ? 0.5 : 0.6;  // More features per split
         let nExpandedFeatures = trainData[0].expanded.length;
-        // Dynamic min samples: scales with dataset size to prevent memorization
-        let minSamplesLeaf = Math.max(5, Math.floor(n * 0.015));
+        // Dynamic min samples: sqrt scaling prevents over-regularization on large datasets
+        let minSamplesLeaf = Math.max(5, Math.floor(Math.sqrt(n) * 1.5));
         let minSamplesSplit = minSamplesLeaf * 2;
-        console.log(`MLCalibrator (${label}): Hyperparams: depth=${maxDepth}, lr=${lr}, colsample=${colsampleRate}, minLeaf=${minSamplesLeaf}`);
+        console.log(`MLCalibrator (${label}): Hyperparams: depth=${maxDepth}, lr=${lr}, trees=${nTrees}, colsample=${colsampleRate}, minLeaf=${minSamplesLeaf}`);
 
         for (let m = 0; m < nTrees; m++) {
             // Row subsampling — random 80% of samples per tree

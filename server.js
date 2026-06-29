@@ -227,11 +227,30 @@ optionsPaper.brokerClient = brokerClient; // Inject live broker for execution
 optionsPaper.polygonClient = polygonClient; // Inject Polygon for real option chain data
 optionsPaper.uwClient = uw; // Inject UW for real options pricing (bid/ask/IV)
 
-// Wire up broker order status feedback → options paper trading
+// Wire up broker callbacks → options paper trading (IBKR-first architecture)
 if (brokerClient) {
+    // Order status: creates trade on FILL, rejects on REJECTED
     brokerClient.onOrderStatus = function(status) {
-        optionsPaper.handleBrokerUpdate(status.orderId, status.status, status.filledPrice);
+        optionsPaper.handleBrokerUpdate(status.orderId, status.status, status.filledPrice, status.filledQty);
     };
+
+    // Execution details: captures fill timestamp and exchange
+    brokerClient.onExecDetails = function(execData) {
+        optionsPaper.handleExecDetails(execData);
+    };
+
+    // Commission report: tracks per-trade commission
+    brokerClient.onCommission = function(commData) {
+        optionsPaper.handleCommission(commData);
+    };
+
+    // Position updates: real-time IBKR position data
+    brokerClient.onPosition = function(posData) {
+        // Log but don't need to forward yet — positions used for reconciliation
+        // Future: optionsPaper.handlePositionUpdate(posData);
+    };
+
+    console.log('[Server] IBKR callbacks wired: orderStatus, execDetails, commission, position');
 }
 
 const futuresPaper = new FuturesPaperTrading();

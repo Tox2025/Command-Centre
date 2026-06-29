@@ -21,6 +21,11 @@ class IBKRClient extends BrokerClient {
         
         // Listeners for bi-directional state tracking
         this.onOrderStatus = null; 
+        this.onExecDetails = null;    // Execution details (price, qty, time)
+        this.onCommission = null;     // Commission report
+        this.onPosition = null;       // Position updates
+        this.accountData = { cash: 0, totalValue: 0, buyingPower: 0 }; // Real IBKR balance
+        this.positions = new Map();   // contract → { position, avgCost, unrealizedPnl }
         
         try {
             const { IBApi, EventName, OrderAction, OrderType, SecType } = require('@stoqey/ib');
@@ -51,6 +56,9 @@ class IBKRClient extends BrokerClient {
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
                 this.ib.reqIds(-1);
+                this.ib.reqPositions();
+                this.ib.reqAccountSummary(9001, 'All', 'NetLiquidation,TotalCashValue,BuyingPower');
+                console.log('[IBKR] Requested positions and account summary');
                 resolve(true);
             });
 
@@ -69,6 +77,70 @@ class IBKRClient extends BrokerClient {
                         filledPrice: avgFillPrice
                     });
                 }
+            });
+
+            // BI-DIRECTIONAL EVENT LISTENER: Execution Details
+            this.ib.on(this.EventName.execDetails, (reqId, contract, execution) => {
+                console.log('[IBKR] ExecDetails: Order ' + execution.orderId + ' | ' + contract.symbol + ' ' + execution.side + ' ' + execution.shares + ' @ $' + execution.price + ' | Time: ' + execution.time);
+                if (this.onExecDetails) {
+                    this.onExecDetails({
+                        orderId: execution.orderId.toString(),
+                        ticker: contract.symbol,
+                        side: execution.side,
+                        quantity: execution.shares,
+                        price: execution.price,
+                        time: execution.time,
+                        execId: execution.execId,
+                        exchange: execution.exchange
+                    });
+                }
+            });
+
+            // BI-DIRECTIONAL EVENT LISTENER: Commission Report
+            this.ib.on(this.EventName.commissionReport, (commReport) => {
+                console.log('[IBKR] Commission: execId=' + commReport.execId + ' commission=$' + commReport.commission + ' realizedPnL=$' + commReport.realizedPNL);
+                if (this.onCommission) {
+                    this.onCommission({
+                        execId: commReport.execId,
+                        commission: commReport.commission,
+                        realizedPnL: commReport.realizedPNL,
+                        currency: commReport.currency
+                    });
+                }
+            });
+
+            // BI-DIRECTIONAL EVENT LISTENER: Position Updates
+            this.ib.on(this.EventName.position, (account, contract, pos, avgCost) => {
+                var key = contract.symbol + '_' + (contract.strike || '') + '_' + (contract.right || 'STK');
+                this.positions.set(key, {
+                    account: account,
+                    symbol: contract.symbol,
+                    secType: contract.secType,
+                    strike: contract.strike,
+                    right: contract.right,
+                    expiry: contract.lastTradeDateOrContractMonth,
+                    position: pos,
+                    avgCost: avgCost
+                });
+                console.log('[IBKR] Position: ' + key + ' qty=' + pos + ' avgCost=$' + avgCost);
+                if (this.onPosition) {
+                    this.onPosition({
+                        symbol: contract.symbol,
+                        secType: contract.secType,
+                        strike: contract.strike,
+                        right: contract.right,
+                        expiry: contract.lastTradeDateOrContractMonth,
+                        position: pos,
+                        avgCost: avgCost
+                    });
+                }
+            });
+
+            // BI-DIRECTIONAL EVENT LISTENER: Account Summary (real balances)
+            this.ib.on(this.EventName.accountSummary, (reqId, account, tag, value, currency) => {
+                if (tag === 'NetLiquidation') this.accountData.totalValue = parseFloat(value);
+                else if (tag === 'TotalCashValue') this.accountData.cash = parseFloat(value);
+                else if (tag === 'BuyingPower') this.accountData.buyingPower = parseFloat(value);
             });
 
             // BI-DIRECTIONAL EVENT LISTENER: Rejections & Errors
@@ -154,9 +226,21 @@ class IBKRClient extends BrokerClient {
 
     async getBalances() {
         if (!this.isConnected || !this.ib) {
-            return { cash: 25000, totalValue: 25000, buyingPower: 25000 };
+            return { cash: 0, totalValue: 0, buyingPower: 0 };
         }
-        return { cash: 25000, totalValue: 25000, buyingPower: 25000 };
+        return this.accountData;
+    }
+
+    getPositions() {
+        return Array.from(this.positions.values());
+    }
+
+    refreshPositions() {
+        if (this.ib && this.isConnected) {
+            this.positions.clear();
+            this.ib.reqPositions();
+            console.log('[IBKR] Refreshing positions...');
+        }
     }
 
     // New helper to fetch current bid/ask/last (Requires Live Data)

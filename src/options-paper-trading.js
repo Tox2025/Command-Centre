@@ -8,7 +8,10 @@ const DATA_PATH = path.join(__dirname, '..', 'data', 'options-paper-trades.json'
 class OptionsPaperTrading {
     constructor() {
         this.trades = [];
-        this.polygonClient = null; // Injected from server.js for real option chain data
+        this.pendingOrders = new Map(); // orderId → { params, timestamp } — awaiting IBKR fill
+        this.brokerClient = null;       // Injected from server.js
+        this.polygonClient = null;      // Injected from server.js for real option chain data
+        this.uwClient = null;           // Injected from server.js
         this._load();
     }
 
@@ -34,7 +37,9 @@ class OptionsPaperTrading {
         }
     }
 
-    // ── Open a new options paper trade ────────────────────
+    // ── Open a new options trade — IBKR-first flow ────────────────────
+    // Step 1: Validate + send to IBKR → store as PENDING
+    // Step 2: handleFill() creates actual trade when IBKR confirms
     openTrade(params) {
         if (!params || !params.ticker) return null;
 
@@ -59,79 +64,57 @@ class OptionsPaperTrading {
         });
         if (dup) return null;
 
-        var now = Date.now();
-        var trade = {
-            id: 'OPT-' + now + '-' + Math.random().toString(36).substr(2, 5),
-            ticker: params.ticker,
-            optionType: params.optionType || 'call',   // 'call' or 'put'
-            strategy: params.strategy || 'long_call',
-            strike: params.strike,
-            dte: params.dte || 30,
-            expirationDate: params.expirationDate || this._calcExpiry(params.dte || 30),
-            entryPremium: params.premium || 0,
-            currentPremium: params.premium || 0,
-            contracts: params.contracts || 1,
-            entryPrice: params.stockPrice || 0,         // underlying price at entry
-            currentPrice: params.stockPrice || 0,       // underlying current
-            confidence: params.confidence || 0,
-            direction: params.direction || 'NEUTRAL',
-            signals: params.signals || [],
-            reasoning: params.reasoning || [],
-            ivRankAtEntry: params.ivRank || 0,
-            horizon: params.horizon || 'swing',
-            session: params.session || 'UNKNOWN',
-            // P&L tracking
-            pnl: 0,                    // realized P&L ($)
-            pnlPct: 0,                 // realized P&L (%)
-            unrealizedPnl: 0,          // unrealized P&L ($)
-            unrealizedPnlPct: 0,       // unrealized P&L (%)
-            // Timing
-            openTime: new Date().toISOString(),
-            closeTime: null,
-            status: 'OPEN',            // OPEN, WIN, LOSS, EXPIRED, CLOSED
-            outcome: null,
-            // auto-trading settings
-            autoEntry: params.autoEntry || false,
-            signalVersion: params.signalVersion || 'v1.0',
-            // ML features at entry
-            features: params.features || {},
-            // Real option chain data
-            contractSymbol: params.contractSymbol || null,
-            usedRealData: params.usedRealData || false,
-            brokerFilled: false
-        };
+        // Check for duplicate pending order
+        var self = this;
+        var pendingDup = false;
+        this.pendingOrders.forEach(function(pending) {
+            if (pending.params.ticker === params.ticker
+                && pending.params.optionType === params.optionType
+                && pending.params.strike === params.strike) {
+                pendingDup = true;
+            }
+        });
+        if (pendingDup) return null;
 
-        // Send to IBKR - block trade if broker rejects
+        // IBKR-FIRST: Send order to broker BEFORE creating any trade record
         if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
-            console.log('⚡ Sending to IBKR: ' + trade.optionType.toUpperCase() + ' ' + trade.ticker + ' $' + trade.strike + ' x' + trade.contracts + ' @ $' + trade.entryPremium);
-            this.brokerClient.placeOptionOrder({
-                ticker: trade.ticker,
-                optionType: trade.optionType,
-                strike: trade.strike,
-                premium: trade.entryPremium,
-                quantity: trade.contracts || 1,
+            console.log('[Options] Submitting to IBKR: ' + params.optionType.toUpperCase() + ' ' + params.ticker + ' $' + params.strike + ' x' + (params.contracts || 1));
+            var orderParams = {
+                ticker: params.ticker,
+                optionType: params.optionType,
+                strike: params.strike,
+                premium: params.premium || 0,
+                quantity: params.contracts || 1,
                 action: 'BUY',
-                expirationDate: trade.expirationDate
-            }).then(brokerResult => {
+                expirationDate: params.expirationDate || this._calcExpiry(params.dte || 30)
+            };
+
+            this.brokerClient.placeOptionOrder(orderParams).then(function(brokerResult) {
                 if (brokerResult.status === 'FAILED') {
-                    console.error('[Broker] ❌ Order BLOCKED — removing trade: ' + trade.ticker);
-                    trade.status = 'REJECTED';
-                    trade.brokerStatus = 'FAILED';
-                    trade.closeTime = new Date().toISOString();
-                } else {
-                    trade.brokerOrderId = brokerResult.orderId;
-                    trade.brokerStatus = brokerResult.status;
+                    console.error('[Options] IBKR BLOCKED: ' + params.ticker + ' — ' + (brokerResult.reason || 'disconnected'));
+                    return;
                 }
-                this._save();
-            }).catch(e => {
-                console.error('[Broker] ❌ Failed to place order:', e.message);
-                trade.status = 'REJECTED';
-                trade.brokerStatus = 'ERROR';
-                trade.closeTime = new Date().toISOString();
-                this._save();
+
+                // Store as PENDING — trade will be created in handleFill()
+                self.pendingOrders.set(brokerResult.orderId, {
+                    params: params,
+                    orderParams: orderParams,
+                    orderId: brokerResult.orderId,
+                    timestamp: Date.now(),
+                    status: 'SUBMITTED'
+                });
+                console.log('[Options] PENDING order ' + brokerResult.orderId + ': ' + params.ticker + ' ' + params.optionType + ' $' + params.strike);
+            }).catch(function(e) {
+                console.error('[Options] IBKR order failed: ' + e.message);
             });
+
+            // Return a placeholder — actual trade created on fill
+            return { pending: true, ticker: params.ticker, strike: params.strike };
         }
 
+        // FALLBACK: No broker connected — create trade directly (simulated only)
+        console.log('[Options] No broker — simulated trade: ' + params.ticker + ' ' + params.optionType + ' $' + params.strike);
+        var trade = this._createTradeRecord(params, null);
         this.trades.push(trade);
         this._save();
         return trade;
@@ -343,35 +326,56 @@ class OptionsPaperTrading {
         }
     }
 
-    // ——— Handle broker order status updates ————————————
-    handleBrokerUpdate(orderId, status, fillPrice) {
-        if (!orderId) return;
-        var trade = this.trades.find(function(t) {
-            return t.brokerOrderId === orderId.toString();
-        });
-        if (!trade) return;
-
-        trade.brokerStatus = status;
-        if (status === 'FILLED' && fillPrice > 0) {
-            trade.brokerFillPrice = fillPrice;
-            // Update entry/exit premium with real fill price
-            if (trade.status === 'OPEN' && !trade.brokerFilled) {
-                trade.entryPremium = fillPrice;
-                trade.currentPremium = fillPrice;
-                trade.brokerFilled = true;
-                console.log('[Broker] âœ… FILLED: ' + trade.ticker + ' ' + trade.strike + ' ' + trade.optionType + ' @ $' + fillPrice);
-            }
-        } else if (status === 'REJECTED') {
-            console.error('[Broker] âŒ REJECTED: ' + trade.ticker + ' â€” removing trade');
-            trade.status = 'REJECTED';
-            trade.closeTime = new Date().toISOString();
-        } else if (status === 'CANCELLED') {
-            console.warn('[Broker] âš ï¸ CANCELLED: ' + trade.ticker);
-            trade.status = 'CANCELLED';
-            trade.closeTime = new Date().toISOString();
-        }
-        this._save();
+    // ── Create trade record (used by handleFill and simulated fallback) ──
+    _createTradeRecord(params, fillData) {
+        var now = Date.now();
+        var fillPrice = fillData ? fillData.filledPrice : (params.premium || 0);
+        var trade = {
+            id: 'OPT-' + now + '-' + Math.random().toString(36).substr(2, 5),
+            ticker: params.ticker,
+            optionType: params.optionType || 'call',
+            strategy: params.strategy || 'long_call',
+            strike: params.strike,
+            dte: params.dte || 30,
+            expirationDate: params.expirationDate || this._calcExpiry(params.dte || 30),
+            entryPremium: fillPrice,           // IBKR fill price (not estimated)
+            currentPremium: fillPrice,
+            contracts: params.contracts || 1,
+            entryPrice: params.stockPrice || 0,
+            currentPrice: params.stockPrice || 0,
+            confidence: params.confidence || 0,
+            direction: params.direction || 'NEUTRAL',
+            signals: params.signals || [],
+            reasoning: params.reasoning || [],
+            ivRankAtEntry: params.ivRank || 0,
+            horizon: params.horizon || 'swing',
+            session: params.session || 'UNKNOWN',
+            pnl: 0,
+            pnlPct: 0,
+            unrealizedPnl: 0,
+            unrealizedPnlPct: 0,
+            openTime: new Date().toISOString(),
+            closeTime: null,
+            status: 'OPEN',
+            outcome: null,
+            autoEntry: params.autoEntry || false,
+            signalVersion: params.signalVersion || 'v1.0',
+            features: params.features || {},
+            contractSymbol: params.contractSymbol || null,
+            usedRealData: params.usedRealData || false,
+            // IBKR data — source of truth
+            brokerFilled: fillData ? true : false,
+            brokerOrderId: fillData ? fillData.orderId : null,
+            brokerFillPrice: fillData ? fillData.filledPrice : null,
+            brokerStatus: fillData ? 'FILLED' : 'SIMULATED',
+            commission: 0
+        };
+        return trade;
     }
+
+    // ── Handle IBKR order status — creates trade on FILL ──────────
+    handleBrokerUpdate(orderId, status, fillPrice, filledQty) {
+        if (!orderId) return;
 
     // â”€â”€ Update all open trades with current prices â”€â”€â”€â”€â”€â”€â”€
     updatePrices(quotes) {
@@ -482,47 +486,78 @@ class OptionsPaperTrading {
         return Math.round(estimated * 100) / 100;
     }
 
-    // â”€â”€ Check for outcomes (expiration, profit targets, stop losses) â”€â”€
+    // ── Check for outcomes (expiration, profit targets, stop losses) ──
     _checkOutcomes(now) {
         var self = this;
         this.trades.forEach(function (trade) {
             if (trade.status !== 'OPEN') return;
+            if (trade.closeOrderPending) return; // Already waiting for IBKR close
 
             // Check expiration
             var expiry = new Date(trade.expirationDate + 'T16:00:00');
             if (now >= expiry) {
-                // Expired â€” close at intrinsic value
                 var intrinsic = 0;
                 if (trade.optionType === 'call') {
                     intrinsic = Math.max(0, trade.currentPrice - trade.strike);
                 } else {
                     intrinsic = Math.max(0, trade.strike - trade.currentPrice);
                 }
-                var exitPremium = intrinsic;
-                self._closeTrade(trade, intrinsic > 0 ? 'EXPIRED_ITM' : 'EXPIRED_OTM', exitPremium);
+                self._closeTrade(trade, intrinsic > 0 ? 'EXPIRED_ITM' : 'EXPIRED_OTM', intrinsic);
                 return;
             }
 
-            // Auto-close rules for paper trades
+            // Auto-close rules — only for broker-filled trades with confirmed P&L
+            if (!trade.brokerFilled) return; // Don't auto-close trades without IBKR data
+
             if (trade.unrealizedPnlPct >= 100) {
-                // Take profit at 100% gain (doubled)
                 self._closeTrade(trade, 'WIN_100PCT', trade.currentPremium);
             } else if (trade.unrealizedPnlPct >= 50 && trade.dte <= 2) {
-                // Take profit at 50% if near expiry
                 self._closeTrade(trade, 'WIN_50PCT', trade.currentPremium);
             } else if (trade.unrealizedPnlPct <= -50) {
-                // Cut losses at 50%
                 self._closeTrade(trade, 'LOSS_50PCT', trade.currentPremium);
             }
         });
     }
 
-    // â”€â”€ Close a trade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    _closeTrade(trade, outcome, exitPremium) {
+    // ── Close a trade — IBKR-first flow ──────────────────────
+    _closeTrade(trade, outcome, estimatedExitPremium) {
+        // IBKR-FIRST: Send close order, wait for fill confirmation
+        if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true' && trade.brokerFilled) {
+            console.log('[Options] Sending CLOSE to IBKR: ' + trade.ticker + ' ' + trade.optionType + ' $' + trade.strike + ' (' + outcome + ')');
+            trade.closeOrderPending = true;
+            trade.pendingOutcome = outcome;
+            var self = this;
+
+            this.brokerClient.closeOptionPosition(trade).then(function(result) {
+                if (result.status === 'FAILED') {
+                    console.error('[Options] IBKR close FAILED: ' + trade.ticker + ' — position still open');
+                    trade.closeOrderPending = false;
+                } else {
+                    trade.closeOrderId = result.orderId;
+                    console.log('[Options] Close order submitted: ' + trade.ticker + ' orderId=' + result.orderId);
+                }
+                self._save();
+            }).catch(function(e) {
+                console.error('[Options] Close order error: ' + e.message);
+                trade.closeOrderPending = false;
+                self._save();
+            });
+            return;
+        }
+
+        // Non-broker trade — close immediately (simulated)
+        this._finalizeClose(trade, estimatedExitPremium);
+    }
+
+    // ── Finalize close — called after IBKR confirms sell fill ──────
+    _finalizeClose(trade, exitPremium) {
+        var outcome = trade.pendingOutcome || 'CLOSED';
         trade.status = outcome.startsWith('WIN') || outcome === 'EXPIRED_ITM' ? 'WIN' : 'LOSS';
         trade.outcome = outcome;
         trade.closeTime = new Date().toISOString();
         trade.exitPremium = exitPremium;
+        trade.closeOrderPending = false;
+        trade.pendingOutcome = null;
 
         var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
         trade.pnl = +((exitPremium - trade.entryPremium) * direction * trade.contracts * 100).toFixed(2);
@@ -532,16 +567,11 @@ class OptionsPaperTrading {
         trade.unrealizedPnl = 0;
         trade.unrealizedPnlPct = 0;
 
+        console.log('[Options] CLOSED: ' + trade.ticker + ' ' + trade.optionType + ' $' + trade.strike + ' | ' + outcome + ' | P&L: $' + trade.pnl + ' (' + trade.pnlPct + '%)');
         this._save();
-
-        if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true') {
-            console.log('âš¡ Pushing options paper close to live broker: ' + this.brokerClient.name);
-            this.brokerClient.closeOptionPosition(trade)
-                .catch(e => console.error('[Broker] Failed to close option position:', e));
-        }
     }
 
-    // â”€â”€ Manual close â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Manual close ─────────────────────────────────────────
     closeTrade(id) {
         var trade = this.trades.find(function (t) { return t.id === id && t.status === 'OPEN'; });
         if (!trade) return null;

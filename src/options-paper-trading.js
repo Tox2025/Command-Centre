@@ -719,16 +719,6 @@ class OptionsPaperTrading {
         var isBullish = signalResult.direction === 'BULLISH';
         var optionType = isBullish ? 'call' : 'put';
 
-        // Guard: Block opposing positions on same ticker (IBKR rejects "both sides of same US Option contract")
-        var opposingType = isBullish ? 'put' : 'call';
-        var hasOpposing = this.trades.find(function (t) {
-            return t.ticker === ticker && t.status === 'OPEN' && t.optionType === opposingType;
-        });
-        if (hasOpposing) {
-            console.log('[Options] ⛔ Skipping ' + ticker + ' ' + optionType + ' — already have open ' + opposingType + ' (IBKR blocks both sides)');
-            return null;
-        }
-
         // Guard: Block new positions when deployed capital exceeds account balance
         var accountBalance = 25000;
         var deployedCapital = this.trades.filter(function (t) { return t.status === 'OPEN'; })

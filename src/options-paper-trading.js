@@ -21,6 +21,19 @@ class OptionsPaperTrading {
                 var raw = fs.readFileSync(DATA_PATH, 'utf8');
                 var data = JSON.parse(raw);
                 this.trades = data.trades || [];
+                // Clear stale closeOrderPending from previous sessions
+                // Old IBKR order IDs don't persist across restarts
+                var cleared = 0;
+                this.trades.forEach(function (t) {
+                    if (t.closeOrderPending) {
+                        t.closeOrderPending = false;
+                        t.closeOrderId = null;
+                        cleared++;
+                    }
+                });
+                if (cleared > 0) {
+                    console.log('[Options] Cleared ' + cleared + ' stale close-pending flags from previous session');
+                }
             }
         } catch (e) {
             this.trades = [];

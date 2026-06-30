@@ -412,6 +412,13 @@ class OptionsPaperTrading {
             console.log('[Options] ✅ CLOSE FILLED: ' + closeTrade.ticker + ' ' + closeTrade.optionType + ' $' + closeTrade.strike + ' exit @ $' + exitPrice);
             return;
         }
+        // Handle failed close orders (Inactive = no position in IBKR, Cancelled, Rejected)
+        if (closeTrade && (status === 'INACTIVE' || status === 'CANCELLED' || status === 'REJECTED')) {
+            console.log('[Options] ⚠️ CLOSE ' + status + ': ' + closeTrade.ticker + ' $' + closeTrade.strike + ' — finalizing locally with current premium $' + closeTrade.currentPremium);
+            closeTrade.brokerCloseStatus = status;
+            this._finalizeClose(closeTrade, closeTrade.currentPremium);
+            return;
+        }
 
         // Legacy: check for old-style trades with brokerOrderId
         var legacyTrade = this.trades.find(function(t) {

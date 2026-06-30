@@ -469,6 +469,7 @@ class OptionsPaperTrading {
 
         this.trades.forEach(function (trade) {
             if (trade.status !== 'OPEN') return;
+            if (trade.closeOrderPending) return;
             var q = quotes[trade.ticker];
             if (!q) return;
 
@@ -477,23 +478,76 @@ class OptionsPaperTrading {
 
             trade.currentPrice = currentPrice;
 
-            // Sync entry premium with broker fill price if available (fixes race condition)
+            // Sync entry premium with broker fill price if available
             if (trade.brokerFillPrice && trade.brokerFillPrice > 0 && trade.entryPremium !== trade.brokerFillPrice) {
                 console.log('[Options] Correcting ' + trade.ticker + ' entryPremium: $' + trade.entryPremium + ' → $' + trade.brokerFillPrice + ' (broker fill)');
                 trade.entryPremium = trade.brokerFillPrice;
             }
 
-            // Estimate current premium using simplified model
-            var newPremium = self._estimatePremium(trade, currentPrice, now);
-            trade.currentPremium = newPremium;
+            // Get real option premium from IBKR if available
+            if (self.brokerClient && self.brokerClient.isConnected && self.brokerClient.ib && trade.brokerFilled) {
+                var expiry = trade.expirationDate ? trade.expirationDate.replace(/-/g, '') : '';
+                var contract = {
+                    secType: 'OPT',
+                    symbol: trade.ticker,
+                    exchange: 'SMART',
+                    currency: 'USD',
+                    lastTradeDateOrContractMonth: expiry,
+                    strike: parseFloat(trade.strike),
+                    right: trade.optionType === 'call' ? 'C' : 'P',
+                    multiplier: '100'
+                };
+                self.brokerClient.getMarketData(contract).then(function(mktData) {
+                    if (mktData && (mktData.last > 0 || mktData.bid > 0)) {
+                        // Use mid price (best estimate), fallback to last, then bid
+                        var realPremium = 0;
+                        if (mktData.bid > 0 && mktData.ask > 0) {
+                            realPremium = (mktData.bid + mktData.ask) / 2;
+                        } else if (mktData.last > 0) {
+                            realPremium = mktData.last;
+                        } else {
+                            realPremium = mktData.bid;
+                        }
+                        trade.currentPremium = +realPremium.toFixed(2);
+                        trade._premiumSource = 'IBKR';
+                    } else {
+                        // IBKR returned no data — fallback to estimator
+                        trade.currentPremium = self._estimatePremium(trade, currentPrice, now);
+                        trade._premiumSource = 'EST';
+                    }
 
-            // Calculate unrealized P&L
-            var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
-            var entryPrem = trade.brokerFillPrice || trade.entryPremium;
-            trade.unrealizedPnl = +((newPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
-            trade.unrealizedPnlPct = entryPrem > 0
-                ? +((newPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
-                : 0;
+                    // Calculate unrealized P&L with whatever premium we got
+                    var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
+                    var entryPrem = trade.brokerFillPrice || trade.entryPremium;
+                    trade.unrealizedPnl = +((trade.currentPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
+                    trade.unrealizedPnlPct = entryPrem > 0
+                        ? +((trade.currentPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
+                        : 0;
+                    self._save();
+                }).catch(function() {
+                    // On error, use estimator
+                    trade.currentPremium = self._estimatePremium(trade, currentPrice, now);
+                    trade._premiumSource = 'EST';
+                    var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
+                    var entryPrem = trade.brokerFillPrice || trade.entryPremium;
+                    trade.unrealizedPnl = +((trade.currentPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
+                    trade.unrealizedPnlPct = entryPrem > 0
+                        ? +((trade.currentPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
+                        : 0;
+                });
+            } else {
+                // No broker — use estimator
+                var newPremium = self._estimatePremium(trade, currentPrice, now);
+                trade.currentPremium = newPremium;
+                trade._premiumSource = 'EST';
+
+                var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
+                var entryPrem = trade.brokerFillPrice || trade.entryPremium;
+                trade.unrealizedPnl = +((newPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
+                trade.unrealizedPnlPct = entryPrem > 0
+                    ? +((newPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
+                    : 0;
+            }
 
             updated++;
         });

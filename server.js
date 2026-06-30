@@ -4875,8 +4875,20 @@ async function refreshAll() {
 
     // Update paper trade P&L and notify Spidey on significant moves
     var paperUpdated = tradeJournal.updatePaperPnL(state.quotes);
-    optionsPaper.updatePrices(state.quotes); // Update options paper trades too
-    futuresPaper.updatePrices(state.quotes); // Update futures paper trades too
+    optionsPaper.updatePrices(state.quotes);
+    futuresPaper.updatePrices(state.quotes);
+
+    // Repeat options/futures P&L updates every 30 seconds
+    setInterval(function() {
+        try {
+            optionsPaper.updatePrices(state.quotes);
+            futuresPaper.updatePrices(state.quotes);
+            tradeJournal.checkOutcomes(state.quotes);
+            tradeJournal.updatePaperPnL(state.quotes);
+        } catch (e) {
+            console.error('[PnL Update] Error:', e.message);
+        }
+    }, 30000);
     if (paperUpdated > 0) {
         var paperTrades = tradeJournal.getPaperTrades();
         paperTrades.forEach(function (pt) {

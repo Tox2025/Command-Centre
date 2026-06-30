@@ -486,9 +486,6 @@ class OptionsPaperTrading {
 
             // Get real option premium from IBKR if available
             var hasBroker = !!(self.brokerClient && self.brokerClient.isConnected);
-            if (updated === 0) {
-                console.log('[Options] PnL debug: brokerClient=' + !!self.brokerClient + ' isConnected=' + (self.brokerClient ? self.brokerClient.isConnected : 'N/A') + ' hasBroker=' + hasBroker + ' brokerFilled=' + trade.brokerFilled);
-            }
             if (hasBroker && trade.brokerFilled) {
                 var expiry = trade.expirationDate ? trade.expirationDate.replace(/-/g, '') : '';
                 var contract = {
@@ -651,8 +648,8 @@ class OptionsPaperTrading {
                 self._closeTrade(trade, 'WIN_100PCT', trade.currentPremium);
             } else if (trade.unrealizedPnlPct >= 50 && trade.dte <= 2) {
                 self._closeTrade(trade, 'WIN_50PCT', trade.currentPremium);
-            } else if (trade.unrealizedPnlPct <= -50) {
-                self._closeTrade(trade, 'LOSS_50PCT', trade.currentPremium);
+            } else if (trade.unrealizedPnlPct <= -30) {
+                self._closeTrade(trade, 'LOSS_30PCT', trade.currentPremium);
             }
         });
     }

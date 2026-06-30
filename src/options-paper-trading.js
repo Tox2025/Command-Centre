@@ -485,7 +485,8 @@ class OptionsPaperTrading {
             }
 
             // Get real option premium from IBKR if available
-            if (self.brokerClient && self.brokerClient.isConnected && self.brokerClient.ib && trade.brokerFilled) {
+            var hasBroker = !!(self.brokerClient && self.brokerClient.isConnected);
+            if (hasBroker && trade.brokerFilled) {
                 var expiry = trade.expirationDate ? trade.expirationDate.replace(/-/g, '') : '';
                 var contract = {
                     secType: 'OPT',

@@ -539,26 +539,22 @@ class OptionsPaperTrading {
         }
         var entryExtrinsic = Math.max(0, entryPremium - entryIntrinsic);
 
-        // Delta effect: how much premium changes per $ of underlying move
+        // Delta effect: smooth moneyness-based estimation
         var moneyness = (currentPrice - strike) / strike;
-        var delta = 0.5; // ATM default
-        if (trade.optionType === 'call') {
-            if (moneyness > 0.05) delta = 0.7;      // ITM
-            else if (moneyness > 0) delta = 0.55;    // slightly ITM
-            else if (moneyness > -0.05) delta = 0.4; // slightly OTM
-            else delta = 0.2;                         // deep OTM
-        } else {
-            moneyness = -moneyness; // flip for puts
-            if (moneyness > 0.05) delta = 0.7;
-            else if (moneyness > 0) delta = 0.55;
-            else if (moneyness > -0.05) delta = 0.4;
-            else delta = 0.2;
-        }
+        if (trade.optionType === 'put') moneyness = -moneyness;
 
-        // OTM extrinsic decay: as option moves further OTM, extrinsic collapses
-        // Use delta as a proxy for how much extrinsic to retain
-        var otmDecay = delta / 0.5; // 1.0 at ATM, 0.4 at deep OTM
-        otmDecay = Math.min(1.0, otmDecay);
+        // Smooth delta: 0.5 at ATM, approaches 1.0 deep ITM, approaches 0.0 deep OTM
+        var delta;
+        if (moneyness >= 0.10) delta = 0.85;         // deep ITM
+        else if (moneyness >= 0.03) delta = 0.65;    // ITM
+        else if (moneyness >= -0.01) delta = 0.50;   // near ATM (within 1%)
+        else if (moneyness >= -0.05) delta = 0.35;   // slightly OTM
+        else if (moneyness >= -0.10) delta = 0.20;   // OTM
+        else delta = 0.10;                            // deep OTM
+
+        // OTM extrinsic retention: 1.0 at/near ATM, decays for deep OTM only
+        var otmDecay = Math.min(1.0, (delta + 0.1) / 0.6);
+        otmDecay = Math.max(0.15, otmDecay); // floor at 15%
 
         // Current extrinsic = entry extrinsic × time decay × OTM decay
         var currentExtrinsic = entryExtrinsic * timeFactor * otmDecay;

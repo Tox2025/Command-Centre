@@ -486,6 +486,9 @@ class OptionsPaperTrading {
 
             // Get real option premium from IBKR if available
             var hasBroker = !!(self.brokerClient && self.brokerClient.isConnected);
+            if (updated === 0) {
+                console.log('[Options] PnL debug: brokerClient=' + !!self.brokerClient + ' isConnected=' + (self.brokerClient ? self.brokerClient.isConnected : 'N/A') + ' hasBroker=' + hasBroker + ' brokerFilled=' + trade.brokerFilled);
+            }
             if (hasBroker && trade.brokerFilled) {
                 var expiry = trade.expirationDate ? trade.expirationDate.replace(/-/g, '') : '';
                 var contract = {

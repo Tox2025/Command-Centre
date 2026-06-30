@@ -4878,17 +4878,7 @@ async function refreshAll() {
     optionsPaper.updatePrices(state.quotes);
     futuresPaper.updatePrices(state.quotes);
 
-    // Repeat options/futures P&L updates every 30 seconds
-    setInterval(function() {
-        try {
-            optionsPaper.updatePrices(state.quotes);
-            futuresPaper.updatePrices(state.quotes);
-            tradeJournal.checkOutcomes(state.quotes);
-            tradeJournal.updatePaperPnL(state.quotes);
-        } catch (e) {
-            console.error('[PnL Update] Error:', e.message);
-        }
-    }, 30000);
+
     if (paperUpdated > 0) {
         var paperTrades = tradeJournal.getPaperTrades();
         paperTrades.forEach(function (pt) {
@@ -5956,6 +5946,19 @@ startLiveDashboardBroadcast();
 startHaltRefresh();
 console.log('📈 Polygon price refresh active — session-aware (' + (getPolygonRefreshInterval() / 1000) + 's current, covers all command centre tickers)');
 console.log('🛑 Halt detection active — checking every ' + (HALT_REFRESH_MS / 1000) + 's');
+
+// ── Standalone P&L Update (runs regardless of scanner/UW state) ──
+setInterval(function() {
+    try {
+        optionsPaper.updatePrices(state.quotes);
+        futuresPaper.updatePrices(state.quotes);
+        tradeJournal.checkOutcomes(state.quotes);
+        tradeJournal.updatePaperPnL(state.quotes);
+    } catch (e) {
+        console.error('[PnL Update] Error:', e.message);
+    }
+}, 30000);
+console.log('💰 P&L update active — every 30s (independent of scanner)');
 
 // ── Morning Brief Generator ──────────────────────────────
 function generateMorningBrief() {

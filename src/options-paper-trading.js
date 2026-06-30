@@ -467,6 +467,7 @@ class OptionsPaperTrading {
         var now = new Date();
         var self = this;
 
+        // Update underlying prices synchronously
         this.trades.forEach(function (trade) {
             if (trade.status !== 'OPEN') return;
             if (trade.closeOrderPending) return;
@@ -484,80 +485,133 @@ class OptionsPaperTrading {
                 trade.entryPremium = trade.brokerFillPrice;
             }
 
-            // Get real option premium from IBKR if available
-            var hasBroker = !!(self.brokerClient && self.brokerClient.isConnected);
-            if (hasBroker && trade.brokerFilled) {
-                var expiry = trade.expirationDate ? trade.expirationDate.replace(/-/g, '') : '';
-                var contract = {
-                    secType: 'OPT',
-                    symbol: trade.ticker,
-                    exchange: 'SMART',
-                    currency: 'USD',
-                    lastTradeDateOrContractMonth: expiry,
-                    strike: parseFloat(trade.strike),
-                    right: trade.optionType === 'call' ? 'C' : 'P',
-                    multiplier: '100'
-                };
-                self.brokerClient.getMarketData(contract).then(function(mktData) {
-                    if (mktData && (mktData.last > 0 || mktData.bid > 0)) {
-                        // Use mid price (best estimate), fallback to last, then bid
-                        var realPremium = 0;
-                        if (mktData.bid > 0 && mktData.ask > 0) {
-                            realPremium = (mktData.bid + mktData.ask) / 2;
-                        } else if (mktData.last > 0) {
-                            realPremium = mktData.last;
-                        } else {
-                            realPremium = mktData.bid;
-                        }
-                        trade.currentPremium = +realPremium.toFixed(2);
-                        trade._premiumSource = 'IBKR';
-                    } else {
-                        // IBKR returned no data — fallback to estimator
-                        trade.currentPremium = self._estimatePremium(trade, currentPrice, now);
-                        trade._premiumSource = 'EST';
-                    }
-
-                    // Calculate unrealized P&L with whatever premium we got
-                    var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
-                    var entryPrem = trade.brokerFillPrice || trade.entryPremium;
-                    trade.unrealizedPnl = +((trade.currentPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
-                    trade.unrealizedPnlPct = entryPrem > 0
-                        ? +((trade.currentPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
-                        : 0;
-                    self._save();
-                }).catch(function() {
-                    // On error, use estimator
-                    trade.currentPremium = self._estimatePremium(trade, currentPrice, now);
-                    trade._premiumSource = 'EST';
-                    var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
-                    var entryPrem = trade.brokerFillPrice || trade.entryPremium;
-                    trade.unrealizedPnl = +((trade.currentPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
-                    trade.unrealizedPnlPct = entryPrem > 0
-                        ? +((trade.currentPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
-                        : 0;
-                });
-            } else {
-                // No broker — use estimator
-                var newPremium = self._estimatePremium(trade, currentPrice, now);
-                trade.currentPremium = newPremium;
-                trade._premiumSource = 'EST';
-
-                var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
-                var entryPrem = trade.brokerFillPrice || trade.entryPremium;
-                trade.unrealizedPnl = +((newPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
-                trade.unrealizedPnlPct = entryPrem > 0
-                    ? +((newPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
-                    : 0;
-            }
-
             updated++;
         });
+
+        // Fetch real option premiums from UW asynchronously
+        this._updatePremiumsFromUW(now);
 
         // Check for expirations and auto-outcomes
         this._checkOutcomes(now);
 
         if (updated > 0) this._save();
         return updated;
+    }
+
+    // ── Fetch real option premiums from UW ─────────────────
+    _updatePremiumsFromUW(now) {
+        var self = this;
+        if (!this.uwClient) {
+            this._updatePremiumsFallback(now);
+            return;
+        }
+
+        // Group open trades by ticker+expiry to minimize API calls
+        var groups = {};
+        this.trades.forEach(function (trade) {
+            if (trade.status !== 'OPEN') return;
+            if (trade.closeOrderPending) return;
+            if (!trade.expirationDate) return;
+            var key = trade.ticker + '_' + trade.expirationDate;
+            if (!groups[key]) groups[key] = { ticker: trade.ticker, expiry: trade.expirationDate, trades: [] };
+            groups[key].trades.push(trade);
+        });
+
+        var groupKeys = Object.keys(groups);
+        if (groupKeys.length === 0) return;
+
+        // Check cache — skip if last fetch was < 55 seconds ago
+        if (!this._uwPremiumCache) this._uwPremiumCache = {};
+        var cacheAge = 55000; // 55 seconds
+
+        var fetchPromises = groupKeys.map(function (key) {
+            var group = groups[key];
+            var cached = self._uwPremiumCache[key];
+            if (cached && (now.getTime() - cached.time) < cacheAge) {
+                // Use cached data
+                self._applyUWPremiums(group.trades, cached.contracts, now);
+                return Promise.resolve();
+            }
+
+            // Fetch from UW
+            return self.uwClient.getOptionChain(group.ticker, group.expiry).then(function (result) {
+                var contracts = (result && result.data) ? result.data : [];
+                self._uwPremiumCache[key] = { contracts: contracts, time: now.getTime() };
+                self._applyUWPremiums(group.trades, contracts, now);
+            }).catch(function (e) {
+                // UW failed — use estimator for this group
+                group.trades.forEach(function (trade) {
+                    trade.currentPremium = self._estimatePremium(trade, trade.currentPrice, now);
+                    trade._premiumSource = 'EST';
+                    self._calcUnrealizedPnl(trade);
+                });
+            });
+        });
+
+        Promise.all(fetchPromises).then(function () {
+            self._save();
+        }).catch(function () {
+            self._save();
+        });
+    }
+
+    // ── Apply UW option chain data to trades ──────────────
+    _applyUWPremiums(trades, contracts, now) {
+        var self = this;
+        trades.forEach(function (trade) {
+            // Find matching contract: same strike + same option type
+            var matching = contracts.filter(function (c) {
+                var p = self._parseOptionSymbol(c.option_symbol || '');
+                return p && Math.abs(p.strike - trade.strike) < 0.01 && p.optionType === trade.optionType;
+            });
+
+            if (matching.length > 0) {
+                var c = matching[0];
+                var bid = parseFloat(c.nbbo_bid) || 0;
+                var ask = parseFloat(c.nbbo_ask) || 0;
+                var last = parseFloat(c.last_price) || 0;
+                var mid = (bid > 0 && ask > 0) ? +((bid + ask) / 2).toFixed(2) : last;
+
+                if (mid > 0 || last > 0) {
+                    trade.currentPremium = mid > 0 ? mid : last;
+                    trade._premiumSource = 'UW';
+                    // Store greeks if available
+                    if (c.implied_volatility) trade._iv = parseFloat(c.implied_volatility);
+                    if (c.delta) trade._delta = parseFloat(c.delta);
+                    if (c.theta) trade._theta = parseFloat(c.theta);
+                    self._calcUnrealizedPnl(trade);
+                    return;
+                }
+            }
+
+            // No UW data for this contract — fall back to estimator
+            trade.currentPremium = self._estimatePremium(trade, trade.currentPrice, now);
+            trade._premiumSource = 'EST';
+            self._calcUnrealizedPnl(trade);
+        });
+    }
+
+    // ── Calculate unrealized P&L ─────────────────────────
+    _calcUnrealizedPnl(trade) {
+        var direction = (trade.strategy === 'long_call' || trade.strategy === 'long_put') ? 1 : -1;
+        var entryPrem = trade.brokerFillPrice || trade.entryPremium;
+        trade.unrealizedPnl = +((trade.currentPremium - entryPrem) * direction * trade.contracts * 100).toFixed(2);
+        trade.unrealizedPnlPct = entryPrem > 0
+            ? +((trade.currentPremium - entryPrem) / entryPrem * 100 * direction).toFixed(2)
+            : 0;
+    }
+
+    // ── Fallback: use estimator when UW is unavailable ───
+    _updatePremiumsFallback(now) {
+        var self = this;
+        this.trades.forEach(function (trade) {
+            if (trade.status !== 'OPEN') return;
+            if (trade.closeOrderPending) return;
+            if (!trade.currentPrice) return;
+            trade.currentPremium = self._estimatePremium(trade, trade.currentPrice, now);
+            trade._premiumSource = 'EST';
+            self._calcUnrealizedPnl(trade);
+        });
     }
 
     // â”€â”€ Estimate current premium (simplified Black-Scholes proxy) â”€â”€
@@ -656,11 +710,13 @@ class OptionsPaperTrading {
 
     // ── Close a trade — IBKR-first flow ──────────────────────
     _closeTrade(trade, outcome, estimatedExitPremium) {
+        // Set outcome for both IBKR and non-broker paths
+        trade.pendingOutcome = outcome;
+
         // IBKR-FIRST: Send close order, wait for fill confirmation
         if (this.brokerClient && this.brokerClient.isConnected && process.env.BROKER_EXECUTION === 'true' && trade.brokerFilled) {
             console.log('[Options] Sending CLOSE to IBKR: ' + trade.ticker + ' ' + trade.optionType + ' $' + trade.strike + ' (' + outcome + ')');
             trade.closeOrderPending = true;
-            trade.pendingOutcome = outcome;
             var self = this;
 
             this.brokerClient.closeOptionPosition(trade).then(function(result) {

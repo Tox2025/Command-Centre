@@ -5957,8 +5957,8 @@ setInterval(function() {
     } catch (e) {
         console.error('[PnL Update] Error:', e.message);
     }
-}, 30000);
-console.log('💰 P&L update active — every 30s (independent of scanner)');
+}, 60000);
+console.log('💰 P&L update active — every 60s with UW real pricing (independent of scanner)');
 
 // ── Morning Brief Generator ──────────────────────────────
 function generateMorningBrief() {

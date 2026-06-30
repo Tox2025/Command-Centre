@@ -489,10 +489,8 @@ class OptionsPaperTrading {
         });
 
         // Fetch real option premiums from UW asynchronously
+        // _checkOutcomes runs AFTER UW premiums arrive (inside Promise.all)
         this._updatePremiumsFromUW(now);
-
-        // Check for expirations and auto-outcomes
-        this._checkOutcomes(now);
 
         if (updated > 0) this._save();
         return updated;
@@ -501,7 +499,6 @@ class OptionsPaperTrading {
     // ── Fetch real option premiums from UW ─────────────────
     _updatePremiumsFromUW(now) {
         var self = this;
-        console.log('[Options] _updatePremiumsFromUW called, uwClient=' + !!this.uwClient);
         if (!this.uwClient) {
             this._updatePremiumsFallback(now);
             return;
@@ -519,8 +516,6 @@ class OptionsPaperTrading {
         });
 
         var groupKeys = Object.keys(groups);
-        var openCount = this.trades.filter(function(t) { return t.status === 'OPEN'; }).length;
-        console.log('[Options] UW pricing: ' + this.trades.length + ' total trades, ' + openCount + ' open, ' + groupKeys.length + ' groups');
         if (groupKeys.length === 0) return;
 
         // Check cache — skip if last fetch was < 55 seconds ago
@@ -537,14 +532,11 @@ class OptionsPaperTrading {
             }
 
             // Fetch from UW
-            console.log('[Options] Fetching UW chain: ' + group.ticker + ' exp=' + group.expiry + ' (' + group.trades.length + ' trades)');
             return self.uwClient.getOptionChain(group.ticker, group.expiry).then(function (result) {
                 var contracts = (result && result.data) ? result.data : [];
-                console.log('[Options] UW chain: ' + group.ticker + ' → ' + contracts.length + ' contracts');
                 self._uwPremiumCache[key] = { contracts: contracts, time: now.getTime() };
                 self._applyUWPremiums(group.trades, contracts, now);
             }).catch(function (e) {
-                console.error('[Options] UW chain FAILED for ' + group.ticker + ': ' + e.message);
                 // UW failed — use estimator for this group
                 group.trades.forEach(function (trade) {
                     trade.currentPremium = self._estimatePremium(trade, trade.currentPrice, now);
@@ -555,8 +547,10 @@ class OptionsPaperTrading {
         });
 
         Promise.all(fetchPromises).then(function () {
+            self._checkOutcomes(new Date());
             self._save();
         }).catch(function () {
+            self._checkOutcomes(new Date());
             self._save();
         });
     }

@@ -519,6 +519,8 @@ class OptionsPaperTrading {
         });
 
         var groupKeys = Object.keys(groups);
+        var openCount = this.trades.filter(function(t) { return t.status === 'OPEN'; }).length;
+        console.log('[Options] UW pricing: ' + this.trades.length + ' total trades, ' + openCount + ' open, ' + groupKeys.length + ' groups');
         if (groupKeys.length === 0) return;
 
         // Check cache — skip if last fetch was < 55 seconds ago
